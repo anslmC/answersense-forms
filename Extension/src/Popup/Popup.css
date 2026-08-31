@@ -1,0 +1,21 @@
+body {
+  width: 400px;
+  margin: 0;
+  padding: 16px;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: #fff;
+  color: #333;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 12px 0;
+}
+
+p {
+  margin: 0;
+  font-size: 14px;
+}

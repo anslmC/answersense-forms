@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "AnswerSense: Forms",
+  "version": "0.1.0",
+  "description": "AI-assisted Chromium browser extension for rapidly answering supported Google Forms.",
+  "permissions": [],
+  "host_permissions": [],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/forms/*"],
+      "js": ["content/content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "AnswerSense: Forms"
+  },
+  "icons": {}
+}

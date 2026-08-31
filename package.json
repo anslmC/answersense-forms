@@ -1,0 +1,36 @@
+{
+  "name": "answersense-forms",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "AnswerSense shared tooling workspace",
+  "main": "eslint.config.js",
+  "workspaces": [
+    "Backend",
+    "Extension"
+  ],
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --check ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anslmC/answersense-forms.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/anslmC/answersense-forms/issues"
+  },
+  "homepage": "https://github.com/anslmC/answersense-forms#readme",
+  "devDependencies": {
+    "eslint": "^10.9.1",
+    "prettier": "^3.9.6",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.68.0"
+  }
+}

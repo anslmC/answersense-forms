@@ -1,0 +1,35 @@
+{
+  "name": "@answersense/backend",
+  "version": "0.1.0",
+  "description": "AnswerSense: Forms - Backend API",
+  "main": "dist/index.js",
+  "type": "module",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --watch dist/index.js",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/ tests/ --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "test": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@vitest/ui": "^4.1.11",
+    "eslint": "^10.9.1",
+    "playwright": "^1.62.1",
+    "prettier": "^3.9.6",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "zod": "^4.5.4"
+  }
+}
