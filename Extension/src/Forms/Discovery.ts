@@ -1,9 +1,5 @@
-export type SupportedQuestionType =
-  | 'short-text'
-  | 'paragraph'
-  | 'single-choice'
-  | 'multiple-choice'
-  | 'dropdown';
+export type { SupportedQuestionType } from '../Models/Logical';
+import type { SupportedQuestionType } from '../Models/Logical';
 
 export interface DiscoveredOption {
   label: string;
