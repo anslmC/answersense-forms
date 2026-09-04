@@ -5,7 +5,7 @@ export default defineConfig({
   root: __dirname,
   test: {
     globals: true,
-    environment: 'node',
+    environment: 'happy-dom',
     include: ['./tests/**/*.test.ts'],
   },
   resolve: {

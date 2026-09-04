@@ -4,13 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AnswerSense: Forms</title>
-    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="./Popup.css" />
   </head>
   <body>
-    <div id="root">
-      <h1>AnswerSense: Forms</h1>
-      <p>Status: Ready</p>
-    </div>
-    <script type="module" src="popup.ts"></script>
+    <main class="popup-shell">
+      <div class="status-row">
+        <span class="status-dot" aria-hidden="true"></span>
+        <h1>AnswerSense: Forms</h1>
+      </div>
+      <p class="status" data-status>Foundation ready</p>
+      <p class="detail">Manifest V3 foundation initialized.</p>
+    </main>
+    <script type="module" src="./Popup.ts"></script>
   </body>
 </html>

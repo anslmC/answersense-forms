@@ -1,8 +1,7 @@
-// AnswerSense: Forms Service Worker
-// Placeholder implementation
+import { EXTENSION_NAME, log } from '../Shared/Utils';
 
-console.log('AnswerSense: Forms service worker loaded');
+log(`${EXTENSION_NAME} service worker initialized.`);
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Extension installed');
+  log('Extension installed and ready for foundation initialization.');
 });

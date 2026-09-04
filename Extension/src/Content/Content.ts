@@ -1,10 +1,29 @@
-// AnswerSense: Forms Content Script
-// Placeholder implementation
+import { EXTENSION_NAME, log } from '../Shared/Utils';
+import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
+import { isSupportedGoogleFormsPage } from '../Forms/Detection';
 
-console.log('AnswerSense: Forms content script loaded');
+log(`${EXTENSION_NAME} content script initialized.`);
 
-// Listen for messages from popup
+const supportedPage = isSupportedGoogleFormsPage(window.location);
+
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  console.log('Content script received message:', request);
-  sendResponse({ received: true });
+  log('Content script received a message.', request);
+
+  if (request?.type === 'discover-active-page') {
+    if (!supportedPage) {
+      sendResponse({ status: 'unsupported-page', supported: false });
+      return true;
+    }
+
+    const page = discoverActiveGoogleFormsPage(document);
+    sendResponse({
+      status: page ? 'discovered' : 'no-active-page',
+      supported: true,
+      page,
+    });
+    return true;
+  }
+
+  sendResponse({ status: 'ready', extension: EXTENSION_NAME });
+  return true;
 });
