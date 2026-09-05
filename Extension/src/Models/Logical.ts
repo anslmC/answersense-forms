@@ -33,7 +33,12 @@ export interface Question {
   unsupportedReason: string | null;
 }
 
-export type QuestionResultStatus = 'ready' | 'unsupported';
+export type QuestionResultStatus =
+  | 'ready'
+  | 'unsupported'
+  | 'GENERATED'
+  | 'GENERATION_FAILED'
+  | 'VALIDATION_FAILED';
 
 export interface QuestionResult {
   questionId: string | null;
