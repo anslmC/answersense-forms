@@ -47,6 +47,14 @@ export class GenerationCoordinator {
     return cycle;
   }
 
+  adoptCycle(cycleId: string): void {
+    if (!cycleId.trim()) {
+      throw new Error('A processing cycle requires a non-empty cycleId.');
+    }
+    this.generationToken += 1;
+    this.currentCycleId = cycleId;
+  }
+
   invalidate(): void {
     this.generationToken += 1;
     this.currentCycleId = null;

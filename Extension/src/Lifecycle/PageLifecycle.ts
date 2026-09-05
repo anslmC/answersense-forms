@@ -20,6 +20,15 @@ export interface PageVisit {
   status: 'active' | 'settled' | 'abandoned';
 }
 
+export interface LifecycleSnapshot {
+  activePage: NormalizedActivePage;
+  activeCycle: ProcessingCycle;
+  pending: PendingPageState | null;
+  settledPages: readonly SettledPageState[];
+  visits: readonly PageVisit[];
+  navigation: PendingNavigation | null;
+}
+
 export class PageLifecycle {
   private activePage: NormalizedActivePage;
   private activeCycle: ProcessingCycle;
@@ -31,18 +40,26 @@ export class PageLifecycle {
   constructor(
     initialPage: NormalizedActivePage,
     private readonly generation: GenerationCoordinator,
+    snapshot?: LifecycleSnapshot,
   ) {
-    this.activePage = initialPage;
-    this.activeCycle = this.generation.beginCycle();
-    this.activePage = {
-      ...initialPage,
-      processingCycle: this.activeCycle,
-    };
-    this.visits.push({
-      pageId: initialPage.form.activePageId,
-      cycleId: this.activeCycle.cycleId,
-      status: 'active',
-    });
+    if (snapshot) {
+      this.activePage = initialPage;
+      this.activeCycle = snapshot.activeCycle;
+      this.pending = snapshot.pending;
+      this.settledPages.push(...snapshot.settledPages);
+      this.visits.push(...snapshot.visits);
+      this.navigation = snapshot.navigation;
+      this.generation.adoptCycle(this.activeCycle.cycleId);
+    } else {
+      this.activePage = initialPage;
+      this.activeCycle = this.generation.beginCycle();
+      this.activePage = { ...initialPage, processingCycle: this.activeCycle };
+      this.visits.push({
+        pageId: initialPage.form.activePageId,
+        cycleId: this.activeCycle.cycleId,
+        status: 'active',
+      });
+    }
   }
 
   get currentPage(): NormalizedActivePage {
@@ -61,8 +78,23 @@ export class PageLifecycle {
     return buildSettledContext(this.settledPages);
   }
 
+  get settledPageStates(): readonly SettledPageState[] {
+    return this.settledPages;
+  }
+
   get pageVisits(): readonly PageVisit[] {
     return this.visits;
+  }
+
+  getSnapshot(): LifecycleSnapshot {
+    return {
+      activePage: this.activePage,
+      activeCycle: this.activeCycle,
+      pending: this.pending,
+      settledPages: this.settledPages,
+      visits: this.visits,
+      navigation: this.navigation,
+    };
   }
 
   acceptFinalizedHandoff(handoff: FinalizedPageHandoff): PendingPageState {

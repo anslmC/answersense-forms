@@ -1,4 +1,4 @@
-import type { UiState } from './State';
+import type { UiState, WorkflowSnapshot } from './State';
 import { PopupStateMachine } from './State';
 import type { PopupWorkflow } from './Workflow';
 
@@ -11,8 +11,15 @@ export class PopupController {
     return this.stateMachine.state;
   }
 
+  restore(snapshot: WorkflowSnapshot): UiState {
+    return this.stateMachine.restore(snapshot);
+  }
+
   async discover(): Promise<UiState> {
     const page = await this.workflow.discover();
+    if (page && 'uiState' in page) {
+      return this.stateMachine.restore(page as WorkflowSnapshot);
+    }
     return this.stateMachine.setPage(page);
   }
 
@@ -32,7 +39,9 @@ export class PopupController {
   }
 
   finishReview(): UiState {
-    return this.stateMachine.finishReview();
+    const state = this.stateMachine.finishReview();
+    void this.workflow.reviewComplete?.();
+    return state;
   }
 
   retry(): Promise<UiState> {

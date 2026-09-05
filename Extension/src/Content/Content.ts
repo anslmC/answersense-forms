@@ -1,29 +1,205 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
 import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
 import { isSupportedGoogleFormsPage } from '../Forms/Detection';
+import { normalizeDiscoveredActivePage } from '../Forms/Normalization';
+import { GenerationCoordinator } from '../Generation/Pipeline';
+import { createAcceptedReviewDecisions } from '../Review/Decisions';
+import { fillReviewedAnswers } from '../Fill/Filler';
+import { createFinalizedPageHandoff } from '../Fill/Handoff';
+import { PageLifecycle } from '../Lifecycle/PageLifecycle';
+import type { GenerationRequest, GenerationResponse } from '../Generation/Contract';
 
 log(`${EXTENSION_NAME} content script initialized.`);
 
 const supportedPage = isSupportedGoogleFormsPage(window.location);
+const generation = new GenerationCoordinator(() => crypto.randomUUID());
+let lifecycle: PageLifecycle | null = null;
 
-chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  log('Content script received a message.', request);
+function publishLifecycleSnapshot(): void {
+  if (lifecycle) {
+    void chrome.runtime.sendMessage({
+      type: 'lifecycle-snapshot',
+      snapshot: lifecycle.getSnapshot(),
+    });
+  }
+}
 
-  if (request?.type === 'discover-active-page') {
-    if (!supportedPage) {
-      sendResponse({ status: 'unsupported-page', supported: false });
-      return true;
+function observeNextIntent(): void {
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
     }
+    const button = target.closest<HTMLElement>('[role="button"], button');
+    const label = button?.textContent?.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (label === 'next' || label?.endsWith(' next')) {
+      try {
+        ensureLifecycle().beginNext();
+        publishLifecycleSnapshot();
+      } catch {
+        // Discovery remains authoritative if no active lifecycle exists yet.
+      }
+    }
+  });
 
-    const page = discoverActiveGoogleFormsPage(document);
-    sendResponse({
+  const observer = new MutationObserver(() => {
+    if (!lifecycle) {
+      return;
+    }
+    const nextPage = lifecycle.confirmTransition(document);
+    if (nextPage) {
+      void chrome.runtime.sendMessage({
+        type: 'lifecycle-transition-confirmed',
+        pageId: nextPage.form.activePageId,
+        questionCount: nextPage.form.questions.length,
+        snapshot: lifecycle.getSnapshot(),
+      });
+    }
+  });
+  if (document.documentElement) {
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+}
+
+function discoverPage() {
+  return supportedPage ? discoverActiveGoogleFormsPage(document) : null;
+}
+
+function ensureLifecycle(): PageLifecycle {
+  if (lifecycle) {
+    return lifecycle;
+  }
+  const discovered = discoverPage();
+  if (!discovered) {
+    throw new Error('Active page could not be discovered.');
+  }
+  lifecycle = new PageLifecycle(
+    normalizeDiscoveredActivePage(discovered),
+    generation,
+  );
+  publishLifecycleSnapshot();
+  return lifecycle;
+}
+
+async function hydrateLifecycle(): Promise<void> {
+  const discovered = discoverPage();
+  if (!discovered) {
+    return;
+  }
+  const snapshot = await chrome.runtime.sendMessage({ type: 'get-lifecycle-snapshot' });
+  if (snapshot?.lifecycle) {
+    lifecycle = new PageLifecycle(
+      normalizeDiscoveredActivePage(discovered),
+      generation,
+      snapshot.lifecycle,
+    );
+    const transitioned = lifecycle.confirmTransition(document);
+    if (transitioned) {
+      void chrome.runtime.sendMessage({
+        type: 'lifecycle-transition-confirmed',
+        pageId: transitioned.form.activePageId,
+        questionCount: transitioned.form.questions.length,
+        snapshot: lifecycle.getSnapshot(),
+      });
+    } else {
+      publishLifecycleSnapshot();
+    }
+  } else {
+    ensureLifecycle();
+  }
+}
+
+const hydration = hydrateLifecycle().catch(() => undefined);
+
+function createBackendGenerator() {
+  return {
+    generate(request: GenerationRequest): Promise<GenerationResponse> {
+      return chrome.runtime.sendMessage({ type: 'backend-generate', request });
+    },
+  };
+}
+
+async function handleRequest(request: { type?: string }): Promise<unknown> {
+  if (request.type === 'discover-active-page') {
+    if (!supportedPage) {
+      return { status: 'unsupported-page', supported: false };
+    }
+    const page = discoverPage();
+    return {
       status: page ? 'discovered' : 'no-active-page',
       supported: true,
       page,
-    });
-    return true;
+    };
   }
 
-  sendResponse({ status: 'ready', extension: EXTENSION_NAME });
+  if (request.type === 'generate-current-page') {
+    await hydration;
+    const pageLifecycle = ensureLifecycle();
+    const report = await generation.generate(
+      pageLifecycle.currentPage,
+      pageLifecycle.settledPageStates,
+      createBackendGenerator(),
+      pageLifecycle.currentCycle,
+    );
+    if (!report) {
+      throw new Error('Generation response was stale or invalidated.');
+    }
+    const fillReport = fillReviewedAnswers(
+      document,
+      pageLifecycle.currentPage.form,
+      report,
+      createAcceptedReviewDecisions(report),
+    );
+    const handoff = createFinalizedPageHandoff(
+      document,
+      pageLifecycle.currentPage.form,
+      fillReport,
+    );
+    pageLifecycle.acceptFinalizedHandoff(handoff);
+    publishLifecycleSnapshot();
+    return { report, fillReport };
+  }
+
+  if (request.type === 'begin-next') {
+    await hydration;
+    ensureLifecycle().beginNext();
+    publishLifecycleSnapshot();
+    return { status: 'next-initiated' };
+  }
+
+  if (request.type === 'confirm-transition') {
+    await hydration;
+    const nextPage = ensureLifecycle().confirmTransition(document);
+    return nextPage
+      ? { status: 'transition-confirmed', pageId: nextPage.form.activePageId, questionCount: nextPage.form.questions.length }
+      : { status: 'transition-pending' };
+  }
+
+  if (request.type === 'abandon') {
+    await hydration;
+    ensureLifecycle().abandon();
+    publishLifecycleSnapshot();
+    return { status: 'abandoned' };
+  }
+
+  if (request.type === 'restart') {
+    await hydration;
+    const cycle = ensureLifecycle().restart();
+    publishLifecycleSnapshot();
+    return { status: 'restarted', cycleId: cycle.cycleId };
+  }
+
+  return { status: 'ready', extension: EXTENSION_NAME };
+}
+
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  log('Content script received a message.', request);
+  void handleRequest(request ?? {})
+    .then((response) => sendResponse(response))
+    .catch((error: unknown) => {
+      sendResponse({ error: error instanceof Error ? error.message : 'Content operation failed.' });
+    });
   return true;
 });
+
+observeNextIntent();

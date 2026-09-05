@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "description": "AI-assisted Chromium browser extension for supported Google Forms.",
   "permissions": [],
-  "host_permissions": ["https://docs.google.com/forms/*"],
+  "host_permissions": [
+    "https://docs.google.com/forms/*",
+    "http://127.0.0.1:3000/*"
+  ],
   "background": {
     "service_worker": "background/background.js"
   },

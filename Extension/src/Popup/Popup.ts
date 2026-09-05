@@ -2,6 +2,7 @@ import { EXTENSION_NAME, log } from '../Shared/Utils';
 import { PopupController } from './Controller';
 import { createBrowserPopupWorkflow } from './Workflow';
 import type { UiState } from './State';
+import type { WorkflowSnapshot } from './State';
 
 function render(state: UiState): void {
   const status = document.querySelector<HTMLElement>('[data-status]');
@@ -70,5 +71,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     render(await controller.generate());
   });
   review.addEventListener('click', () => render(controller.finishReview()));
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'p7-state-updated' && message.snapshot) {
+      render(controller.restore(message.snapshot as WorkflowSnapshot));
+    }
+  });
   render(await controller.discover());
 });

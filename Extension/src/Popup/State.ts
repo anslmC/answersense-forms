@@ -19,6 +19,13 @@ export interface UiGenerationResult {
   fillReport: FillReport;
 }
 
+export interface WorkflowSnapshot {
+  uiState: UiStateName;
+  page: PageSummary | null;
+  result: UiGenerationResult | null;
+  error: string | null;
+}
+
 export type UiState =
   | { name: 'UNSUPPORTED'; message: string }
   | { name: 'READY'; page: PageSummary }
@@ -46,6 +53,25 @@ export class PopupStateMachine {
   setPage(page: PageSummary | null): UiState {
     this.operationToken += 1;
     this.current = page ? readyState(page) : unsupportedState();
+    return this.current;
+  }
+
+  restore(snapshot: WorkflowSnapshot): UiState {
+    this.operationToken += 1;
+    if (snapshot.uiState === 'UNSUPPORTED' || !snapshot.page) {
+      this.current = unsupportedState();
+    } else if (snapshot.uiState === 'GENERATING') {
+      this.current = { name: 'GENERATING', page: snapshot.page };
+    } else if (snapshot.uiState === 'ERROR') {
+      this.current = { name: 'ERROR', page: snapshot.page, message: snapshot.error ?? 'Generation failed.' };
+    } else if (
+      (snapshot.uiState === 'REVIEW' || snapshot.uiState === 'READY_FOR_NEXT') &&
+      snapshot.result
+    ) {
+      this.current = { name: snapshot.uiState, page: snapshot.page, result: snapshot.result };
+    } else {
+      this.current = readyState(snapshot.page);
+    }
     return this.current;
   }
 

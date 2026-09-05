@@ -202,6 +202,31 @@ describe('P5 page lifecycle', () => {
       { questionId: 'name', questionText: 'name', answer: 'Revised answer' },
     ]);
   });
+
+  it('rehydrates P5 from a worker snapshot after a document replacement', () => {
+    const original = createLifecycle();
+    const document = createDocument();
+    (document.querySelector('input') as HTMLInputElement).value = 'Settled after navigation';
+    original.acceptFinalizedHandoff(
+      createHandoff(document, 'Ada', original.currentCycle.cycleId),
+    );
+    original.beginNext();
+    const snapshot = original.getSnapshot();
+
+    const replacementCoordinator = new GenerationCoordinator(() => 'cycle-rehydrated');
+    const replacement = new PageLifecycle(
+      page,
+      replacementCoordinator,
+      snapshot,
+    );
+    const nextPage = replacement.confirmTransition(createDocument('page-2'));
+
+    expect(nextPage?.form.activePageId).toBe('page-2');
+    expect(replacement.context).toEqual([
+      { questionId: 'name', questionText: 'name', answer: 'Settled after navigation' },
+    ]);
+    expect(replacement.currentCycle.cycleId).toBe('cycle-rehydrated');
+  });
 });
 
 describe('P5 stale cycle protection', () => {
