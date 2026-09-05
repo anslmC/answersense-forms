@@ -7,13 +7,21 @@
     <link rel="stylesheet" href="./Popup.css" />
   </head>
   <body>
-    <main class="popup-shell">
-      <div class="status-row">
+    <main class="popup-shell" data-app-root>
+      <header class="status-row">
         <span class="status-dot" aria-hidden="true"></span>
         <h1>AnswerSense: Forms</h1>
+      </header>
+      <section class="status-panel" aria-live="polite">
+        <p class="status" data-status>Checking this page...</p>
+        <p class="detail" data-detail></p>
+      </section>
+      <section class="results" data-results hidden></section>
+      <p class="message" data-message hidden></p>
+      <div class="actions">
+        <button type="button" data-primary-action hidden></button>
+        <button type="button" class="secondary" data-review-action hidden>Review complete</button>
       </div>
-      <p class="status" data-status>Foundation ready</p>
-      <p class="detail">Manifest V3 foundation initialized.</p>
     </main>
     <script type="module" src="./Popup.ts"></script>
   </body>
