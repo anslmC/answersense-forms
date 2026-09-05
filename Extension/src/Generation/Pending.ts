@@ -1,6 +1,7 @@
 import type { Answer, AnswerValue, Form } from '../Models/Logical';
 import type { GenerationReport } from './Report';
 import type { SettledPageState } from './Context';
+import type { FinalizedPageHandoff } from '../Fill/Handoff';
 
 export type PendingAnswer = Answer & {
   questionId: string;
@@ -15,6 +16,30 @@ export interface PendingPageState {
   readonly cycleId: string;
   readonly pageId: string;
   readonly answers: readonly PendingAnswer[];
+  readonly outcomes: readonly FinalizedPageHandoff['entries'][number][];
+}
+
+export function createPendingPageStateFromHandoff(
+  handoff: FinalizedPageHandoff,
+): PendingPageState {
+  return Object.freeze({
+    cycleId: handoff.cycleId,
+    pageId: handoff.pageId,
+    answers: Object.freeze(
+      handoff.entries.flatMap((entry) =>
+        entry.answer === null
+          ? []
+          : [{
+              questionId: entry.answer.questionId as string,
+              questionText: entry.questionText,
+              value: Array.isArray(entry.answer.value)
+                ? [...entry.answer.value]
+                : entry.answer.value,
+            }],
+      ),
+    ),
+    outcomes: Object.freeze(handoff.entries.map((entry) => ({ ...entry }))),
+  });
 }
 
 export function createPendingPageStateFromReport(
@@ -40,6 +65,7 @@ export function createPendingPageStateFromReport(
     cycleId: report.cycleId,
     pageId: form.activePageId,
     answers: Object.freeze(answers),
+    outcomes: Object.freeze([]),
   });
 }
 

@@ -32,6 +32,7 @@ function createRequest(
 
 export class GenerationCoordinator {
   private currentCycleId: string | null = null;
+  private generationToken = 0;
 
   constructor(private readonly cycleIdFactory: () => string) {}
 
@@ -39,18 +40,38 @@ export class GenerationCoordinator {
     return this.currentCycleId;
   }
 
+  beginCycle(): { cycleId: string } {
+    const cycle = createProcessingCycle(this.cycleIdFactory);
+    this.generationToken += 1;
+    this.currentCycleId = cycle.cycleId;
+    return cycle;
+  }
+
+  invalidate(): void {
+    this.generationToken += 1;
+    this.currentCycleId = null;
+  }
+
   async generate(
     page: NormalizedActivePage,
     settledPages: readonly SettledPageState[],
     generator: GenerationInterface,
+    preparedCycle?: { cycleId: string },
   ): Promise<GenerationReport | null> {
-    const cycle = createProcessingCycle(this.cycleIdFactory);
-    this.currentCycleId = cycle.cycleId;
+    const cycle = preparedCycle ?? this.beginCycle();
+    if (this.currentCycleId !== cycle.cycleId) {
+      return null;
+    }
+    const generationToken = this.generationToken;
     const response = await generator.generate(
       createRequest(page, cycle.cycleId, settledPages),
     );
 
-    if (this.currentCycleId !== cycle.cycleId || !isCurrentCycle(response.cycleId, cycle)) {
+    if (
+      generationToken !== this.generationToken ||
+      this.currentCycleId !== cycle.cycleId ||
+      !isCurrentCycle(response.cycleId, cycle)
+    ) {
       return null;
     }
 
