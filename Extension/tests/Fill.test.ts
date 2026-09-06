@@ -38,7 +38,7 @@ const form: Form = {
 };
 
 function createDocument(options = ''): Document {
-  return new DOMParser().parseFromString(`<!doctype html>
+  const document = new DOMParser().parseFromString(`<!doctype html>
     <main data-page-id="page-1" data-answersense-active-page="true">
       <div role="listitem" data-question-id="choice" data-question-type="single-choice">
         <div role="radio" aria-label="Alpha" aria-checked="false"></div>
@@ -60,6 +60,23 @@ function createDocument(options = ''): Document {
       </div>
       ${options}
     </main>`, 'text/html');
+
+  document.querySelectorAll<HTMLElement>('[role="radio"]').forEach((option) => {
+    option.addEventListener('click', () => {
+      option.closest('[role="listitem"]')?.querySelectorAll<HTMLElement>('[role="radio"]').forEach((candidate) => {
+        candidate.setAttribute('aria-checked', candidate === option ? 'true' : 'false');
+      });
+    });
+  });
+  document.querySelectorAll<HTMLElement>('[role="checkbox"]').forEach((option) => {
+    option.addEventListener('click', () => {
+      option.setAttribute(
+        'aria-checked',
+        option.getAttribute('aria-checked') === 'true' ? 'false' : 'true',
+      );
+    });
+  });
+  return document;
 }
 
 function reportFor(
@@ -149,6 +166,28 @@ describe('P4 sequential filling and preservation', () => {
     expect((document.querySelector('[data-question-id="paragraph"] textarea') as HTMLTextAreaElement).value).toBe('A paragraph');
   });
 
+  it('fills required controls through the same live-DOM path', () => {
+    const document = createDocument();
+    const requiredForm: Form = {
+      ...form,
+      questions: form.questions.map((item) => ({ ...item, required: true })),
+    };
+    const report = reportFor([
+      { questionId: 'choice', value: 'Beta' },
+      { questionId: 'checks', value: ['One'] },
+      { questionId: 'short', value: 'Required short' },
+      { questionId: 'paragraph', value: 'Required paragraph' },
+    ]);
+
+    const result = fillReviewedAnswers(document, requiredForm, report, report.results.map((item) =>
+      acceptGeneratedAnswer(item.questionId as string, item.answer!),
+    ));
+
+    expect(result.outcomes.map((outcome) => outcome.status)).toEqual([
+      'FILLED', 'FILLED', 'FILLED', 'FILLED',
+    ]);
+  });
+
   it('preserves existing answers without overwriting them', () => {
     const document = createDocument();
     const choice = document.querySelector('[data-question-id="choice"] [aria-label="Alpha"]')!;
@@ -210,6 +249,113 @@ describe('P4 sequential filling and preservation', () => {
       acceptGeneratedAnswer('checks', failedReport.results[0].answer!),
     ]);
     expect(failed.outcomes[0]).toMatchObject({ status: 'FILL_FAILED', code: 'INVALID_OPTION' });
+  });
+
+  it('preserves checkbox extras and reports already-satisfied selections', () => {
+    const document = createDocument();
+    const checks = document.querySelector('[data-question-id="checks"]')!;
+    checks.querySelector('[aria-label="One"]')?.setAttribute('aria-checked', 'true');
+    checks.querySelector('[aria-label="Three"]')?.setAttribute('aria-checked', 'true');
+    const report = reportFor([{ questionId: 'checks', value: ['One'] }]);
+
+    const result = fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('checks', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes[0].status).toBe('PRESERVED_EXISTING');
+    expect(checks.querySelector('[aria-label="Three"]')?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('rolls back newly selected checkboxes when mutation fails', () => {
+    const document = createDocument();
+    const checks = document.querySelector('[data-question-id="checks"]')!;
+    const first = checks.querySelector<HTMLElement>('[aria-label="One"]')!;
+    const second = checks.querySelector<HTMLElement>('[aria-label="Two"]')!;
+    const firstClick = first.click.bind(first);
+    let secondClickCount = 0;
+    second.click = () => {
+      secondClickCount += 1;
+      if (secondClickCount === 1) {
+        throw new Error('simulated checkbox failure');
+      }
+    };
+    first.click = firstClick;
+    const report = reportFor([{ questionId: 'checks', value: ['One', 'Two'] }]);
+
+    const result = fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('checks', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes[0].status).toBe('FILL_FAILED');
+    expect(first.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('reports partial fill when checkbox rollback cannot restore state', () => {
+    const document = createDocument();
+    const checks = document.querySelector('[data-question-id="checks"]')!;
+    const first = checks.querySelector<HTMLElement>('[aria-label="One"]')!;
+    let clickCount = 0;
+    first.click = () => {
+      clickCount += 1;
+      if (clickCount === 1) {
+        first.setAttribute('aria-checked', 'true');
+      } else {
+        throw new Error('simulated rollback failure');
+      }
+    };
+    const second = checks.querySelector<HTMLElement>('[aria-label="Two"]')!;
+    second.click = () => {
+      throw new Error('simulated checkbox failure');
+    };
+    const report = reportFor([{ questionId: 'checks', value: ['One', 'Two'] }]);
+
+    const result = fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('checks', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes[0].status).toBe('PARTIAL_FILL');
+  });
+
+  it('fails single-choice filling when the click does not change live state', () => {
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>('[data-question-id="choice"] [aria-label="Beta"]')!;
+    option.replaceWith(option.cloneNode(true));
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+
+    const result = fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('choice', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILL_FAILED', code: 'INVALID_OPTION' });
+    expect(document.querySelector('[data-question-id="choice"] [aria-label="Beta"]')?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('fills contenteditable paragraph controls and verifies their content', () => {
+    const document = createDocument(`
+      <div role="listitem" data-question-id="editable" data-question-type="paragraph">
+        <div contenteditable="true"></div>
+      </div>`);
+    const editableQuestion = question('editable', 'paragraph');
+    const report = reportFor([{ questionId: 'editable', value: 'Editable details' }]);
+    const result = fillReviewedAnswers(document, { ...form, questions: [editableQuestion] }, report, [
+      acceptGeneratedAnswer('editable', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes[0].status).toBe('FILLED');
+    expect(document.querySelector('[data-question-id="editable"] [contenteditable="true"]')?.textContent).toBe('Editable details');
+  });
+
+  it('fails when a checkbox mutation does not appear in the live DOM', () => {
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>('[data-question-id="checks"] [aria-label="One"]')!;
+    option.replaceWith(option.cloneNode(true));
+    const report = reportFor([{ questionId: 'checks', value: ['One'] }]);
+
+    const result = fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('checks', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes[0].status).toBe('FILL_FAILED');
   });
 
   it('continues after a failed question and preserves deterministic order', () => {

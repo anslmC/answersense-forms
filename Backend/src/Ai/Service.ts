@@ -13,8 +13,7 @@ export class MockGenerator implements GenerationInterface {
       results: validRequest.questions.map((question) => {
         if (
           (question.type === 'single-choice' ||
-            question.type === 'multiple-choice' ||
-            question.type === 'dropdown') &&
+            question.type === 'multiple-choice') &&
           question.options.length === 0
         ) {
           return {
@@ -30,7 +29,7 @@ export class MockGenerator implements GenerationInterface {
         const value =
           question.type === 'multiple-choice'
             ? [question.options[0]]
-            : question.type === 'single-choice' || question.type === 'dropdown'
+            : question.type === 'single-choice'
               ? question.options[0]
               : `Mock answer for ${question.questionId}`;
         return {

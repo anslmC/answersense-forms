@@ -2,10 +2,10 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "..",
     "types": ["chrome", "vitest/globals"],
     "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "../Shared/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,9 +1,6 @@
-export type SupportedQuestionType =
-  | 'short-text'
-  | 'paragraph'
-  | 'single-choice'
-  | 'multiple-choice'
-  | 'dropdown';
+import type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
+
+export type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
 
 export type AnswerValue = string | string[];
 

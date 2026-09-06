@@ -1,4 +1,5 @@
 import type { Question, SupportedQuestionType } from '../Models/Logical';
+import { isSupportedQuestionType } from '../../../Shared/QuestionTypes';
 
 export type ResolutionFailureCode =
   | 'ELEMENT_NOT_FOUND'
@@ -46,16 +47,8 @@ function getQuestionId(element: HTMLElement): string | null {
 }
 
 function getCurrentQuestionType(question: HTMLElement): SupportedQuestionType | null {
-  const explicitType = question.dataset.questionType as
-    | SupportedQuestionType
-    | undefined;
-  if (
-    explicitType === 'short-text' ||
-    explicitType === 'paragraph' ||
-    explicitType === 'single-choice' ||
-    explicitType === 'multiple-choice' ||
-    explicitType === 'dropdown'
-  ) {
+  const explicitType = question.dataset.questionType;
+  if (isSupportedQuestionType(explicitType)) {
     return explicitType;
   }
 
@@ -64,9 +57,6 @@ function getCurrentQuestionType(question: HTMLElement): SupportedQuestionType | 
   }
   if (question.querySelector('[role="checkbox"]')) {
     return 'multiple-choice';
-  }
-  if (question.querySelector('[role="listbox"]')) {
-    return 'dropdown';
   }
   if (question.querySelector('textarea, [contenteditable="true"]')) {
     return 'paragraph';

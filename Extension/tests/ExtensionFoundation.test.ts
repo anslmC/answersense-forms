@@ -104,4 +104,113 @@ describe('Active Google Forms page discovery', () => {
       reason: 'Question type is unsupported.',
     });
   });
+
+  it('discovers paragraph controls and excludes dropdowns from supported discovery', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <section data-page-id="page-1" data-answersense-active-page="true">
+        <div role="listitem" data-question-id="paragraph" data-question-text="Details" data-question-type="paragraph" aria-required="true">
+          <textarea>Existing details</textarea>
+        </div>
+        <div role="listitem" data-question-id="dropdown" data-question-text="Pick one" data-question-type="dropdown">
+          <div role="listbox"></div>
+        </div>
+      </section>
+    </main>`, 'text/html');
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
+      {
+        kind: 'supported',
+        id: 'paragraph',
+        text: 'Details',
+        type: 'paragraph',
+        required: true,
+        options: [],
+        existingValue: 'Existing details',
+      },
+      {
+        kind: 'unsupported',
+        id: 'dropdown',
+        text: 'Pick one',
+        reason: 'Question type is unsupported.',
+      },
+    ]);
+  });
+
+  it('classifies missing and duplicate question IDs as unsupported', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <section data-page-id="page-1" data-answersense-active-page="true">
+        <div role="listitem" data-question-text="Missing ID"><input type="text"></div>
+        <div role="listitem" data-question-id="duplicate" data-question-text="First"><input type="text"></div>
+        <div role="listitem" data-question-id="duplicate" data-question-text="Second"><input type="text"></div>
+      </section>
+    </main>`, 'text/html');
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
+      {
+        kind: 'unsupported',
+        id: null,
+        text: 'Missing ID',
+        reason: 'Question ID is unavailable.',
+      },
+      {
+        kind: 'unsupported',
+        id: 'duplicate',
+        text: 'First',
+        reason: 'Question ID is ambiguous because it is duplicated.',
+      },
+      {
+        kind: 'unsupported',
+        id: 'duplicate',
+        text: 'Second',
+        reason: 'Question ID is ambiguous because it is duplicated.',
+      },
+    ]);
+  });
+
+  it('trims valid IDs and rejects empty or whitespace-only IDs', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <section data-page-id="page-1" data-answersense-active-page="true">
+        <div role="listitem" data-question-id="  trimmed-id  " data-question-text="Trimmed"><input type="text"></div>
+        <div role="listitem" data-question-id="   " data-question-text="Whitespace"><input type="text"></div>
+        <div role="listitem" data-question-id="" data-question-text="Empty"><input type="text"></div>
+        <div role="listitem" data-question-text="Missing"><input type="text"></div>
+        <div role="listitem" data-question-id=" duplicate " data-question-text="First"><input type="text"></div>
+        <div role="listitem" data-question-id="duplicate" data-question-text="Second"><input type="text"></div>
+      </section>
+    </main>`, 'text/html');
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
+      expect.objectContaining({ kind: 'supported', id: 'trimmed-id' }),
+      {
+        kind: 'unsupported',
+        id: null,
+        text: 'Whitespace',
+        reason: 'Question ID is unavailable.',
+      },
+      {
+        kind: 'unsupported',
+        id: null,
+        text: 'Empty',
+        reason: 'Question ID is unavailable.',
+      },
+      {
+        kind: 'unsupported',
+        id: null,
+        text: 'Missing',
+        reason: 'Question ID is unavailable.',
+      },
+      {
+        kind: 'unsupported',
+        id: 'duplicate',
+        text: 'First',
+        reason: 'Question ID is ambiguous because it is duplicated.',
+      },
+      {
+        kind: 'unsupported',
+        id: 'duplicate',
+        text: 'Second',
+        reason: 'Question ID is ambiguous because it is duplicated.',
+      },
+    ]);
+  });
 });

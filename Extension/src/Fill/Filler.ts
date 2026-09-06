@@ -118,6 +118,12 @@ function fillText(target: ResolvedTextTarget, answer: Answer): FillOutcome {
     target.control.textContent = answer.value;
   }
   dispatchInputEvents(target.control);
+  if (currentTextValue(target) !== answer.value) {
+    return failureOutcome(target.questionId, {
+      code: 'INVALID_ANSWER',
+      reason: 'The text control did not retain the requested value.',
+    }, answer);
+  }
   return {
     questionId: target.questionId,
     status: 'FILLED',
@@ -129,9 +135,10 @@ function fillText(target: ResolvedTextTarget, answer: Answer): FillOutcome {
 
 function activateOption(option: HTMLElement): void {
   option.click();
-  if (option.getAttribute('role') === 'radio' || option.getAttribute('role') === 'checkbox') {
-    option.setAttribute('aria-checked', 'true');
-  }
+}
+
+function deactivateOption(option: HTMLElement): void {
+  option.click();
 }
 
 function fillSingleChoice(target: ResolvedChoiceTarget, answer: Answer): FillOutcome {
@@ -150,6 +157,12 @@ function fillSingleChoice(target: ResolvedChoiceTarget, answer: Answer): FillOut
     }, answer);
   }
   activateOption(option);
+  if (!isOptionSelected(option)) {
+    return failureOutcome(target.questionId, {
+      code: 'INVALID_OPTION',
+      reason: 'The requested choice was not selected in the current DOM.',
+    }, answer);
+  }
   return {
     questionId: target.questionId,
     status: 'FILLED',
@@ -182,11 +195,38 @@ function fillCheckboxes(target: ResolvedChoiceTarget, answer: Answer): FillOutco
     }, answer);
   }
 
-  for (const label of available) {
-    const option = optionsByLabel.get(label);
-    if (option && !isOptionSelected(option)) {
-      activateOption(option);
+  const newlySelected: HTMLElement[] = [];
+  try {
+    for (const label of available) {
+      const option = optionsByLabel.get(label);
+      if (option && !isOptionSelected(option)) {
+        newlySelected.push(option);
+        activateOption(option);
+      }
     }
+  } catch {
+    try {
+      for (const option of newlySelected) {
+        if (isOptionSelected(option)) {
+          deactivateOption(option);
+        }
+      }
+      if (newlySelected.some((option) => isOptionSelected(option))) {
+        throw new Error('Checkbox rollback could not restore the original state.');
+      }
+    } catch {
+      return {
+        questionId: target.questionId,
+        status: 'PARTIAL_FILL',
+        answer,
+        reason: 'Checkbox filling failed and rollback could not restore the original state.',
+        code: 'INVALID_OPTION',
+      };
+    }
+    return failureOutcome(target.questionId, {
+      code: 'INVALID_OPTION',
+      reason: 'The requested checkbox selections could not be applied.',
+    }, answer);
   }
 
   const alreadyComplete = requested.every((label) => selectedBefore.has(label));
@@ -200,10 +240,40 @@ function fillCheckboxes(target: ResolvedChoiceTarget, answer: Answer): FillOutco
     };
   }
 
+  const labelsToVerify = missing.length > 0 ? available : requested;
+  const verified = labelsToVerify.every((label) => {
+    const option = optionsByLabel.get(label);
+    return option !== undefined && isOptionSelected(option);
+  });
+  if (!verified) {
+    try {
+      for (const option of newlySelected) {
+        if (isOptionSelected(option)) {
+          deactivateOption(option);
+        }
+      }
+      if (newlySelected.some((option) => isOptionSelected(option))) {
+        throw new Error('Checkbox rollback could not restore the original state.');
+      }
+    } catch {
+      return {
+        questionId: target.questionId,
+        status: 'PARTIAL_FILL',
+        answer,
+        reason: 'Checkbox verification failed and rollback could not restore the original state.',
+        code: 'INVALID_OPTION',
+      };
+    }
+    return failureOutcome(target.questionId, {
+      code: 'INVALID_OPTION',
+      reason: 'The requested checkbox selections were not retained by the current DOM.',
+    }, answer);
+  }
+
   return {
     questionId: target.questionId,
     status: missing.length > 0 ? 'PARTIAL_FILL' : 'FILLED',
-    answer,
+    answer: missing.length > 0 ? answer : currentChoiceAnswer(target),
     reason: missing.length > 0 ? 'Some requested checkbox options were unavailable.' : null,
     code: missing.length > 0 ? 'INVALID_OPTION' : null,
   };

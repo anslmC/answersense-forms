@@ -31,6 +31,13 @@ const request: GenerationRequest = {
       required: false,
       options: ['Testing', 'Accessibility'],
     },
+    {
+      questionId: 'details',
+      text: 'Details',
+      type: 'paragraph',
+      required: true,
+      options: [],
+    },
   ],
   settledContext: [
     { questionId: 'previous', questionText: 'Previous question', answer: 'Settled answer' },
@@ -54,6 +61,10 @@ describe('Generation contract and mock generator', () => {
     expect(GenerationResponseSchema.safeParse({
       cycleId: 'cycle-1',
       results: [{ questionId: 'name', status: 'UNKNOWN' }],
+    }).success).toBe(false);
+    expect(GenerationRequestSchema.safeParse({
+      ...request,
+      questions: [{ ...request.questions[0], type: 'dropdown' }],
     }).success).toBe(false);
     expect(GenerationResponseSchema.safeParse({
       cycleId: 'cycle-1',
@@ -102,6 +113,11 @@ describe('Generation contract and mock generator', () => {
         questionId: 'topics',
         status: 'GENERATED',
         answer: { questionId: 'topics', value: ['Testing'] },
+      },
+      {
+        questionId: 'details',
+        status: 'GENERATED',
+        answer: { questionId: 'details', value: 'Mock answer for details' },
       },
     ]);
   });

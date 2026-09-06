@@ -2,19 +2,14 @@
 // Placeholder for data validation schemas using Zod
 
 import { z } from 'zod';
+import { SUPPORTED_QUESTION_TYPES } from '../../../Shared/QuestionTypes';
 
 const answerValueSchema = z.union([z.string(), z.array(z.string())]);
 
 const generationQuestionSchema = z.object({
   questionId: z.string().min(1),
   text: z.string(),
-  type: z.enum([
-    'short-text',
-    'paragraph',
-    'single-choice',
-    'multiple-choice',
-    'dropdown',
-  ]),
+  type: z.enum(SUPPORTED_QUESTION_TYPES),
   required: z.boolean(),
   options: z.array(z.string()),
 });

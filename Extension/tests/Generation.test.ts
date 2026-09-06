@@ -151,6 +151,75 @@ describe('Generation response validation', () => {
       reason: 'Unavailable',
     });
   });
+
+  it('keeps required-field final validation with Google Forms', () => {
+    const requiredForm: Form = {
+      ...form,
+      questions: [
+        createQuestion('short-required', 'short-text', [], true),
+        createQuestion('paragraph-required', 'paragraph', [], true),
+        createQuestion('choice-required', 'single-choice', ['A'], true),
+        createQuestion('checks-required', 'multiple-choice', ['A'], true),
+      ],
+    };
+    const response: GenerationResponse = {
+      cycleId: 'cycle-required',
+      results: [
+        { questionId: 'short-required', status: 'GENERATED', answer: { questionId: 'short-required', value: '' } },
+        { questionId: 'paragraph-required', status: 'GENERATED', answer: { questionId: 'paragraph-required', value: '' } },
+        { questionId: 'choice-required', status: 'GENERATED', answer: { questionId: 'choice-required', value: 'A' } },
+        { questionId: 'checks-required', status: 'GENERATED', answer: { questionId: 'checks-required', value: [] } },
+      ],
+    };
+
+    expect(validateGenerationResponse(response, requiredForm, 'cycle-required').map((result) => result.status)).toEqual([
+      'GENERATED', 'GENERATED', 'GENERATED', 'GENERATED',
+    ]);
+  });
+
+  it('excludes unsupported questions from generation requests and results', async () => {
+    const unsupportedForm: Form = {
+      ...form,
+      questions: [
+        ...form.questions,
+        {
+          id: 'dropdown',
+          text: 'Dropdown',
+          type: null,
+          required: false,
+          options: [],
+          existingInput: null,
+          supported: false,
+          unsupportedReason: 'Question type is unsupported.',
+        },
+      ],
+    };
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request): Promise<GenerationResponse> => ({
+        cycleId: request.cycleId,
+        results: request.questions.map((question) => ({
+          questionId: question.questionId,
+          status: 'GENERATED' as const,
+          answer: { questionId: question.questionId, value: question.type === 'multiple-choice' ? ['Testing'] : 'Answer' },
+        })),
+      })),
+    };
+
+    const coordinator = new GenerationCoordinator(() => 'cycle-unsupported');
+    const report = await coordinator.generate(
+      { ...page, form: unsupportedForm },
+      [],
+      generator,
+    );
+
+    expect(generator.generate).toHaveBeenCalledWith(expect.objectContaining({
+      questions: expect.not.arrayContaining([expect.objectContaining({ questionId: 'dropdown' })]),
+    }));
+    expect(report?.results[report.results.length - 1]).toMatchObject({
+      questionId: 'dropdown',
+      status: 'unsupported',
+    });
+  });
 });
 
 describe('Settled context and pending page state', () => {

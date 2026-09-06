@@ -1,5 +1,8 @@
-export type { SupportedQuestionType } from '../Models/Logical';
-import type { SupportedQuestionType } from '../Models/Logical';
+import {
+  isSupportedQuestionType,
+  type SupportedQuestionType,
+} from '../../../Shared/QuestionTypes';
+export type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
 
 export interface DiscoveredOption {
   label: string;
@@ -73,26 +76,23 @@ function getQuestionText(question: HTMLElement): string | null {
 }
 
 function getQuestionId(question: HTMLElement): string | null {
-  return (
+  const rawId =
     question.dataset.questionId ??
     question.getAttribute('data-params') ??
     question.id ??
-    question.getAttribute('aria-labelledby')
-  );
+    question.getAttribute('aria-labelledby');
+  const normalizedId = rawId?.trim();
+  return normalizedId || null;
 }
 
 function getQuestionType(question: HTMLElement): SupportedQuestionType | null {
-  const explicitType = question.dataset.questionType as
-    | SupportedQuestionType
-    | undefined;
-  if (
-    explicitType === 'short-text' ||
-    explicitType === 'paragraph' ||
-    explicitType === 'single-choice' ||
-    explicitType === 'multiple-choice' ||
-    explicitType === 'dropdown'
-  ) {
+  const explicitType = question.dataset.questionType;
+  if (isSupportedQuestionType(explicitType)) {
     return explicitType;
+  }
+
+  if (explicitType === 'dropdown') {
+    return null;
   }
 
   if (question.querySelector('[role="radio"]')) {
@@ -100,9 +100,6 @@ function getQuestionType(question: HTMLElement): SupportedQuestionType | null {
   }
   if (question.querySelector('[role="checkbox"]')) {
     return 'multiple-choice';
-  }
-  if (question.querySelector('[role="listbox"]')) {
-    return 'dropdown';
   }
   if (question.querySelector('textarea')) {
     return 'paragraph';
@@ -139,7 +136,7 @@ function getExistingValue(
     return input?.value || null;
   }
 
-  if (type === 'single-choice' || type === 'dropdown') {
+  if (type === 'single-choice') {
     return options.find((option) => option.selected)?.label ?? null;
   }
 
@@ -162,6 +159,9 @@ function discoverQuestion(question: HTMLElement): DiscoveredQuestion | Unsupport
   const text = getQuestionText(question);
   const type = getQuestionType(question);
 
+  if (!id) {
+    return { kind: 'unsupported', id: null, text, reason: 'Question ID is unavailable.' };
+  }
   if (!text) {
     return { kind: 'unsupported', id, text: null, reason: 'Question text is unavailable.' };
   }
@@ -179,6 +179,29 @@ function discoverQuestion(question: HTMLElement): DiscoveredQuestion | Unsupport
     options,
     existingValue: getExistingValue(question, type, options),
   };
+}
+
+function rejectDuplicateQuestionIds(
+  questions: Array<DiscoveredQuestion | UnsupportedQuestion>,
+): Array<DiscoveredQuestion | UnsupportedQuestion> {
+  const supportedQuestions = questions.filter(
+    (question): question is DiscoveredQuestion => question.kind === 'supported',
+  );
+  const duplicateIds = new Set(
+    supportedQuestions
+      .map((question) => question.id)
+      .filter((id, index, ids) => ids.indexOf(id) !== index),
+  );
+  return questions.map((question) =>
+    question.kind === 'supported' && duplicateIds.has(question.id)
+      ? {
+          kind: 'unsupported',
+          id: question.id,
+          text: question.text,
+          reason: 'Question ID is ambiguous because it is duplicated.',
+        }
+      : question,
+  );
 }
 
 function findActivePage(document: Document): HTMLElement | null {
@@ -218,6 +241,6 @@ export function discoverActiveGoogleFormsPage(
 
   return {
     pageId,
-    questions: questions.map(discoverQuestion),
+    questions: rejectDuplicateQuestionIds(questions.map(discoverQuestion)),
   };
 }
