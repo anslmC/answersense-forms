@@ -9,22 +9,36 @@ export interface SettledAnswer {
 
 export interface SettledPageState {
   pageId: string;
+  pageFingerprint?: string | null;
   answers: SettledAnswer[];
 }
 
 export function buildSettledContext(
   settledPages: readonly SettledPageState[],
 ): SettledContextItem[] {
-  return settledPages.flatMap((page) =>
+  const uniquePages = new Map<string, SettledPageState>();
+  for (const page of settledPages) {
+    uniquePages.set(page.pageId, page);
+  }
+
+  const seen = new Set<string>();
+  return [...uniquePages.values()].flatMap((page) =>
     page.answers
       .filter(
         (answer): answer is SettledAnswer & { answer: Answer } =>
           !answer.skipped && answer.answer !== null,
       )
-      .map((answer) => ({
-        questionId: answer.answer.questionId as string,
-        questionText: answer.questionText,
-        answer: answer.answer.value,
-      })),
+      .flatMap((answer) => {
+        const questionId = answer.answer.questionId as string;
+        if (seen.has(questionId)) {
+          return [];
+        }
+        seen.add(questionId);
+        return [{
+          questionId,
+          questionText: answer.questionText,
+          answer: answer.answer.value,
+        }];
+      }),
   );
 }

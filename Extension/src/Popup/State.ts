@@ -14,10 +14,17 @@ export interface PageSummary {
   questionCount: number;
 }
 
-export interface UiGenerationResult {
+export interface GeneratedUiResult {
   report: GenerationReport;
   fillReport: FillReport;
 }
+
+export interface ReusedUiResult {
+  status: 'reused';
+  pageId: string;
+}
+
+export type UiGenerationResult = GeneratedUiResult | ReusedUiResult;
 
 export interface WorkflowSnapshot {
   uiState: UiStateName;

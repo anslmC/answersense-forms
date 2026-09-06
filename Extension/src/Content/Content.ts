@@ -7,6 +7,11 @@ import { createAcceptedReviewDecisions } from '../Review/Decisions';
 import { fillReviewedAnswers } from '../Fill/Filler';
 import { createFinalizedPageHandoff } from '../Fill/Handoff';
 import { PageLifecycle } from '../Lifecycle/PageLifecycle';
+import {
+  pageNavigationMutationOptions,
+  processObservedNavigation,
+  shouldGeneratePage,
+} from './Navigation';
 import type { GenerationRequest, GenerationResponse } from '../Generation/Contract';
 
 log(`${EXTENSION_NAME} content script initialized.`);
@@ -22,6 +27,19 @@ function publishLifecycleSnapshot(): void {
       snapshot: lifecycle.getSnapshot(),
     });
   }
+}
+
+function publishTransition(page: ReturnType<PageLifecycle['confirmTransition']>): void {
+  if (!page || !lifecycle) {
+    return;
+  }
+  void chrome.runtime.sendMessage({
+    type: 'lifecycle-transition-confirmed',
+    pageId: page.form.activePageId,
+    questionCount: page.form.questions.length,
+    revisitStatus: lifecycle.currentRevisitStatus,
+    snapshot: lifecycle.getSnapshot(),
+  });
 }
 
 function observeNextIntent(): void {
@@ -46,18 +64,10 @@ function observeNextIntent(): void {
     if (!lifecycle) {
       return;
     }
-    const nextPage = lifecycle.confirmTransition(document);
-    if (nextPage) {
-      void chrome.runtime.sendMessage({
-        type: 'lifecycle-transition-confirmed',
-        pageId: nextPage.form.activePageId,
-        questionCount: nextPage.form.questions.length,
-        snapshot: lifecycle.getSnapshot(),
-      });
-    }
+    processObservedNavigation(lifecycle, document, discoverPage, publishTransition);
   });
   if (document.documentElement) {
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    observer.observe(document.documentElement, pageNavigationMutationOptions);
   }
 }
 
@@ -95,12 +105,7 @@ async function hydrateLifecycle(): Promise<void> {
     );
     const transitioned = lifecycle.confirmTransition(document);
     if (transitioned) {
-      void chrome.runtime.sendMessage({
-        type: 'lifecycle-transition-confirmed',
-        pageId: transitioned.form.activePageId,
-        questionCount: transitioned.form.questions.length,
-        snapshot: lifecycle.getSnapshot(),
-      });
+      publishTransition(transitioned);
     } else {
       publishLifecycleSnapshot();
     }
@@ -135,6 +140,12 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
   if (request.type === 'generate-current-page') {
     await hydration;
     const pageLifecycle = ensureLifecycle();
+    if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {
+      return {
+        status: 'reused',
+        pageId: pageLifecycle.currentPage.form.activePageId,
+      };
+    }
     const report = await generation.generate(
       pageLifecycle.currentPage,
       pageLifecycle.settledPageStates,

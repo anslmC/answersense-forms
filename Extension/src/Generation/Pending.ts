@@ -2,6 +2,7 @@ import type { Answer, AnswerValue, Form } from '../Models/Logical';
 import type { GenerationReport } from './Report';
 import type { SettledPageState } from './Context';
 import { snapshotAnswer, type FinalizedPageHandoff } from '../Fill/Handoff';
+import { computePageFingerprint } from '../Forms/Normalization';
 
 export type PendingAnswer = Answer & {
   questionId: string;
@@ -15,6 +16,7 @@ export interface SuccessfulPageTransition {
 export interface PendingPageState {
   readonly cycleId: string;
   readonly pageId: string;
+  readonly pageFingerprint?: string | null;
   readonly answers: readonly PendingAnswer[];
   readonly outcomes: readonly FinalizedPageHandoff['entries'][number][];
 }
@@ -25,6 +27,7 @@ export function createPendingPageStateFromHandoff(
   return Object.freeze({
     cycleId: handoff.cycleId,
     pageId: handoff.pageId,
+    pageFingerprint: null,
     answers: Object.freeze(
       handoff.entries.flatMap((entry) =>
         entry.answer === null
@@ -64,6 +67,7 @@ export function createPendingPageStateFromReport(
   return Object.freeze({
     cycleId: report.cycleId,
     pageId: form.activePageId,
+    pageFingerprint: computePageFingerprint(form),
     answers: Object.freeze(answers),
     outcomes: Object.freeze([]),
   });
@@ -99,6 +103,7 @@ export function capturePendingPageAtSettlement(
 
   return Object.freeze({
     ...state,
+    pageFingerprint: state.pageFingerprint ?? computePageFingerprint(form),
     answers: Object.freeze(answers),
   });
 }
@@ -109,6 +114,7 @@ export function commitPendingPageAfterSuccessfulTransition(
 ): SettledPageState {
   return {
     pageId: state.pageId,
+    pageFingerprint: state.pageFingerprint ?? null,
     answers: state.answers.map((answer) => ({
       answer: {
         questionId: answer.questionId,

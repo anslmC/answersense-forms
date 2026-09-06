@@ -102,6 +102,10 @@ async function handleMessage(
     stateStore.update(tabId, { uiState: 'GENERATING', error: null });
     try {
       const result = await chrome.tabs.sendMessage(tabId, { type: 'generate-current-page' });
+      if (result?.status === 'reused') {
+        stateStore.update(tabId, { uiState: 'READY', result: null });
+        return result;
+      }
       stateStore.update(tabId, { uiState: 'REVIEW', result });
       return result;
     } catch (error) {

@@ -55,6 +55,7 @@ export interface Form {
   formId: string | null;
   activePageId: string;
   questions: Question[];
+  pageFingerprint?: string;
 }
 
 export interface NormalizedActivePage {

@@ -32,6 +32,7 @@ describe('Active page normalization', () => {
     expect(normalized.form).toEqual({
       formId: null,
       activePageId: 'page-1',
+      pageFingerprint: expect.any(String),
       questions: [
         {
           id: 'name',

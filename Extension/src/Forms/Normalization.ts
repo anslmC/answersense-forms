@@ -12,6 +12,27 @@ import type {
   QuestionResult,
 } from '../Models/Logical';
 
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+export function computePageFingerprint(form: Form): string {
+  const content = form.questions.map((question) => ({
+    id: question.id,
+    text: question.text,
+    type: question.type,
+    required: question.required,
+    options: question.options.map((option) => option.label),
+  }));
+
+  return stableHash(JSON.stringify(content));
+}
+
 function normalizeExistingInput(question: DiscoveredQuestion): ExistingInput {
   const value = question.existingValue;
   return {
@@ -73,6 +94,11 @@ export function normalizeDiscoveredActivePage(
     formId: null,
     activePageId: page.pageId,
     questions,
+    pageFingerprint: computePageFingerprint({
+      formId: null,
+      activePageId: page.pageId,
+      questions,
+    }),
   };
 
   return {

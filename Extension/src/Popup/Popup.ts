@@ -41,6 +41,13 @@ function render(state: UiState): void {
     message.hidden = false;
     primary.textContent = 'Retry';
   } else {
+    if ('status' in state.result) {
+      status.textContent = 'Answers already settled';
+      detail.textContent = `Reused answers for page ${state.result.pageId}.`;
+      primary.textContent = 'Already settled';
+      primary.disabled = true;
+      return;
+    }
     status.textContent = state.name === 'REVIEW' ? 'Review answers' : 'Answers filled';
     detail.textContent = state.name === 'REVIEW'
       ? 'Review the values in Google Forms before continuing.'
