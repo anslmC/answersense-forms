@@ -30,9 +30,10 @@ export function skipReviewedAnswer(questionId: string): ReviewDecision {
 export function createAcceptedReviewDecisions(
   report: GenerationReport,
 ): ReviewDecision[] {
-  return report.results.map((result) =>
-    result.status === 'GENERATED' && result.answer !== null
-      ? acceptGeneratedAnswer(result.questionId as string, result.answer)
-      : skipReviewedAnswer(result.questionId as string),
-  );
+  return report.results.map((result) => {
+    if (result.status === 'GENERATED' && result.answer !== null) {
+      return acceptGeneratedAnswer(result.questionId as string, result.answer);
+    }
+    return skipReviewedAnswer(result.questionId as string);
+  });
 }

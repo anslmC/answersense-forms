@@ -134,4 +134,36 @@ describe('Generation contract and mock generator', () => {
       failure: { code: 'NO_VALID_OPTION' },
     });
   });
+
+  it('accepts abstained results and rejects invalid abstention combinations', () => {
+    expect(GenerationResponseSchema.safeParse({
+      cycleId: 'cycle-1',
+      results: [{
+        questionId: 'name',
+        status: 'ABSTAINED',
+        answer: null,
+        reason: 'LOW_CONFIDENCE',
+      }],
+    }).success).toBe(true);
+
+    expect(GenerationResponseSchema.safeParse({
+      cycleId: 'cycle-1',
+      results: [{
+        questionId: 'name',
+        status: 'ABSTAINED',
+        answer: { questionId: 'name', value: 'Not allowed' },
+        reason: 'LOW_CONFIDENCE',
+      }],
+    }).success).toBe(false);
+
+    expect(GenerationResponseSchema.safeParse({
+      cycleId: 'cycle-1',
+      results: [{
+        questionId: 'name',
+        status: 'ABSTAINED',
+        answer: null,
+        reason: 'PROVIDER_REFUSED',
+      }],
+    }).success).toBe(false);
+  });
 });

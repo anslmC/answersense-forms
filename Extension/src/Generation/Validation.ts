@@ -91,7 +91,17 @@ function validateResponseShape(
       if (!isRecord(result.answer) || result.answer.questionId !== result.questionId || !('value' in result.answer)) {
         throw new GenerationResponseValidationError(`Invalid generated answer for ${result.questionId}`);
       }
+    } else if (result.status === 'ABSTAINED') {
+      if (result.answer !== null) {
+        throw new GenerationResponseValidationError(`Abstained result for ${result.questionId} must have null answer.`);
+      }
+      if (typeof result.reason !== 'string' || !['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE'].includes(result.reason)) {
+        throw new GenerationResponseValidationError(`Invalid abstention reason for ${result.questionId}`);
+      }
     } else if (result.status === 'GENERATION_FAILED') {
+      if (result.answer !== null) {
+        throw new GenerationResponseValidationError(`Failed result for ${result.questionId} must have null answer.`);
+      }
       if (
         !isRecord(result.failure) ||
         typeof result.failure.code !== 'string' ||
@@ -139,6 +149,15 @@ export function validateGenerationResponse(
         status: 'GENERATION_FAILED',
         answer: null,
         reason: result.failure.message,
+      };
+    }
+
+    if (result.status === 'ABSTAINED') {
+      return {
+        questionId,
+        status: 'ABSTAINED',
+        answer: null,
+        reason: result.reason,
       };
     }
 

@@ -39,9 +39,17 @@ const generatedQuestionResultSchema = z
     }
   });
 
+const abstainedQuestionResultSchema = z.object({
+  questionId: z.string().min(1),
+  status: z.literal('ABSTAINED'),
+  answer: z.null(),
+  reason: z.enum(['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE']),
+});
+
 const failedQuestionResultSchema = z.object({
   questionId: z.string().min(1),
   status: z.literal('GENERATION_FAILED'),
+  answer: z.null(),
   failure: z.object({
     code: z.string().min(1),
     message: z.string(),
@@ -61,6 +69,7 @@ export const GenerationResponseSchema = z
     results: z.array(
       z.discriminatedUnion('status', [
         generatedQuestionResultSchema,
+        abstainedQuestionResultSchema,
         failedQuestionResultSchema,
       ]),
     ),

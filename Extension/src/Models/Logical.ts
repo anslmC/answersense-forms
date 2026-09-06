@@ -34,6 +34,7 @@ export type QuestionResultStatus =
   | 'ready'
   | 'unsupported'
   | 'GENERATED'
+  | 'ABSTAINED'
   | 'GENERATION_FAILED'
   | 'VALIDATION_FAILED';
 

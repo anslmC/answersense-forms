@@ -143,6 +143,7 @@ describe('Generation response validation', () => {
     response.results[2] = {
       questionId: 'topics',
       status: 'GENERATION_FAILED',
+      answer: null,
       failure: { code: 'BACKEND_ERROR', message: 'Unavailable' },
     };
 
@@ -150,6 +151,40 @@ describe('Generation response validation', () => {
       status: 'GENERATION_FAILED',
       reason: 'Unavailable',
     });
+  });
+
+  it('accepts abstained results as a valid non-answer decision', () => {
+    const response: GenerationResponse = {
+      cycleId: 'cycle-1',
+      results: [
+        {
+          questionId: 'name',
+          status: 'ABSTAINED',
+          answer: null,
+          reason: 'LOW_CONFIDENCE',
+        },
+        {
+          questionId: 'language',
+          status: 'GENERATED',
+          answer: { questionId: 'language', value: 'TypeScript' },
+        },
+        {
+          questionId: 'topics',
+          status: 'GENERATED',
+          answer: { questionId: 'topics', value: ['Testing'] },
+        },
+      ],
+    };
+
+    const results = validateGenerationResponse(response, form, 'cycle-1');
+    expect(results[0]).toMatchObject({
+      questionId: 'name',
+      status: 'ABSTAINED',
+      answer: null,
+      reason: 'LOW_CONFIDENCE',
+    });
+    expect(results[1].status).toBe('GENERATED');
+    expect(results[2].status).toBe('GENERATED');
   });
 
   it('keeps required-field final validation with Google Forms', () => {

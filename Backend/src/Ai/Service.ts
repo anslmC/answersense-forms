@@ -19,6 +19,7 @@ export class MockGenerator implements GenerationInterface {
           return {
             questionId: question.questionId,
             status: 'GENERATION_FAILED' as const,
+            answer: null,
             failure: {
               code: 'NO_VALID_OPTION',
               message: 'No valid option is available for this question.',
