@@ -1,7 +1,7 @@
 import type { Answer, AnswerValue, Form } from '../Models/Logical';
 import type { GenerationReport } from './Report';
 import type { SettledPageState } from './Context';
-import type { FinalizedPageHandoff } from '../Fill/Handoff';
+import { snapshotAnswer, type FinalizedPageHandoff } from '../Fill/Handoff';
 
 export type PendingAnswer = Answer & {
   questionId: string;
@@ -83,6 +83,24 @@ export function editPendingAnswer(
     throw new Error(`Question is not pending: ${questionId}`);
   }
   return Object.freeze({ ...state, answers: Object.freeze(answers) });
+}
+
+export function capturePendingPageAtSettlement(
+  document: Document,
+  form: Form,
+  state: PendingPageState,
+): PendingPageState {
+  const answers = state.answers.map((answer) => {
+    const current = snapshotAnswer(document, form, answer.questionId);
+    return current
+      ? { ...answer, value: Array.isArray(current.value) ? [...current.value] : current.value }
+      : answer;
+  });
+
+  return Object.freeze({
+    ...state,
+    answers: Object.freeze(answers),
+  });
 }
 
 export function commitPendingPageAfterSuccessfulTransition(

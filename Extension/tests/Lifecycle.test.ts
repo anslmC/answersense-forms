@@ -133,7 +133,7 @@ describe('P5 page lifecycle', () => {
     const input = document.querySelector('input') as HTMLInputElement;
     input.value = 'Final answer';
     lifecycle.acceptFinalizedHandoff(createHandoff(document, 'Ada', lifecycle.currentCycle.cycleId));
-    lifecycle.beginNext();
+    lifecycle.beginNext(document);
 
     expect(lifecycle.confirmTransition(document)).toBeNull();
     expect(lifecycle.pendingPage).not.toBeNull();
@@ -145,6 +145,25 @@ describe('P5 page lifecycle', () => {
     expect(lifecycle.pendingPage).toBeNull();
     expect(lifecycle.context).toEqual([
       { questionId: 'name', questionText: 'name', answer: 'Final answer' },
+    ]);
+  });
+
+  it('uses the live DOM answer from the old page at successful settlement time', () => {
+    const lifecycle = createLifecycle();
+    const oldDocument = createDocument();
+    const oldInput = oldDocument.querySelector('input') as HTMLInputElement;
+    oldInput.value = 'Generated value';
+
+    lifecycle.acceptFinalizedHandoff(createHandoff(oldDocument, 'Generated value', lifecycle.currentCycle.cycleId));
+    oldInput.value = 'Edited by user';
+    lifecycle.beginNext(oldDocument);
+
+    const nextDocument = createDocument('page-2');
+    const nextPage = lifecycle.confirmTransition(nextDocument);
+
+    expect(nextPage?.form.activePageId).toBe('page-2');
+    expect(lifecycle.context).toEqual([
+      { questionId: 'name', questionText: 'name', answer: 'Edited by user' },
     ]);
   });
 
@@ -178,10 +197,11 @@ describe('P5 page lifecycle', () => {
 
   it('revisiting a page creates a new visit and preserves settled context without duplication', () => {
     const lifecycle = createLifecycle();
+    const pageDocument = createDocument();
     lifecycle.acceptFinalizedHandoff(
-      createHandoff(createDocument(), 'Ada', lifecycle.currentCycle.cycleId),
+      createHandoff(pageDocument, 'Ada', lifecycle.currentCycle.cycleId),
     );
-    lifecycle.beginNext();
+    lifecycle.beginNext(pageDocument);
     lifecycle.confirmTransition(createDocument('page-2'));
     const before = lifecycle.context;
 
@@ -196,7 +216,7 @@ describe('P5 page lifecycle', () => {
     lifecycle.acceptFinalizedHandoff(
       createHandoff(revisitedDocument, 'Revised answer', lifecycle.currentCycle.cycleId),
     );
-    lifecycle.beginNext();
+    lifecycle.beginNext(revisitedDocument);
     lifecycle.confirmTransition(createDocument('page-2'));
     expect(lifecycle.context).toEqual([
       { questionId: 'name', questionText: 'name', answer: 'Revised answer' },
@@ -210,7 +230,7 @@ describe('P5 page lifecycle', () => {
     original.acceptFinalizedHandoff(
       createHandoff(document, 'Ada', original.currentCycle.cycleId),
     );
-    original.beginNext();
+    original.beginNext(document);
     const snapshot = original.getSnapshot();
 
     const replacementCoordinator = new GenerationCoordinator(() => 'cycle-rehydrated');

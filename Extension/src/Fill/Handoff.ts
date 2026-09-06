@@ -21,7 +21,7 @@ export interface FinalizedPageHandoff {
   readonly entries: readonly FinalizedPageAnswer[];
 }
 
-function snapshotAnswer(
+export function snapshotAnswer(
   document: Document,
   form: Form,
   questionId: string,

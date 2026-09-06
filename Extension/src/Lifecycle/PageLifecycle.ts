@@ -2,6 +2,7 @@ import type { NormalizedActivePage, ProcessingCycle } from '../Models/Logical';
 import { normalizeDiscoveredActivePage } from '../Forms/Normalization';
 import type { FinalizedPageHandoff } from '../Fill/Handoff';
 import {
+  capturePendingPageAtSettlement,
   commitPendingPageAfterSuccessfulTransition,
   createPendingPageStateFromHandoff,
   type PendingPageState,
@@ -108,8 +109,12 @@ export class PageLifecycle {
     return this.pending;
   }
 
-  beginNext(): void {
-    this.navigation = beginNextNavigation(this.activePage.form.activePageId);
+  beginNext(document?: Document): void {
+    const targetDocument = document ?? globalThis.document;
+    const oldPageSnapshot = targetDocument && this.pending
+      ? capturePendingPageAtSettlement(targetDocument, this.activePage.form, this.pending)
+      : null;
+    this.navigation = beginNextNavigation(this.activePage.form.activePageId, oldPageSnapshot);
   }
 
   confirmTransition(document: Document): NormalizedActivePage | null {
@@ -122,9 +127,12 @@ export class PageLifecycle {
     }
 
     if (this.pending) {
-      const settledPage = commitPendingPageAfterSuccessfulTransition(this.pending, {
-        nextAcceptedAndTransitioned: true,
-      });
+      const settledPage = commitPendingPageAfterSuccessfulTransition(
+        this.navigation?.oldPageSnapshot ?? this.pending,
+        {
+          nextAcceptedAndTransitioned: true,
+        },
+      );
       const existingIndex = this.settledPages.findIndex(
         (page) => page.pageId === settledPage.pageId,
       );
