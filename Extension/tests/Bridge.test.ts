@@ -17,7 +17,14 @@ const request: GenerationRequest = {
 
 describe('P7 backend bridge', () => {
   it('posts the existing request contract and returns the backend response', async () => {
-    const response = { cycleId: 'cycle-bridge', results: [] };
+    const response = {
+      cycleId: 'cycle-bridge',
+      results: [{
+        questionId: 'name',
+        status: 'GENERATED',
+        answer: { questionId: 'name', value: 'Ada Lovelace' },
+      }],
+    };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(response), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -32,6 +39,12 @@ describe('P7 backend bridge', () => {
   it('surfaces backend failures to the workflow boundary', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
     await expect(requestBackendGeneration(request)).rejects.toThrow('Backend generation failed');
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects malformed successful backend responses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ cycleId: 'cycle-bridge', results: [{ questionId: 'name', status: 'UNKNOWN' }] }), { status: 200 })));
+    await expect(requestBackendGeneration(request)).rejects.toThrow('invalid generation response');
     vi.unstubAllGlobals();
   });
 });

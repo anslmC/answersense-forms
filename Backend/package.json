@@ -9,7 +9,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "node --watch dist/index.js",
+    "dev": "node --env-file=.env --watch dist/index.js",
+    "smoke": "npm run build && node --env-file=.env --loader ./smoke-loader.mjs dist/Backend/src/smoke.js",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/ tests/ --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -30,6 +31,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@google/genai": "^2.21.0",
     "zod": "^4.5.4"
   }
 }
