@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "node --env-file=.env --watch dist/index.js",
+    "dev": "node --env-file=.env --watch dist/Backend/src/index.js",
     "smoke": "npm run build && node --env-file=.env --loader ./smoke-loader.mjs dist/Backend/src/smoke.js",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/ tests/ --ext .ts",

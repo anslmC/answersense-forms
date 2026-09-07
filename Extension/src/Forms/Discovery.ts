@@ -2,6 +2,8 @@ import {
   isSupportedQuestionType,
   type SupportedQuestionType,
 } from '../../../Shared/QuestionTypes';
+import { findTopLevelQuestionContainers } from './QuestionBoundary';
+import { extractQuestionId } from './QuestionIdentity';
 export type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
 
 export interface DiscoveredOption {
@@ -42,6 +44,7 @@ const pageSelector = [
   '[data-answersense-page-id]',
   '[data-page-id]',
   '.freebirdFormviewerViewPage',
+  'form[data-clean-viewform-url]',
 ].join(', ');
 
 function isVisible(element: HTMLElement): boolean {
@@ -73,16 +76,6 @@ function getQuestionText(question: HTMLElement): string | null {
     '[data-question-text], [role="heading"], .M7eMe, .Y6Myld',
   );
   return getText(textElement) ?? getText(question);
-}
-
-function getQuestionId(question: HTMLElement): string | null {
-  const rawId =
-    question.dataset.questionId ??
-    question.getAttribute('data-params') ??
-    question.id ??
-    question.getAttribute('aria-labelledby');
-  const normalizedId = rawId?.trim();
-  return normalizedId || null;
 }
 
 function getQuestionType(question: HTMLElement): SupportedQuestionType | null {
@@ -154,8 +147,11 @@ function isRequired(question: HTMLElement): boolean {
   );
 }
 
-function discoverQuestion(question: HTMLElement): DiscoveredQuestion | UnsupportedQuestion {
-  const id = getQuestionId(question);
+function discoverQuestion(
+  question: HTMLElement,
+  requireDataParams = false,
+): DiscoveredQuestion | UnsupportedQuestion {
+  const id = extractQuestionId(question, { requireDataParams });
   const text = getQuestionText(question);
   const type = getQuestionType(question);
 
@@ -229,18 +225,24 @@ export function discoverActiveGoogleFormsPage(
   const pageId =
     page.dataset.answersensePageId ??
     page.dataset.pageId ??
+    page.getAttribute('data-clean-viewform-url') ??
     page.id ??
     page.getAttribute('aria-label');
   if (!pageId) {
     return null;
   }
 
-  const questions = Array.from(
-    page.querySelectorAll<HTMLElement>('[role="listitem"], [data-question-id]'),
-  ).filter(isVisible);
+  const respondentForm = page.closest<HTMLFormElement>('form[data-clean-viewform-url]');
+  const questions = respondentForm
+    ? findTopLevelQuestionContainers(respondentForm)?.filter(isVisible) ?? []
+    : Array.from(
+        page.querySelectorAll<HTMLElement>('[role="listitem"], [data-question-id]'),
+      ).filter(isVisible);
 
   return {
     pageId,
-    questions: rejectDuplicateQuestionIds(questions.map(discoverQuestion)),
+    questions: rejectDuplicateQuestionIds(
+      questions.map((question) => discoverQuestion(question, respondentForm !== null)),
+    ),
   };
 }

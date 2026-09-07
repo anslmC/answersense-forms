@@ -2,7 +2,7 @@
 // Placeholder for data validation schemas using Zod
 
 import { z } from 'zod';
-import { SUPPORTED_QUESTION_TYPES } from '../../../Shared/QuestionTypes';
+import { SUPPORTED_QUESTION_TYPES } from '../../../Shared/QuestionTypes.js';
 
 const answerValueSchema = z.union([z.string(), z.array(z.string())]);
 

@@ -8,7 +8,7 @@
     "test": "tests"
   },
   "scripts": {
-    "build": "vite build",
+    "build": "vite build --mode extension && vite build --mode content",
     "dev": "vite build --watch",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/ tests/ --ext .ts",

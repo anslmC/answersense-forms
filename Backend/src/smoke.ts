@@ -1,6 +1,6 @@
-import { createGeminiConfig } from './Ai/Config';
-import { createGeminiProvider } from './Ai/GeminiProvider';
-import type { GenerationRequest } from './Models/Generation';
+import { createGeminiConfig } from './Ai/Config.js';
+import { createGeminiProvider } from './Ai/GeminiProvider.js';
+import type { GenerationRequest } from './Models/Generation.js';
 
 const request: GenerationRequest = {
   cycleId: `manual-smoke-${Date.now()}`,

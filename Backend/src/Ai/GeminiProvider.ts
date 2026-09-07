@@ -1,11 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
-import { GenerationRequestSchema, GenerationResponseSchema } from '../Models/Schemas';
+import { GenerationRequestSchema, GenerationResponseSchema } from '../Models/Schemas.js';
 import type {
   GenerationInterface,
   GenerationRequest,
   GenerationResponse,
-} from '../Models/Generation';
-import type { GeminiConfig } from './Config';
+} from '../Models/Generation.js';
+import type { GeminiConfig } from './Config.js';
 
 export interface GeminiGenerateRequest {
   model: string;

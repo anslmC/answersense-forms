@@ -8,6 +8,7 @@ import {
   pageNavigationMutationOptions,
   processObservedNavigation,
   shouldGeneratePage,
+  waitForInitialDiscovery,
 } from '../src/Content/Navigation';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
@@ -89,6 +90,41 @@ function observe(
 }
 
 describe('Content navigation runtime adapter', () => {
+  it('waits for a page inserted after content-script startup', async () => {
+    const document = new DOMParser().parseFromString('<!doctype html><main></main>', 'text/html');
+    let discoveryAttempts = 0;
+    const discovery = waitForInitialDiscovery(
+      document,
+      () => {
+        discoveryAttempts += 1;
+        return discoverActiveGoogleFormsPage(document);
+      },
+      { maxAttempts: 5, timeoutMs: 1000 },
+    );
+
+    const page = document.createElement('section');
+    page.dataset.pageId = 'page-1';
+    page.innerHTML = '<div role="listitem" data-question-id="name" data-question-text="Name"><input type="text"></div>';
+    document.querySelector('main')?.append(page);
+
+    await expect(discovery).resolves.toMatchObject({ pageId: 'page-1' });
+    const attemptsAfterSuccess = discoveryAttempts;
+    page.setAttribute('aria-current', 'page');
+    await Promise.resolve();
+    expect(discoveryAttempts).toBe(attemptsAfterSuccess);
+  });
+
+  it('terminates when no valid page appears', async () => {
+    const document = new DOMParser().parseFromString('<!doctype html><main></main>', 'text/html');
+    const discovery = waitForInitialDiscovery(
+      document,
+      () => discoverActiveGoogleFormsPage(document),
+      { maxAttempts: 2, timeoutMs: 10 },
+    );
+
+    await expect(discovery).resolves.toBeNull();
+  });
+
   it('observes child-list and active-state attribute mutations', () => {
     expect(pageNavigationMutationOptions.childList).toBe(true);
     expect(pageNavigationMutationOptions.attributes).toBe(true);

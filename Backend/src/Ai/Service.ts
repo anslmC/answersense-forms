@@ -1,9 +1,9 @@
-import { GenerationRequestSchema } from '../Models/Schemas';
+import { GenerationRequestSchema } from '../Models/Schemas.js';
 import type {
   GenerationInterface,
   GenerationRequest,
   GenerationResponse,
-} from '../Models/Generation';
+} from '../Models/Generation.js';
 
 export class MockGenerator implements GenerationInterface {
   async generate(request: GenerationRequest): Promise<GenerationResponse> {

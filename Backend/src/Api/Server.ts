@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { GenerationRequestSchema } from '../Models/Schemas';
-import { createGeminiConfig } from '../Ai/Config';
-import { createGeminiProvider, validateProviderResponse } from '../Ai/GeminiProvider';
-import type { GenerationInterface, GenerationRequest } from '../Models/Generation';
+import { GenerationRequestSchema } from '../Models/Schemas.js';
+import { createGeminiConfig } from '../Ai/Config.js';
+import { createGeminiProvider, validateProviderResponse } from '../Ai/GeminiProvider.js';
+import type { GenerationInterface, GenerationRequest } from '../Models/Generation.js';
 
 export const BACKEND_HOST = '127.0.0.1';
 export const BACKEND_PORT = 3000;

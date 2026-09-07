@@ -11,14 +11,17 @@ import {
   pageNavigationMutationOptions,
   processObservedNavigation,
   shouldGeneratePage,
+  waitForInitialDiscovery,
 } from './Navigation';
 import type { GenerationRequest, GenerationResponse } from '../Generation/Contract';
+import type { DiscoveredPage } from '../Forms/Discovery';
 
 log(`${EXTENSION_NAME} content script initialized.`);
 
 const supportedPage = isSupportedGoogleFormsPage(window.location);
 const generation = new GenerationCoordinator(() => crypto.randomUUID());
 let lifecycle: PageLifecycle | null = null;
+let lifecycleInitialization: Promise<void> | null = null;
 
 function publishLifecycleSnapshot(): void {
   if (lifecycle) {
@@ -75,46 +78,55 @@ function discoverPage() {
   return supportedPage ? discoverActiveGoogleFormsPage(document) : null;
 }
 
-function ensureLifecycle(): PageLifecycle {
+function ensureLifecycle(discovered?: DiscoveredPage): PageLifecycle {
   if (lifecycle) {
     return lifecycle;
   }
-  const discovered = discoverPage();
-  if (!discovered) {
+  const page = discovered ?? discoverPage();
+  if (!page) {
     throw new Error('Active page could not be discovered.');
   }
   lifecycle = new PageLifecycle(
-    normalizeDiscoveredActivePage(discovered),
+    normalizeDiscoveredActivePage(page),
     generation,
   );
   publishLifecycleSnapshot();
   return lifecycle;
 }
 
-async function hydrateLifecycle(): Promise<void> {
-  const discovered = discoverPage();
-  if (!discovered) {
-    return;
+async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
+  if (lifecycleInitialization) {
+    return lifecycleInitialization;
   }
-  const snapshot = await chrome.runtime.sendMessage({ type: 'get-lifecycle-snapshot' });
-  if (snapshot?.lifecycle) {
-    lifecycle = new PageLifecycle(
-      normalizeDiscoveredActivePage(discovered),
-      generation,
-      snapshot.lifecycle,
-    );
-    const transitioned = lifecycle.confirmTransition(document);
-    if (transitioned) {
-      publishTransition(transitioned);
-    } else {
-      publishLifecycleSnapshot();
+
+  lifecycleInitialization = (async () => {
+    const snapshot = await chrome.runtime.sendMessage({ type: 'get-lifecycle-snapshot' });
+    if (lifecycle) {
+      return;
     }
-  } else {
-    ensureLifecycle();
-  }
+    if (snapshot?.lifecycle) {
+      lifecycle = new PageLifecycle(
+        normalizeDiscoveredActivePage(discovered),
+        generation,
+        snapshot.lifecycle,
+      );
+      const transitioned = lifecycle.confirmTransition(document);
+      if (transitioned) {
+        publishTransition(transitioned);
+      } else {
+        publishLifecycleSnapshot();
+      }
+    } else {
+      ensureLifecycle(discovered);
+    }
+  })();
+
+  return lifecycleInitialization;
 }
 
-const hydration = hydrateLifecycle().catch(() => undefined);
+const hydration = waitForInitialDiscovery(document, discoverPage)
+  .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined))
+  .catch(() => undefined);
 
 function createBackendGenerator() {
   return {
@@ -130,6 +142,9 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
       return { status: 'unsupported-page', supported: false };
     }
     const page = discoverPage();
+    if (page) {
+      await hydrateLifecycle(page);
+    }
     return {
       status: page ? 'discovered' : 'no-active-page',
       supported: true,

@@ -1,6 +1,6 @@
-import type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
+import type { SupportedQuestionType } from '../../../Shared/QuestionTypes.js';
 
-export type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
+export type { SupportedQuestionType } from '../../../Shared/QuestionTypes.js';
 
 export type AnswerValue = string | string[];
 

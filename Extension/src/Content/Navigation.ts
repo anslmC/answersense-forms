@@ -17,6 +17,61 @@ export const pageNavigationMutationOptions: MutationObserverInit = {
   ],
 };
 
+export interface InitialDiscoveryOptions {
+  maxAttempts?: number;
+  timeoutMs?: number;
+}
+
+export function waitForInitialDiscovery(
+  document: Document,
+  discoverPage: () => DiscoveredPage | null,
+  options: InitialDiscoveryOptions = {},
+): Promise<DiscoveredPage | null> {
+  const maxAttempts = options.maxAttempts ?? 20;
+  const timeoutMs = options.timeoutMs ?? 5000;
+
+  return new Promise((resolve) => {
+    let attempts = 0;
+    let settled = false;
+    const target = document.documentElement ?? document;
+    const observer = new MutationObserver(attempt);
+    const timeoutId = setTimeout(() => finish(null), timeoutMs);
+
+    function finish(page: DiscoveredPage | null): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      observer.disconnect();
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+      resolve(page);
+    }
+
+    function attempt(): void {
+      if (settled) {
+        return;
+      }
+      attempts += 1;
+      const page = discoverPage();
+      if (page) {
+        finish(page);
+      } else if (attempts >= maxAttempts) {
+        finish(null);
+      }
+    }
+
+    observer.observe(target, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true,
+    });
+    attempt();
+  });
+}
+
 export function shouldGeneratePage(
   revisitStatus: PageLifecycle['currentRevisitStatus'],
 ): boolean {

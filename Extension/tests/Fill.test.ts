@@ -94,6 +94,24 @@ function reportFor(
 }
 
 describe('P4 current DOM resolver', () => {
+  it('resolves respondent questions through descendant data-params identity', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div role="list">
+          <div role="listitem">
+            <div data-params='%.@.[101,"Name",null,0,[[201,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"Name"]],"i1","i2",false,"i3"]'></div>
+            <h3 role="heading">Name</h3>
+            <input type="text" value="">
+          </div>
+        </div>
+      </form>
+    </main>`, 'text/html');
+
+    const result = resolveCurrentQuestionTarget(document, question('101', 'short-text'));
+
+    expect(result.ok).toBe(true);
+  });
+
   it('resolves by questionId and returns typed targets', () => {
     const result = resolveCurrentQuestionTarget(
       createDocument(),

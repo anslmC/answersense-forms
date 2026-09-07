@@ -1,5 +1,7 @@
 import type { Question, SupportedQuestionType } from '../Models/Logical';
 import { isSupportedQuestionType } from '../../../Shared/QuestionTypes';
+import { findTopLevelQuestionContainers } from '../Forms/QuestionBoundary';
+import { extractQuestionId } from '../Forms/QuestionIdentity';
 
 export type ResolutionFailureCode =
   | 'ELEMENT_NOT_FOUND'
@@ -37,15 +39,6 @@ export interface ResolutionFailure {
 
 export type ResolutionResult = ResolutionSuccess | ResolutionFailure;
 
-function getQuestionId(element: HTMLElement): string | null {
-  return (
-    element.dataset.questionId ??
-    element.getAttribute('data-params') ??
-    element.id ??
-    element.getAttribute('aria-labelledby')
-  );
-}
-
 function getCurrentQuestionType(question: HTMLElement): SupportedQuestionType | null {
   const explicitType = question.dataset.questionType;
   if (isSupportedQuestionType(explicitType)) {
@@ -68,10 +61,21 @@ function getCurrentQuestionType(question: HTMLElement): SupportedQuestionType | 
 }
 
 function findQuestionElement(document: Document, questionId: string): HTMLElement | null {
-  const candidates = document.querySelectorAll<HTMLElement>(
-    '[role="listitem"], [data-question-id], [data-params], [aria-labelledby], [id]',
+  const respondentForm = document.querySelector<HTMLFormElement>(
+    'form[data-clean-viewform-url]',
   );
-  return Array.from(candidates).find((candidate) => getQuestionId(candidate) === questionId) ?? null;
+  if (respondentForm) {
+    return findTopLevelQuestionContainers(respondentForm)?.find(
+      (candidate) => extractQuestionId(candidate, { requireDataParams: true }) === questionId,
+    ) ?? null;
+  }
+
+  const candidates = document.querySelectorAll<HTMLElement>(
+    '[role="listitem"], [data-question-id], [aria-labelledby], [id]',
+  );
+  return Array.from(candidates).find(
+    (candidate) => extractQuestionId(candidate) === questionId,
+  ) ?? null;
 }
 
 function getChoiceOptions(question: HTMLElement, type: 'single-choice' | 'multiple-choice') {

@@ -33,6 +33,48 @@ function createDocument(): Document {
   );
 }
 
+function createRealisticRespondentDocument(): Document {
+  const parser = new DOMParser();
+  return parser.parseFromString(`<!doctype html><main>
+    <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+      <div role="list">
+        <div role="listitem">
+          <div data-params='%.@.[101,"Capital city?",null,0,[[201,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"Capital city?"]],"q1","q2",false,"q3"]'></div>
+          <h3 role="heading">Capital city?</h3>
+          <input type="text" value="">
+        </div>
+        <div role="listitem">
+          <div data-params='%.@.[102,"Web languages",null,4,[[202,[["HTML",null,null,null,false],["JavaScript",null,null,null,false]],false,null,null,null,null,null,false,null,[]]],null,null,null,null,null,null,[null,"Web languages"]],"q4","q5",false,"q6"]'></div>
+          <h3 role="heading">Web languages</h3>
+          <div role="list">
+            <div role="listitem"><div role="checkbox" aria-label="HTML" aria-checked="false"></div></div>
+            <div role="listitem"><div role="checkbox" aria-label="JavaScript" aria-checked="false"></div></div>
+          </div>
+        </div>
+        <div role="listitem">
+          <div data-params='%.@.[103,"Plant color",null,1,[[203,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"Plant color"]],"q7","q8",false,"q9"]'></div>
+          <h3 role="heading">Plant color</h3>
+          <textarea></textarea>
+        </div>
+        <div role="listitem">
+          <div data-params='%.@.[104,"Bond singer",null,2,[[204,[["Adele",null,null,null,false],["Sam Smith",null,null,null,false]],false,null,null,null,null,null,false,null,[]]],null,null,null,null,null,null,[null,"Bond singer"]],"q10","q11",false,"q12"]'></div>
+          <h3 role="heading">Bond singer</h3>
+          <div role="radio" aria-label="Adele" aria-checked="false"></div>
+          <div role="radio" aria-label="Sam Smith" aria-checked="false"></div>
+        </div>
+        <div role="listitem">
+          <div data-params='%.@.[105,"Other languages",null,4,[[205,[["CSS",null,null,null,false],["HTML",null,null,null,false]],false,null,null,null,null,null,false,null,[]]],null,null,null,null,null,null,[null,"Other languages"]],"q13","q14",false,"q15"]'></div>
+          <h3 role="heading">Other languages</h3>
+          <div role="list">
+            <div role="listitem"><div role="checkbox" aria-label="CSS" aria-checked="false"></div></div>
+            <div role="listitem"><div role="checkbox" aria-label="HTML" aria-checked="false"></div></div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </main>`, 'text/html');
+}
+
 describe('Extension foundation', () => {
   it('exposes the expected extension identity', () => {
     expect(EXTENSION_NAME).toBe('AnswerSense: Forms');
@@ -57,6 +99,87 @@ describe('Google Forms detection', () => {
 });
 
 describe('Active Google Forms page discovery', () => {
+  it('models nested option listitems without treating them as questions', () => {
+    const document = createRealisticRespondentDocument();
+
+    expect(document.querySelectorAll('[role="listitem"], [data-question-id]')).toHaveLength(9);
+
+    const result = discoverActiveGoogleFormsPage(document);
+
+    expect(result?.questions).toHaveLength(5);
+    expect(result?.questions.map((question) => [question.id, question.text, question.kind])).toEqual([
+      ['101', 'Capital city?', 'supported'],
+      ['102', 'Web languages', 'supported'],
+      ['103', 'Plant color', 'supported'],
+      ['104', 'Bond singer', 'supported'],
+      ['105', 'Other languages', 'supported'],
+    ]);
+    expect(result?.questions.map((question) => question.kind === 'supported' ? question.type : null)).toEqual([
+      'short-text',
+      'multiple-choice',
+      'paragraph',
+      'single-choice',
+      'multiple-choice',
+    ]);
+  });
+
+  it('fails closed when respondent question identity metadata is missing or malformed', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div role="list">
+          <div role="listitem"><h3 role="heading">Missing identity</h3><input type="text"></div>
+          <div role="listitem">
+            <div data-params='not-google-forms-data'></div>
+            <h3 role="heading">Malformed identity</h3>
+            <input type="text">
+          </div>
+        </div>
+      </form>
+    </main>`, 'text/html');
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
+      expect.objectContaining({ kind: 'unsupported', id: null, text: 'Missing identity' }),
+      expect.objectContaining({ kind: 'unsupported', id: null, text: 'Malformed identity' }),
+    ]);
+  });
+
+  it('discovers the current respondent form structure using its clean view-form URL', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div class="o3Dpx" role="list">
+          <div role="listitem">
+            <div data-params='%.@.[301,"What is your name?",null,0,[[401,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"What is your name?"]],"i1","i2",false,"i3"]'></div>
+            <h3 role="heading">What is your name?</h3>
+            <div data-question-type="short-text">
+              <input type="text" value="Ada Lovelace">
+            </div>
+          </div>
+        </div>
+      </form>
+    </main>`, 'text/html');
+
+    expect(discoverActiveGoogleFormsPage(document)).toEqual({
+      pageId: 'https://docs.google.com/forms/d/e/example/viewform',
+      questions: [expect.objectContaining({ id: '301', kind: 'supported' })],
+    });
+  });
+
+  it('selects the visible respondent form and returns an empty page when it has no questions', () => {
+    const document = new DOMParser().parseFromString(`<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/hidden/viewform" hidden>
+        <div class="o3Dpx" role="list"></div>
+      </form>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/visible/viewform">
+        <div class="o3Dpx" role="list"></div>
+      </form>
+    </main>`, 'text/html');
+
+    expect(discoverActiveGoogleFormsPage(document)).toEqual({
+      pageId: 'https://docs.google.com/forms/d/e/visible/viewform',
+      questions: [],
+    });
+  });
+
   it('discovers only the active page and its questions', () => {
     const result = discoverActiveGoogleFormsPage(createDocument());
 
