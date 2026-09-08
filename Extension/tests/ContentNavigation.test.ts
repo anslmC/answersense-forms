@@ -95,16 +95,18 @@ function settleInitialPage(lifecycle: PageLifecycle, document: Document): void {
   lifecycle.beginNext(document);
 }
 
-function observe(
+async function observe(
   lifecycle: PageLifecycle,
   document: Document
-): { transitioned: boolean; published: NormalizedActivePage[] } {
+): Promise<{ transitioned: boolean; published: NormalizedActivePage[] }> {
   const published: NormalizedActivePage[] = [];
-  const transitioned = processObservedNavigation(
+  const transitioned = await processObservedNavigation(
     lifecycle,
     document,
     () => discoverActiveGoogleFormsPage(document),
-    (page) => published.push(page)
+    async (page) => {
+      published.push(page);
+    }
   );
   return { transitioned, published };
 }
@@ -161,25 +163,69 @@ describe('Content navigation runtime adapter', () => {
     );
   });
 
-  it('routes Next to a new page through discovery and classification', () => {
+  it('routes Next to a new page through discovery and classification', async () => {
     const { lifecycle } = createLifecycle();
     const oldDocument = createDocument();
     settleInitialPage(lifecycle, oldDocument);
 
-    const result = observe(lifecycle, createDocument('page-2'));
+    const result = await observe(lifecycle, createDocument('page-2'));
 
     expect(result.transitioned).toBe(true);
     expect(result.published[0]?.form.activePageId).toBe('page-2');
     expect(lifecycle.currentRevisitStatus).toBe('NEW');
   });
 
+  it('does not complete a transition before publication is acknowledged', async () => {
+    const { lifecycle } = createLifecycle();
+    const oldDocument = createDocument();
+    settleInitialPage(lifecycle, oldDocument);
+    let releasePublication!: () => void;
+    const publication = new Promise<void>((resolve) => {
+      releasePublication = resolve;
+    });
+
+    const transition = processObservedNavigation(
+      lifecycle,
+      createDocument('page-2'),
+      () => discoverActiveGoogleFormsPage(createDocument('page-2')),
+      () => publication
+    );
+    let completed = false;
+    void transition.then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+
+    expect(completed).toBe(false);
+    releasePublication();
+    await expect(transition).resolves.toBe(true);
+  });
+
+  it('propagates a publication failure instead of reporting transition success', async () => {
+    const { lifecycle } = createLifecycle();
+    const oldDocument = createDocument();
+    settleInitialPage(lifecycle, oldDocument);
+    const publicationFailure = new Error('publication failed');
+
+    await expect(
+      processObservedNavigation(
+        lifecycle,
+        createDocument('page-2'),
+        () => discoverActiveGoogleFormsPage(createDocument('page-2')),
+        async () => {
+          throw publicationFailure;
+        }
+      )
+    ).rejects.toBe(publicationFailure);
+  });
+
   it('reuses an unchanged Previous/Back revisit without invoking generation', async () => {
     const { lifecycle, generation } = createLifecycle();
     const oldDocument = createDocument();
     settleInitialPage(lifecycle, oldDocument);
-    observe(lifecycle, createDocument('page-2'));
+    await observe(lifecycle, createDocument('page-2'));
 
-    const result = observe(lifecycle, createDocument('page-1'));
+    const result = await observe(lifecycle, createDocument('page-1'));
     const backend: GenerationInterface = {
       generate: vi.fn(async (request): Promise<GenerationResponse> => ({
         cycleId: request.cycleId,
@@ -214,9 +260,9 @@ describe('Content navigation runtime adapter', () => {
     const { lifecycle, generation } = createLifecycle();
     const oldDocument = createDocument();
     settleInitialPage(lifecycle, oldDocument);
-    observe(lifecycle, createDocument('page-2'));
+    await observe(lifecycle, createDocument('page-2'));
 
-    const result = observe(
+    const result = await observe(
       lifecycle,
       createDocument('page-1', 'Changed question')
     );
@@ -248,20 +294,20 @@ describe('Content navigation runtime adapter', () => {
     expect(backend.generate).toHaveBeenCalledTimes(1);
   });
 
-  it('does not settle or duplicate context across repeated blocked and confirmed attempts', () => {
+  it('does not settle or duplicate context across repeated blocked and confirmed attempts', async () => {
     const { lifecycle } = createLifecycle();
     const oldDocument = createDocument();
     settleInitialPage(lifecycle, oldDocument);
 
-    const blocked = observe(lifecycle, createDocument());
-    const repeatedBlocked = observe(lifecycle, createDocument());
+    const blocked = await observe(lifecycle, createDocument());
+    const repeatedBlocked = await observe(lifecycle, createDocument());
     expect(blocked.transitioned).toBe(false);
     expect(repeatedBlocked.transitioned).toBe(false);
     expect(lifecycle.context).toEqual([]);
     expect(lifecycle.pendingPage).not.toBeNull();
 
-    const transitioned = observe(lifecycle, createDocument('page-2'));
-    const repeatedTransition = observe(lifecycle, createDocument('page-2'));
+    const transitioned = await observe(lifecycle, createDocument('page-2'));
+    const repeatedTransition = await observe(lifecycle, createDocument('page-2'));
     expect(transitioned.transitioned).toBe(true);
     expect(repeatedTransition.transitioned).toBe(false);
     expect(lifecycle.context).toEqual([

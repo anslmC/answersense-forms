@@ -179,18 +179,18 @@ export class IntegrationStateStore {
     if (!this.storage) {
       return Promise.resolve();
     }
-    this.writeQueue = this.writeQueue
+    const persistence = this.writeQueue
       .then(async () => {
         await this.storage!.set({
           [INTEGRATION_STATE_STORAGE_KEY]: Object.fromEntries(
             this.snapshots.entries()
           ),
         });
-      })
-      .catch((error: unknown) => {
-        console.error('AnswerSense session state persistence failed.', error);
       });
-    return this.writeQueue;
+    this.writeQueue = persistence.catch((error: unknown) => {
+      console.error('AnswerSense session state persistence failed.', error);
+    });
+    return persistence;
   }
 
   async get(tabId: number): Promise<IntegrationSnapshot | null> {

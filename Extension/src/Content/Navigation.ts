@@ -82,12 +82,11 @@ export function processObservedNavigation(
   lifecycle: PageLifecycle,
   document: Document,
   discoverPage: () => DiscoveredPage | null,
-  publishTransition: (page: NormalizedActivePage) => void
-): boolean {
+  publishTransition: (page: NormalizedActivePage) => Promise<void>
+): Promise<boolean> {
   const nextPage = lifecycle.confirmTransition(document);
   if (nextPage) {
-    publishTransition(nextPage);
-    return true;
+    return publishTransition(nextPage).then(() => true);
   }
 
   const discovered = discoverPage();
@@ -95,13 +94,12 @@ export function processObservedNavigation(
     !discovered ||
     discovered.pageId === lifecycle.currentPage.form.activePageId
   ) {
-    return false;
+    return Promise.resolve(false);
   }
 
   const previousPage = lifecycle.handlePreviousOrBack(document);
   if (!previousPage) {
-    return false;
+    return Promise.resolve(false);
   }
-  publishTransition(previousPage);
-  return true;
+  return publishTransition(previousPage).then(() => true);
 }

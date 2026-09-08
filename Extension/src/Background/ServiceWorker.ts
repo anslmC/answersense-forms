@@ -442,7 +442,7 @@ export async function handleMessage(
       error: null,
     });
     void notifyPopup({ type: 'p7-state-updated', snapshot });
-    return snapshot;
+    return { status: 'transition-stored', snapshot };
   }
 
   if (message.type === 'p7-discover') {

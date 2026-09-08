@@ -441,10 +441,10 @@ describe('Service Worker current-content discovery reconciliation', () => {
       navigation: null,
       documentPathname: '/viewform',
     };
-    await handleMessage(
+    await expect(handleMessage(
       { type: 'lifecycle-snapshot', snapshot },
       sender(activeTabId)
-    );
+    )).resolves.toEqual({ status: 'snapshot-stored' });
     await handleMessage(
       { type: 'lifecycle-snapshot', snapshot },
       sender(activeTabId + 1)
@@ -518,7 +518,10 @@ describe('Service Worker popup broadcast reliability', () => {
         },
         sender(activeTabId)
       )
-    ).resolves.toMatchObject({ page: { pageId: 'entry:3-6' } });
+    ).resolves.toMatchObject({
+      status: 'transition-stored',
+      snapshot: { page: { pageId: 'entry:3-6' } },
+    });
   });
 
   it('does not reject when the popup receiver disappeared after review completion', async () => {

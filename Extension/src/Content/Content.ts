@@ -15,6 +15,10 @@ import {
 } from './Navigation';
 import { comparePageOrder } from '../Lifecycle/Transition';
 import { belongsToSameForm } from './Identity';
+import {
+  LifecyclePublicationQueue,
+  type LifecyclePublicationMessage,
+} from './LifecyclePublication';
 import type {
   GenerationRequest,
   GenerationResponse,
@@ -27,29 +31,46 @@ const supportedPage = isSupportedGoogleFormsPage(window.location);
 const generation = new GenerationCoordinator(() => crypto.randomUUID());
 let lifecycle: PageLifecycle | null = null;
 let lifecycleInitialization: Promise<void> | null = null;
+let lifecyclePublicationError: string | null = null;
+const lifecyclePublications = new LifecyclePublicationQueue((message) =>
+  chrome.runtime.sendMessage(message)
+);
 
-function publishLifecycleSnapshot(): void {
-  if (lifecycle) {
-    void chrome.runtime.sendMessage({
-      type: 'lifecycle-snapshot',
-      snapshot: lifecycle.getSnapshot(window.location.pathname),
-    });
+function publishLifecycleSnapshot(): Promise<void> {
+  if (!lifecycle) {
+    return Promise.resolve();
   }
+  const publication = lifecyclePublications.publish({
+    type: 'lifecycle-snapshot',
+    snapshot: lifecycle.getSnapshot(window.location.pathname),
+  } satisfies LifecyclePublicationMessage);
+  return publication.then(() => {
+    lifecyclePublicationError = null;
+  });
 }
 
 function publishTransition(
   page: ReturnType<PageLifecycle['confirmTransition']>
-): void {
+): Promise<void> {
   if (!page || !lifecycle) {
-    return;
+    return Promise.resolve();
   }
-  void chrome.runtime.sendMessage({
+  const publication = lifecyclePublications.publish({
     type: 'lifecycle-transition-confirmed',
     pageId: page.form.activePageId,
     questionCount: page.form.questions.length,
     revisitStatus: lifecycle.currentRevisitStatus,
     snapshot: lifecycle.getSnapshot(window.location.pathname),
+  } satisfies LifecyclePublicationMessage);
+  return publication.then(() => {
+    lifecyclePublicationError = null;
   });
+}
+
+function recordLifecyclePublicationFailure(error: unknown): void {
+  lifecyclePublicationError =
+    error instanceof Error ? error.message : 'Lifecycle publication failed.';
+  console.error('AnswerSense lifecycle publication failed.', error);
 }
 
 function isNextNavigationButton(button: HTMLElement): boolean {
@@ -69,12 +90,14 @@ function observeNextIntent(): void {
     }
     const button = target.closest<HTMLElement>('[role="button"], button');
     if (button && isNextNavigationButton(button)) {
-      try {
-        ensureLifecycle().beginNext();
-        publishLifecycleSnapshot();
-      } catch {
-        // Discovery remains authoritative if no active lifecycle exists yet.
-      }
+      void (async () => {
+        try {
+          ensureLifecycle().beginNext();
+          await publishLifecycleSnapshot();
+        } catch (error) {
+          recordLifecyclePublicationFailure(error);
+        }
+      })();
     }
   });
 
@@ -82,12 +105,12 @@ function observeNextIntent(): void {
     if (!lifecycle) {
       return;
     }
-    processObservedNavigation(
+    void processObservedNavigation(
       lifecycle,
       document,
       discoverPage,
       publishTransition
-    );
+    ).catch(recordLifecyclePublicationFailure);
   });
   if (document.documentElement) {
     observer.observe(document.documentElement, pageNavigationMutationOptions);
@@ -110,7 +133,6 @@ function ensureLifecycle(discovered?: DiscoveredPage): PageLifecycle {
     normalizeDiscoveredActivePage(page),
     generation
   );
-  publishLifecycleSnapshot();
   return lifecycle;
 }
 
@@ -172,12 +194,13 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
         transition
       );
       if (transition === 'reload') {
-        publishLifecycleSnapshot();
+        await publishLifecycleSnapshot();
       } else {
-        publishTransition(reconciled);
+        await publishTransition(reconciled);
       }
     } else {
       ensureLifecycle(discovered);
+      await publishLifecycleSnapshot();
     }
   })();
 
@@ -185,8 +208,8 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
 }
 
 const hydration = waitForInitialDiscovery(document, discoverPage)
-  .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined))
-  .catch(() => undefined);
+  .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined));
+void hydration.catch(recordLifecyclePublicationFailure);
 
 function createGeminiGenerator(
   configurationDigest: string,
@@ -243,6 +266,7 @@ async function handleRequest(request: {
       status: 'current-state',
       supported: true,
       lifecycle: lifecycle?.getSnapshot(window.location.pathname) ?? null,
+      publicationError: lifecyclePublicationError,
       page: {
         pageId: page.pageId,
         questionCount: page.questions.length,
@@ -261,7 +285,7 @@ async function handleRequest(request: {
     const pageLifecycle = ensureLifecycle();
     if (request.retry === true) {
       pageLifecycle.retryGeneration();
-      publishLifecycleSnapshot();
+      await publishLifecycleSnapshot();
     }
     if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {
       return {
@@ -293,20 +317,23 @@ async function handleRequest(request: {
       fillReport
     );
     pageLifecycle.acceptFinalizedHandoff(handoff);
-    publishLifecycleSnapshot();
+    await publishLifecycleSnapshot();
     return { report, fillReport };
   }
 
   if (request.type === 'begin-next') {
     await hydration;
     ensureLifecycle().beginNext();
-    publishLifecycleSnapshot();
+    await publishLifecycleSnapshot();
     return { status: 'next-initiated' };
   }
 
   if (request.type === 'confirm-transition') {
     await hydration;
     const nextPage = ensureLifecycle().confirmTransition(document);
+    if (nextPage) {
+      await publishTransition(nextPage);
+    }
     return nextPage
       ? {
           status: 'transition-confirmed',
@@ -319,14 +346,14 @@ async function handleRequest(request: {
   if (request.type === 'abandon') {
     await hydration;
     ensureLifecycle().abandon();
-    publishLifecycleSnapshot();
+    await publishLifecycleSnapshot();
     return { status: 'abandoned' };
   }
 
   if (request.type === 'restart') {
     await hydration;
     const cycle = ensureLifecycle().restart();
-    publishLifecycleSnapshot();
+    await publishLifecycleSnapshot();
     return { status: 'restarted', cycleId: cycle.cycleId };
   }
 

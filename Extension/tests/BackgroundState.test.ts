@@ -46,6 +46,21 @@ function sessionStorage(initial: Record<string, unknown> = {}) {
   };
 }
 
+function failingSessionStorage() {
+  let failures = 1;
+  return {
+    async get() {
+      return {};
+    },
+    async set() {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error('session storage failed');
+      }
+    },
+  };
+}
+
 describe('P7 worker integration state', () => {
   it('restores valid state after the in-memory store is recreated', async () => {
     const storage = sessionStorage();
@@ -63,6 +78,23 @@ describe('P7 worker integration state', () => {
       page: { pageId: 'page-2', questionCount: 2 },
       lifecycle: { activeCycle: { cycleId: 'cycle-2' } },
     });
+  });
+
+  it('reports storage failure while keeping the serialized queue usable', async () => {
+    const storage = failingSessionStorage();
+    const store = new IntegrationStateStore(storage);
+    const snapshot = {
+      lifecycle: lifecycle('page-1', 'cycle-1'),
+      uiState: 'READY' as const,
+      page: { pageId: 'page-1', questionCount: 1 },
+      result: null,
+      error: null,
+    };
+
+    await expect(store.set(10, snapshot)).rejects.toThrow(
+      'session storage failed'
+    );
+    await expect(store.set(10, snapshot)).resolves.toEqual(snapshot);
   });
 
   it('ignores malformed stored entries without blocking valid state', async () => {
