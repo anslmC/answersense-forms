@@ -14,6 +14,9 @@ body {
 }
 
 .status-panel,
+.configuration-panel,
+.credential-panel,
+.validation-panel,
 .results {
   padding: 10px 0;
   border-top: 1px solid #dbe2ea;
@@ -47,6 +50,31 @@ h1 {
   margin: 0;
   color: #4b5563;
   font-size: 13px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+label {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+input,
+select {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2937;
+  font: inherit;
 }
 
 .message,

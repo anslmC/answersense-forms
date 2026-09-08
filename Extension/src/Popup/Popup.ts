@@ -1,36 +1,50 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
 import { PopupController } from './Controller';
+import {
+  isCurrentValidationValid,
+  modelsForProvider,
+  validationStatus,
+  type PopupConfigurationState,
+} from './Configuration';
 import { createBrowserPopupWorkflow } from './Workflow';
-import type { UiState } from './State';
-import type { WorkflowSnapshot } from './State';
+import type { UiState, WorkflowSnapshot } from './State';
 
-function render(state: UiState): void {
-  const status = document.querySelector<HTMLElement>('[data-status]');
-  const detail = document.querySelector<HTMLElement>('[data-detail]');
-  const message = document.querySelector<HTMLElement>('[data-message]');
-  const results = document.querySelector<HTMLElement>('[data-results]');
-  const primary = document.querySelector<HTMLButtonElement>(
-    '[data-primary-action]'
-  );
-  const review = document.querySelector<HTMLButtonElement>(
-    '[data-review-action]'
-  );
-  if (!status || !detail || !message || !results || !primary || !review) {
-    return;
-  }
+let configurationState: PopupConfigurationState = {
+  providers: [],
+  credentials: [],
+  activeConfiguration: null,
+  configurationDigest: null,
+  configurationRevision: 0,
+  validation: null,
+};
+let validating = false;
+
+function element<T extends HTMLElement>(selector: string): T | null {
+  return document.querySelector<T>(selector);
+}
+
+function renderGeneration(state: UiState): void {
+  const status = element<HTMLElement>('[data-status]');
+  const detail = element<HTMLElement>('[data-detail]');
+  const message = element<HTMLElement>('[data-message]');
+  const results = element<HTMLElement>('[data-results]');
+  const primary = element<HTMLButtonElement>('[data-primary-action]');
+  const review = element<HTMLButtonElement>('[data-review-action]');
+  if (!status || !detail || !message || !results || !primary || !review) return;
 
   results.replaceChildren();
   message.hidden = true;
   primary.hidden = false;
   review.hidden = true;
-  primary.disabled = false;
-
+  primary.disabled = !isCurrentValidationValid(configurationState);
   if (state.name === 'UNSUPPORTED') {
     status.textContent = 'This page is not supported.';
     detail.textContent = state.message;
     primary.hidden = true;
   } else if (state.name === 'READY') {
-    status.textContent = 'Ready to generate';
+    status.textContent = primary.disabled
+      ? 'Ready to configure'
+      : 'Ready to generate';
     detail.textContent = `${state.page.questionCount} question${state.page.questionCount === 1 ? '' : 's'} on page ${state.page.pageId}.`;
     primary.textContent = 'Generate & Auto-Fill';
   } else if (state.name === 'GENERATING') {
@@ -60,135 +74,293 @@ function render(state: UiState): void {
         : 'Review answers before clicking Next in Google Forms.';
     primary.textContent = 'Regenerate';
     review.hidden = state.name !== 'REVIEW';
-    const fragment = document.createDocumentFragment();
     for (const outcome of state.result.fillReport.outcomes) {
       const item = document.createElement('p');
       item.className = `result result-${outcome.status.toLowerCase()}`;
       item.textContent = `${outcome.questionId ?? 'Question'}: ${outcome.status.replace(/_/g, ' ')}`;
-      fragment.append(item);
+      results.append(item);
     }
-    results.append(fragment);
     results.hidden = false;
   }
 }
 
-async function updateCredentialStatus(): Promise<void> {
-  const status = document.querySelector<HTMLElement>(
-    '[data-credential-status]'
+function renderConfiguration(): void {
+  const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
+  const modelSelect = element<HTMLSelectElement>('[data-model-select]');
+  const credentialSelect = element<HTMLSelectElement>(
+    '[data-credential-select]'
   );
-  const message = document.querySelector<HTMLElement>(
-    '[data-credential-message]'
+  const validationStatusElement = element<HTMLElement>(
+    '[data-validation-status]'
   );
-  if (!status || !message) {
+  const validateButton = element<HTMLButtonElement>(
+    '[data-validate-configuration]'
+  );
+  const credentialStatus = element<HTMLElement>('[data-credential-status]');
+  if (
+    !providerSelect ||
+    !modelSelect ||
+    !credentialSelect ||
+    !validationStatusElement ||
+    !validateButton ||
+    !credentialStatus
+  )
     return;
+
+  const active = configurationState.activeConfiguration;
+  providerSelect.replaceChildren();
+  for (const provider of configurationState.providers) {
+    providerSelect.add(new Option(provider.displayName, provider.providerId));
   }
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'credential-status',
-    });
-    status.textContent = response?.configured
-      ? 'Credential stored locally.'
-      : 'Configuration required.';
-  } catch {
-    status.textContent = 'Credential status unavailable.';
+  if (active?.providerId) providerSelect.value = active.providerId;
+  const models = modelsForProvider(configurationState, providerSelect.value);
+  modelSelect.replaceChildren();
+  for (const model of models)
+    modelSelect.add(new Option(model.displayName, model.modelId));
+  if (active?.modelId) modelSelect.value = active.modelId;
+
+  credentialSelect.replaceChildren();
+  for (const credential of configurationState.credentials.filter(
+    (item) => item.providerId === providerSelect.value
+  )) {
+    credentialSelect.add(
+      new Option(credential.label || 'Unnamed API key', credential.credentialId)
+    );
   }
-  message.hidden = true;
+  if (active?.credentialId) credentialSelect.value = active.credentialId;
+  credentialStatus.textContent = configurationState.credentials.length
+    ? `${configurationState.credentials.length} credential${configurationState.credentials.length === 1 ? '' : 's'} stored.`
+    : 'Add an API key to configure a provider.';
+  validationStatusElement.textContent = validationStatus(
+    configurationState,
+    validating
+  ).replace(/_/g, ' ');
+  validateButton.disabled = validating || !active;
 }
 
-function showCredentialMessage(text: string): void {
-  const message = document.querySelector<HTMLElement>(
-    '[data-credential-message]'
-  );
+function renderAll(state: UiState): void {
+  renderConfiguration();
+  renderGeneration(state);
+}
+
+async function send(
+  message: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = (await chrome.runtime.sendMessage(message)) as
+    Record<string, unknown> | undefined;
+  if (response?.error) throw new Error(String(response.error));
+  return response ?? {};
+}
+
+async function reloadConfiguration(): Promise<void> {
+  configurationState = (await send({
+    type: 'configuration-state',
+  })) as unknown as PopupConfigurationState;
+  renderConfiguration();
+}
+
+function showMessage(selector: string, text: string): void {
+  const message = element<HTMLElement>(selector);
   if (message) {
     message.textContent = text;
     message.hidden = false;
   }
 }
 
-async function sendCredentialMessage(
-  message: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = (await chrome.runtime.sendMessage(message)) as
-    Record<string, unknown> | undefined;
-  if (response?.error) {
-    throw new Error(String(response.error));
-  }
-  return response ?? {};
-}
-
 document.addEventListener('DOMContentLoaded', async () => {
   log(`${EXTENSION_NAME} popup initialized.`);
   const controller = new PopupController(createBrowserPopupWorkflow());
-  const primary = document.querySelector<HTMLButtonElement>(
-    '[data-primary-action]'
+  const primary = element<HTMLButtonElement>('[data-primary-action]');
+  const review = element<HTMLButtonElement>('[data-review-action]');
+  const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
+  const modelSelect = element<HTMLSelectElement>('[data-model-select]');
+  const credentialSelect = element<HTMLSelectElement>(
+    '[data-credential-select]'
   );
-  const review = document.querySelector<HTMLButtonElement>(
-    '[data-review-action]'
+  const credentialLabel = element<HTMLInputElement>('[data-credential-label]');
+  const credentialSecret = element<HTMLInputElement>(
+    '[data-credential-secret]'
   );
-  const apiKey = document.querySelector<HTMLInputElement>('[data-api-key]');
-  const saveCredential = document.querySelector<HTMLButtonElement>(
-    '[data-save-credential]'
-  );
-  const testCredential = document.querySelector<HTMLButtonElement>(
-    '[data-test-credential]'
-  );
-  const deleteCredential = document.querySelector<HTMLButtonElement>(
-    '[data-delete-credential]'
-  );
-  if (!primary || !review) {
+  if (
+    !primary ||
+    !review ||
+    !providerSelect ||
+    !modelSelect ||
+    !credentialSelect ||
+    !credentialLabel ||
+    !credentialSecret
+  )
     return;
-  }
-  void updateCredentialStatus();
-  saveCredential?.addEventListener('click', async () => {
-    try {
-      await sendCredentialMessage({
-        type: 'credential-save',
-        apiKey: apiKey?.value ?? '',
-      });
-      if (apiKey) {
-        apiKey.value = '';
+
+  providerSelect.addEventListener('change', () => {
+    modelSelect.replaceChildren(
+      ...modelsForProvider(configurationState, providerSelect.value).map(
+        (model) => new Option(model.displayName, model.modelId)
+      )
+    );
+    credentialSelect.replaceChildren(
+      ...configurationState.credentials
+        .filter((item) => item.providerId === providerSelect.value)
+        .map(
+          (credential) =>
+            new Option(
+              credential.label || 'Unnamed API key',
+              credential.credentialId
+            )
+        )
+    );
+  });
+  element<HTMLButtonElement>('[data-save-configuration]')?.addEventListener(
+    'click',
+    async () => {
+      try {
+        configurationState = (await send({
+          type: 'configuration-set',
+          providerId: providerSelect.value,
+          modelId: modelSelect.value,
+          credentialId: credentialSelect.value,
+        })) as unknown as PopupConfigurationState;
+        showMessage(
+          '[data-validation-message]',
+          'Configuration saved. Validate it before generating.'
+        );
+        renderAll(controller.state);
+      } catch (error) {
+        showMessage(
+          '[data-validation-message]',
+          error instanceof Error
+            ? error.message
+            : 'Configuration could not be saved.'
+        );
       }
-      showCredentialMessage('Credential saved locally.');
-      await updateCredentialStatus();
-    } catch (error) {
-      showCredentialMessage(
-        error instanceof Error
-          ? error.message
-          : 'Credential could not be saved.'
-      );
     }
-  });
-  testCredential?.addEventListener('click', async () => {
-    try {
-      await sendCredentialMessage({ type: 'credential-test' });
-      showCredentialMessage('Credential is valid.');
-    } catch (error) {
-      showCredentialMessage(
-        error instanceof Error ? error.message : 'Credential validation failed.'
-      );
+  );
+  element<HTMLButtonElement>('[data-clear-configuration]')?.addEventListener(
+    'click',
+    async () => {
+      try {
+        configurationState = (await send({
+          type: 'configuration-clear',
+        })) as unknown as PopupConfigurationState;
+        renderAll(controller.state);
+      } catch (error) {
+        showMessage(
+          '[data-validation-message]',
+          error instanceof Error
+            ? error.message
+            : 'Configuration could not be cleared.'
+        );
+      }
     }
-  });
-  deleteCredential?.addEventListener('click', async () => {
-    try {
-      await sendCredentialMessage({ type: 'credential-delete' });
-      showCredentialMessage('Credential deleted.');
-      await updateCredentialStatus();
-    } catch (error) {
-      showCredentialMessage(
-        error instanceof Error
-          ? error.message
-          : 'Credential could not be deleted.'
-      );
+  );
+  element<HTMLButtonElement>('[data-add-credential]')?.addEventListener(
+    'click',
+    async () => {
+      try {
+        await send({
+          type: 'credential-create',
+          providerId: providerSelect.value,
+          label: credentialLabel.value,
+          secret: credentialSecret.value,
+        });
+        credentialSecret.value = '';
+        credentialLabel.value = '';
+        await reloadConfiguration();
+        showMessage('[data-credential-message]', 'API key added.');
+      } catch (error) {
+        showMessage(
+          '[data-credential-message]',
+          error instanceof Error ? error.message : 'API key could not be added.'
+        );
+      }
     }
-  });
+  );
+  element<HTMLButtonElement>('[data-replace-credential]')?.addEventListener(
+    'click',
+    async () => {
+      try {
+        await send({
+          type: 'credential-replace',
+          credentialId: credentialSelect.value,
+          providerId: providerSelect.value,
+          label: credentialLabel.value,
+          secret: credentialSecret.value,
+        });
+        credentialSecret.value = '';
+        credentialLabel.value = '';
+        await reloadConfiguration();
+        showMessage(
+          '[data-credential-message]',
+          'API key replaced. Validate the configuration again.'
+        );
+      } catch (error) {
+        showMessage(
+          '[data-credential-message]',
+          error instanceof Error
+            ? error.message
+            : 'API key could not be replaced.'
+        );
+      }
+    }
+  );
+  element<HTMLButtonElement>('[data-delete-credential]')?.addEventListener(
+    'click',
+    async () => {
+      try {
+        await send({
+          type: 'credential-delete-selected',
+          credentialId: credentialSelect.value,
+        });
+        await reloadConfiguration();
+        showMessage('[data-credential-message]', 'API key deleted.');
+      } catch (error) {
+        showMessage(
+          '[data-credential-message]',
+          error instanceof Error
+            ? error.message
+            : 'API key could not be deleted.'
+        );
+      }
+    }
+  );
+  element<HTMLButtonElement>('[data-validate-configuration]')?.addEventListener(
+    'click',
+    async () => {
+      if (validating) return;
+      validating = true;
+      renderConfiguration();
+      try {
+        await send({ type: 'configuration-validate' });
+        await reloadConfiguration();
+        showMessage(
+          '[data-validation-message]',
+          'Configuration is valid. Generate is available on a supported page.'
+        );
+      } catch (error) {
+        await reloadConfiguration().catch(() => undefined);
+        showMessage(
+          '[data-validation-message]',
+          error instanceof Error
+            ? error.message
+            : 'Configuration validation failed.'
+        );
+      } finally {
+        validating = false;
+        renderConfiguration();
+        renderGeneration(controller.state);
+      }
+    }
+  );
   primary.addEventListener('click', async () => {
-    render(await controller.generate());
+    if (!isCurrentValidationValid(configurationState)) return;
+    renderAll(await controller.generate());
   });
-  review.addEventListener('click', () => render(controller.finishReview()));
+  review.addEventListener('click', () => renderAll(controller.finishReview()));
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'p7-state-updated' && message.snapshot) {
-      render(controller.restore(message.snapshot as WorkflowSnapshot));
+      renderAll(controller.restore(message.snapshot as WorkflowSnapshot));
     }
   });
-  render(await controller.discover());
+  await reloadConfiguration();
+  renderAll(await controller.discover());
 });

@@ -16,26 +16,61 @@
         <p class="status" data-status>Checking this page...</p>
         <p class="detail" data-detail></p>
       </section>
+      <section
+        class="configuration-panel"
+        aria-labelledby="configuration-heading"
+      >
+        <h2 id="configuration-heading">Configuration</h2>
+        <label for="provider-select">Provider</label>
+        <select id="provider-select" data-provider-select></select>
+        <label for="model-select">Model</label>
+        <select id="model-select" data-model-select></select>
+        <label for="credential-select">API Key</label>
+        <select id="credential-select" data-credential-select></select>
+        <div class="actions">
+          <button type="button" data-save-configuration>
+            Save configuration
+          </button>
+          <button type="button" class="secondary" data-clear-configuration>
+            Clear
+          </button>
+        </div>
+        <p class="detail" data-credential-status>Loading configuration...</p>
+      </section>
       <section class="credential-panel" aria-labelledby="credential-heading">
-        <h2 id="credential-heading">Gemini provider</h2>
-        <p class="detail" data-credential-status>Checking credential...</p>
-        <label for="gemini-api-key">API key</label>
+        <h2 id="credential-heading">API Keys</h2>
+        <label for="credential-label">Label</label>
         <input
-          id="gemini-api-key"
-          type="password"
+          id="credential-label"
+          type="text"
           autocomplete="off"
-          data-api-key
+          data-credential-label
+        />
+        <label for="credential-secret">API key</label>
+        <input
+          id="credential-secret"
+          type="password"
+          autocomplete="new-password"
+          data-credential-secret
         />
         <div class="actions">
-          <button type="button" data-save-credential>Save key</button>
-          <button type="button" class="secondary" data-test-credential>
-            Test key
+          <button type="button" data-add-credential>Add API key</button>
+          <button type="button" class="secondary" data-replace-credential>
+            Replace API key
           </button>
           <button type="button" class="secondary" data-delete-credential>
-            Delete key
+            Delete API key
           </button>
         </div>
         <p class="message" data-credential-message hidden></p>
+      </section>
+      <section class="validation-panel" aria-labelledby="validation-heading">
+        <h2 id="validation-heading">Authorization</h2>
+        <p class="status" data-validation-status>Not validated</p>
+        <button type="button" data-validate-configuration>
+          Validate configuration
+        </button>
+        <p class="message" data-validation-message hidden></p>
       </section>
       <section class="results" data-results hidden></section>
       <p class="message" data-message hidden></p>

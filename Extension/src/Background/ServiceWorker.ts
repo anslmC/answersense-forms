@@ -1,12 +1,26 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
 import {
+  createCredential,
+  clearActiveConfiguration,
   deleteGeminiCredential,
+  deleteCredential,
+  getActiveConfiguration,
   getConfigurationStateRevision,
+  getValidation,
   hasGeminiCredential,
+  listCredentials,
+  replaceCredential,
   saveValidation,
+  setActiveConfiguration,
   storeGeminiCredential,
 } from '../Generation/Credentials';
 import { validateGeminiCredential } from '../Generation/GeminiProvider';
+import {
+  PROVIDER_REGISTRY,
+  resolveProvider,
+  resolveProviderModel,
+} from '../Generation/ProviderRegistry';
+import { configurationIdentity } from '../Generation/Credentials';
 import type { GenerationRequest } from '../Generation/Contract';
 import {
   resolveActiveProviderConfiguration,
@@ -37,6 +51,12 @@ interface WorkerMessage {
   retry?: boolean;
   configurationDigest?: unknown;
   configurationRevision?: unknown;
+  credentialId?: unknown;
+  providerId?: unknown;
+  modelId?: unknown;
+  label?: unknown;
+  secret?: unknown;
+  providerConfig?: unknown;
 }
 
 const stateStore = new IntegrationStateStore();
@@ -52,6 +72,74 @@ async function activeTabId(): Promise<number> {
 
 async function sendToActiveContent(message: WorkerMessage): Promise<unknown> {
   return chrome.tabs.sendMessage(await activeTabId(), message);
+}
+
+async function configurationState(): Promise<Record<string, unknown>> {
+  const activeConfiguration = await getActiveConfiguration();
+  const identity = activeConfiguration
+    ? await configurationIdentity(activeConfiguration)
+    : null;
+  return {
+    providers: PROVIDER_REGISTRY.map((provider) => ({
+      providerId: provider.providerId,
+      displayName: provider.displayName,
+      models: provider.models.map((model) => ({
+        modelId: model.modelId,
+        displayName: model.displayName,
+      })),
+      supportsValidation: provider.supportsValidation,
+    })),
+    credentials: await listCredentials(),
+    activeConfiguration,
+    configurationDigest: identity?.digest ?? null,
+    configurationRevision: await getConfigurationStateRevision(),
+    validation: identity ? await getValidation(identity.digest) : null,
+  };
+}
+
+async function validateActiveConfiguration(): Promise<{ valid: true }> {
+  const resolved = await resolveActiveProviderConfiguration();
+  if (resolved.provider.providerId !== 'gemini') {
+    throw new Error('Provider validation unavailable.');
+  }
+  try {
+    await validateGeminiCredential(resolved.secret);
+  } catch (error) {
+    const safe = sanitizeProviderError(error);
+    const current = await resolveActiveProviderConfiguration();
+    if (current.configurationDigest !== resolved.configurationDigest) {
+      throw new SafeServiceWorkerError(
+        'CONFIGURATION_STALE',
+        'Configuration changed during validation.'
+      );
+    }
+    await saveValidation({
+      configurationDigest: resolved.configurationDigest,
+      providerId: resolved.provider.providerId,
+      modelId: resolved.model.modelId,
+      credentialId: resolved.configuration.credentialId,
+      status: 'INVALID',
+      validatedAt: new Date().toISOString(),
+      failureCode: safe.code,
+    });
+    throw new SafeServiceWorkerError(safe.code, safe.message);
+  }
+  const current = await resolveActiveProviderConfiguration();
+  if (current.configurationDigest !== resolved.configurationDigest) {
+    throw new SafeServiceWorkerError(
+      'CONFIGURATION_STALE',
+      'Configuration changed during validation.'
+    );
+  }
+  await saveValidation({
+    configurationDigest: resolved.configurationDigest,
+    providerId: resolved.provider.providerId,
+    modelId: resolved.model.modelId,
+    credentialId: resolved.configuration.credentialId,
+    status: 'VALID',
+    validatedAt: new Date().toISOString(),
+  });
+  return { valid: true };
 }
 
 function tabIdFromSender(sender: chrome.runtime.MessageSender): number {
@@ -106,11 +194,7 @@ export async function handleMessage(
     }
     const initialActiveTabId = await activeTabId();
     if (
-      !isTrustedContentTabSender(
-        sender,
-        chrome.runtime.id,
-        initialActiveTabId
-      )
+      !isTrustedContentTabSender(sender, chrome.runtime.id, initialActiveTabId)
     ) {
       throw new SafeServiceWorkerError(
         'UNAUTHORIZED_SENDER',
@@ -151,9 +235,9 @@ export async function handleMessage(
       );
     }
     try {
-      return await resolved.adapter(resolved.secret).generate(
-        message.request as GenerationRequest
-      );
+      return await resolved
+        .adapter(resolved.secret)
+        .generate(message.request as GenerationRequest);
     } catch (error) {
       const safe = sanitizeProviderError(error);
       throw new SafeServiceWorkerError(safe.code, safe.message);
@@ -162,9 +246,115 @@ export async function handleMessage(
 
   if (message.type === 'credential-status') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
-      throw new Error('Credential configuration is only available to the extension UI.');
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
     }
     return { configured: await hasGeminiCredential() };
+  }
+
+  if (message.type === 'configuration-state') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Configuration is only available to the extension UI.');
+    }
+    return configurationState();
+  }
+
+  if (message.type === 'credential-create') {
+    if (
+      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      typeof message.providerId !== 'string' ||
+      typeof message.label !== 'string' ||
+      typeof message.secret !== 'string'
+    ) {
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
+    }
+    if (!resolveProvider(message.providerId)) {
+      throw new Error('Unsupported provider configuration.');
+    }
+    return createCredential({
+      providerId: message.providerId,
+      label: message.label,
+      secret: message.secret,
+    });
+  }
+
+  if (message.type === 'credential-replace') {
+    if (
+      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      typeof message.credentialId !== 'string' ||
+      typeof message.providerId !== 'string' ||
+      typeof message.label !== 'string' ||
+      typeof message.secret !== 'string'
+    ) {
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
+    }
+    if (!resolveProvider(message.providerId)) {
+      throw new Error('Unsupported provider configuration.');
+    }
+    return replaceCredential(message.credentialId, {
+      providerId: message.providerId,
+      label: message.label,
+      secret: message.secret,
+    });
+  }
+
+  if (message.type === 'credential-delete-selected') {
+    if (
+      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      typeof message.credentialId !== 'string'
+    ) {
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
+    }
+    await deleteCredential(message.credentialId);
+    return { deleted: true };
+  }
+
+  if (message.type === 'configuration-set') {
+    if (
+      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      typeof message.providerId !== 'string' ||
+      typeof message.modelId !== 'string' ||
+      typeof message.credentialId !== 'string'
+    ) {
+      throw new Error('Configuration is only available to the extension UI.');
+    }
+    if (!resolveProviderModel(message.providerId, message.modelId)) {
+      throw new Error('Unsupported provider configuration.');
+    }
+    await setActiveConfiguration({
+      providerId: message.providerId,
+      modelId: message.modelId,
+      credentialId: message.credentialId,
+      providerConfig:
+        typeof message.providerConfig === 'object' &&
+        message.providerConfig !== null &&
+        !Array.isArray(message.providerConfig)
+          ? (message.providerConfig as Record<string, unknown>)
+          : {},
+    });
+    return configurationState();
+  }
+
+  if (message.type === 'configuration-clear') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Configuration is only available to the extension UI.');
+    }
+    await clearActiveConfiguration();
+    return configurationState();
+  }
+
+  if (message.type === 'configuration-validate') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Validation is only available to the extension UI.');
+    }
+    return validateActiveConfiguration();
   }
 
   if (message.type === 'credential-save') {
@@ -196,48 +386,7 @@ export async function handleMessage(
         'Credential configuration is only available to the extension UI.'
       );
     }
-    const resolved = await resolveActiveProviderConfiguration();
-    if (resolved.provider.providerId !== 'gemini') {
-      throw new Error('Provider validation unavailable.');
-    }
-    try {
-      await validateGeminiCredential(resolved.secret);
-    } catch (error) {
-      const safe = sanitizeProviderError(error);
-      const current = await resolveActiveProviderConfiguration();
-      if (current.configurationDigest !== resolved.configurationDigest) {
-        throw new SafeServiceWorkerError(
-          'CONFIGURATION_STALE',
-          'Configuration changed during validation.'
-        );
-      }
-      await saveValidation({
-        configurationDigest: resolved.configurationDigest,
-        providerId: resolved.provider.providerId,
-        modelId: resolved.model.modelId,
-        credentialId: resolved.configuration.credentialId,
-        status: 'INVALID',
-        validatedAt: new Date().toISOString(),
-        failureCode: safe.code,
-      });
-      throw new SafeServiceWorkerError(safe.code, safe.message);
-    }
-    const current = await resolveActiveProviderConfiguration();
-    if (current.configurationDigest !== resolved.configurationDigest) {
-      throw new SafeServiceWorkerError(
-        'CONFIGURATION_STALE',
-        'Configuration changed during validation.'
-      );
-    }
-    await saveValidation({
-      configurationDigest: resolved.configurationDigest,
-      providerId: resolved.provider.providerId,
-      modelId: resolved.model.modelId,
-      credentialId: resolved.configuration.credentialId,
-      status: 'VALID',
-      validatedAt: new Date().toISOString(),
-    });
-    return { valid: true };
+    return validateActiveConfiguration();
   }
 
   if (message.type === 'get-lifecycle-snapshot') {
@@ -349,25 +498,33 @@ export async function handleMessage(
   }
   if (message.type === 'p7-begin-next') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
-      throw new Error('Navigation control is only available to the extension UI.');
+      throw new Error(
+        'Navigation control is only available to the extension UI.'
+      );
     }
     return sendToActiveContent({ type: 'begin-next' });
   }
   if (message.type === 'p7-confirm-transition') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
-      throw new Error('Navigation control is only available to the extension UI.');
+      throw new Error(
+        'Navigation control is only available to the extension UI.'
+      );
     }
     return sendToActiveContent({ type: 'confirm-transition' });
   }
   if (message.type === 'p7-abandon') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
-      throw new Error('Navigation control is only available to the extension UI.');
+      throw new Error(
+        'Navigation control is only available to the extension UI.'
+      );
     }
     return sendToActiveContent({ type: 'abandon' });
   }
   if (message.type === 'p7-restart') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
-      throw new Error('Navigation control is only available to the extension UI.');
+      throw new Error(
+        'Navigation control is only available to the extension UI.'
+      );
     }
     return sendToActiveContent({ type: 'restart' });
   }
