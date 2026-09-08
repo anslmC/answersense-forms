@@ -24,6 +24,7 @@ import type {
   GenerationResponse,
 } from '../Generation/Contract';
 import type { DiscoveredPage } from '../Forms/Discovery';
+import { observeNativeClear as observeNativeClearButton } from './NativeClear';
 
 log(`${EXTENSION_NAME} content script initialized.`);
 
@@ -47,6 +48,25 @@ function publishLifecycleSnapshot(): Promise<void> {
   return publication.then(() => {
     lifecyclePublicationError = null;
   });
+}
+
+function publishResetSnapshot(): Promise<void> {
+  if (!lifecycle) {
+    return Promise.resolve();
+  }
+  return lifecyclePublications.publish({
+    type: 'lifecycle-snapshot',
+    reset: true,
+    snapshot: lifecycle.getSnapshot(window.location.pathname),
+  } satisfies LifecyclePublicationMessage).then(() => {
+    lifecyclePublicationError = null;
+  });
+}
+
+async function forceClearAnswerSenseState(): Promise<void> {
+  await hydration;
+  ensureLifecycle().forceClear();
+  await publishResetSnapshot();
 }
 
 function publishTransition(
@@ -115,6 +135,12 @@ function observeNextIntent(): void {
   if (document.documentElement) {
     observer.observe(document.documentElement, pageNavigationMutationOptions);
   }
+}
+
+function observeNativeClear(): void {
+  observeNativeClearButton(document, () => {
+    void forceClearAnswerSenseState().catch(recordLifecyclePublicationFailure);
+  });
 }
 
 function discoverPage() {
@@ -328,6 +354,14 @@ async function handleRequest(request: {
     return { status: 'next-initiated' };
   }
 
+  if (request.type === 'force-clear') {
+    await forceClearAnswerSenseState();
+    return {
+      status: 'force-cleared',
+      snapshot: lifecycle?.getSnapshot(window.location.pathname) ?? null,
+    };
+  }
+
   if (request.type === 'confirm-transition') {
     await hydration;
     const nextPage = ensureLifecycle().confirmTransition(document);
@@ -374,3 +408,4 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 });
 
 observeNextIntent();
+observeNativeClear();

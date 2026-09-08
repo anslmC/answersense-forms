@@ -176,6 +176,69 @@ describe('P5 finalized handoff and transition boundary', () => {
 });
 
 describe('P5 page lifecycle', () => {
+  it('force clears every settled page and cycle, including a revisited Page 3', () => {
+    const generation = new GenerationCoordinator(() => 'cycle-reset');
+    const pageThree = {
+      ...page,
+      form: { ...form, activePageId: 'page-3' },
+      processingCycle: { cycleId: 'cycle-3' },
+      questionResults: [
+        {
+          questionId: 'name',
+          status: 'GENERATED' as const,
+          answer: { questionId: 'name', value: 'stale answer' },
+          reason: null,
+        },
+      ],
+    };
+    const lifecycle = new PageLifecycle(pageThree, generation, {
+      activePage: pageThree,
+      activeCycle: { cycleId: 'cycle-3' },
+      pending: null,
+      settledPages: [
+        {
+          pageId: 'page-1',
+          pageFingerprint: 'page-1-fingerprint',
+          entries: [],
+        },
+        {
+          pageId: 'page-2',
+          pageFingerprint: 'page-2-fingerprint',
+          entries: [],
+        },
+        {
+          pageId: 'page-3',
+          pageFingerprint: 'page-3-fingerprint',
+          entries: [],
+        },
+      ],
+      visits: [
+        { pageId: 'page-1', cycleId: 'cycle-1', status: 'settled' },
+        { pageId: 'page-2', cycleId: 'cycle-2', status: 'abandoned' },
+        { pageId: 'page-3', cycleId: 'cycle-3', status: 'active' },
+      ],
+      navigation: null,
+    });
+
+    lifecycle.forceClear();
+
+    expect(lifecycle.context).toEqual([]);
+    expect(lifecycle.settledPageStates).toEqual([]);
+    expect(lifecycle.currentRevisitStatus).toBe('NEW');
+    expect(lifecycle.currentPage.questionResults[0]).toMatchObject({
+      status: 'ready',
+      answer: null,
+    });
+    expect(lifecycle.pageVisits).toEqual([
+      {
+        pageId: 'page-3',
+        cycleId: 'cycle-reset',
+        status: 'active',
+      },
+    ]);
+    expect(lifecycle.currentCycle.cycleId).toBe('cycle-reset');
+  });
+
   it('keeps pending and context unchanged after rejected Next, then settles after change', () => {
     const lifecycle = createLifecycle();
     const document = createDocument();

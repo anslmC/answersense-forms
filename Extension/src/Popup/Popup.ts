@@ -213,6 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const controller = new PopupController(createBrowserPopupWorkflow());
   const primary = element<HTMLButtonElement>('[data-primary-action]');
   const review = element<HTMLButtonElement>('[data-review-action]');
+  const forceClear = element<HTMLButtonElement>('[data-force-clear]');
   const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
   const modelSelect = element<HTMLSelectElement>('[data-model-select]');
   const credentialSelect = element<HTMLSelectElement>(
@@ -225,6 +226,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (
     !primary ||
     !review ||
+    !forceClear ||
     !providerSelect ||
     !modelSelect ||
     !credentialSelect ||
@@ -393,6 +395,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAll(await controller.generate());
   });
   review.addEventListener('click', () => renderAll(controller.finishReview()));
+  forceClear.addEventListener('click', async () => {
+    forceClear.disabled = true;
+    renderAll(await controller.forceClear());
+    forceClear.disabled = false;
+  });
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'p7-state-updated' && message.snapshot) {
       renderAll(controller.restore(message.snapshot as WorkflowSnapshot));

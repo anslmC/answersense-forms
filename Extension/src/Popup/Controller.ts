@@ -48,4 +48,15 @@ export class PopupController {
   retry(): Promise<UiState> {
     return this.generate(true);
   }
+
+  async forceClear(): Promise<UiState> {
+    try {
+      return this.stateMachine.restore(await this.workflow.forceClear());
+    } catch (error) {
+      return this.stateMachine.failGeneration(
+        this.stateMachine.activeOperationToken,
+        error instanceof Error ? error.message : 'Force Clear failed.'
+      );
+    }
+  }
 }

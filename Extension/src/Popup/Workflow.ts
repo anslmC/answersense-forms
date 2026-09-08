@@ -9,6 +9,7 @@ import type {
 export interface PopupWorkflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
   generate(retry?: boolean): Promise<UiGenerationResult>;
+  forceClear(): Promise<WorkflowSnapshot>;
   reviewComplete?(): Promise<void>;
 }
 
@@ -59,6 +60,27 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
         throw new Error(response.error);
       }
       return response as UiGenerationResult;
+    },
+    async forceClear(): Promise<WorkflowSnapshot> {
+      const response = await chrome.runtime.sendMessage({
+        type: 'p7-force-clear',
+      });
+      if (response?.error) {
+        throw new Error(response.error);
+      }
+      const snapshot = response?.snapshot;
+      if (!snapshot) {
+        throw new Error('Force Clear did not return lifecycle state.');
+      }
+      return {
+        uiState: 'READY',
+        page: {
+          pageId: snapshot.activePage.form.activePageId,
+          questionCount: snapshot.activePage.form.questions.length,
+        },
+        result: null,
+        error: null,
+      };
     },
     async reviewComplete(): Promise<void> {
       await chrome.runtime.sendMessage({ type: 'p7-review-complete' });

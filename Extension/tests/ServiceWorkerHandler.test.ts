@@ -540,3 +540,58 @@ describe('Service Worker popup broadcast reliability', () => {
     ).resolves.toMatchObject({ uiState: 'READY_FOR_NEXT' });
   });
 });
+
+describe('Service Worker lifecycle reset durability', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('persists a reset snapshot and clears the popup projection', async () => {
+    const state: ChromeTestState = { values: {}, sessionValues: {}, queryCount: 0 };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const settledSnapshot: LifecycleSnapshot = {
+      activePage: {
+        form: { formId: 'form-1', activePageId: 'entry:3-6', questions: [] },
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-3' },
+      },
+      activeCycle: { cycleId: 'cycle-3' },
+      pending: null,
+      settledPages: [
+        { pageId: 'entry:0-3', pageFingerprint: 'old', entries: [] },
+      ],
+      visits: [
+        { pageId: 'entry:0-3', cycleId: 'cycle-1', status: 'settled' },
+        { pageId: 'entry:3-6', cycleId: 'cycle-3', status: 'active' },
+      ],
+      navigation: null,
+      documentPathname: '/formResponse',
+    };
+
+    await handleMessage(
+      { type: 'lifecycle-snapshot', snapshot: settledSnapshot },
+      sender(activeTabId)
+    );
+    await handleMessage(
+      { type: 'lifecycle-snapshot', reset: true, snapshot: {
+        ...settledSnapshot,
+        settledPages: [],
+        visits: [{ pageId: 'entry:3-6', cycleId: 'cycle-4', status: 'active' }],
+        activeCycle: { cycleId: 'cycle-4' },
+      } },
+      sender(activeTabId)
+    );
+
+    await expect(
+      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
+    ).resolves.toMatchObject({
+      lifecycle: { settledPages: [], activeCycle: { cycleId: 'cycle-4' } },
+      uiState: 'READY',
+      result: null,
+      error: null,
+    });
+    expect(state.sessionValues).toBeDefined();
+  });
+});

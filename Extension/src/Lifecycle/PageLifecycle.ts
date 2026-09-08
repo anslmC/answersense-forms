@@ -215,6 +215,33 @@ export class PageLifecycle {
     return this.activeCycle;
   }
 
+  forceClear(): ProcessingCycle {
+    this.pending = null;
+    this.navigation = null;
+    this.oldPageDocument = null;
+    this.revisitStatus = 'NEW';
+    this.settledPages.length = 0;
+    this.visits.length = 0;
+    this.generation.invalidate();
+    this.activeCycle = this.generation.beginCycle();
+    this.activePage = {
+      ...this.activePage,
+      processingCycle: this.activeCycle,
+      questionResults: this.activePage.questionResults.map((result) => ({
+        ...result,
+        status: result.status === 'unsupported' ? 'unsupported' : 'ready',
+        answer: null,
+        reason: null,
+      })),
+    };
+    this.visits.push({
+      pageId: this.activePage.form.activePageId,
+      cycleId: this.activeCycle.cycleId,
+      status: 'active',
+    });
+    return this.activeCycle;
+  }
+
   handlePreviousOrBack(document: Document): NormalizedActivePage | null {
     const activePage = confirmPageTransition(document, {
       oldPageId: this.activePage.form.activePageId,

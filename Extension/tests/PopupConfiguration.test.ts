@@ -72,7 +72,7 @@ describe('popup configuration state', () => {
     expect(visibleText).toContain('Add API key');
     expect(visibleText).toContain('Replace API key');
     expect(visibleText).toContain('Delete All keys');
-    expect(visibleText).not.toContain('Clear');
+    expect(visibleText).toContain('Force Clear');
     expect(visibleText).not.toContain('Credential');
   });
 

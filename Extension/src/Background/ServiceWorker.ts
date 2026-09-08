@@ -48,6 +48,7 @@ interface WorkerMessage {
   type?: string;
   request?: unknown;
   snapshot?: import('../Lifecycle/PageLifecycle').LifecycleSnapshot;
+  reset?: boolean;
   page?: { pageId: string; questionCount: number };
   result?: unknown;
   error?: string;
@@ -427,8 +428,16 @@ export async function handleMessage(
             questionCount: message.snapshot.activePage.form.questions.length,
           }
         : (current?.page ?? null),
-      uiState: current?.uiState ?? 'READY',
+      uiState: message.reset ? 'READY' : current?.uiState ?? 'READY',
+      ...(message.reset ? { result: null, error: null } : {}),
     });
+    if (message.reset) {
+      const snapshot = await stateStore.get(tabId);
+      if (snapshot) {
+        await notifyPopup({ type: 'p7-state-updated', snapshot });
+        return { status: 'snapshot-stored', snapshot };
+      }
+    }
     return { status: 'snapshot-stored' };
   }
 
@@ -532,6 +541,12 @@ export async function handleMessage(
       );
     }
     return sendToActiveContent({ type: 'begin-next' });
+  }
+  if (message.type === 'p7-force-clear') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Lifecycle control is only available to the extension UI.');
+    }
+    return sendToActiveContent({ type: 'force-clear' });
   }
   if (message.type === 'p7-confirm-transition') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {

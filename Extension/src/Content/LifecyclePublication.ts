@@ -1,5 +1,6 @@
 export interface LifecyclePublicationMessage {
   type: 'lifecycle-snapshot' | 'lifecycle-transition-confirmed';
+  reset?: boolean;
   [key: string]: unknown;
 }
 
