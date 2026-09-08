@@ -23,14 +23,14 @@ export class PopupController {
     return this.stateMachine.setPage(page);
   }
 
-  async generate(): Promise<UiState> {
+  async generate(retry = false): Promise<UiState> {
     const generating = this.stateMachine.beginGeneration();
     if (generating.name !== 'GENERATING') {
       return generating;
     }
     const token = this.stateMachine.activeOperationToken;
     try {
-      const result = await this.workflow.generate();
+      const result = await this.workflow.generate(retry);
       return this.stateMachine.completeGeneration(token, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not generate answers.';
@@ -45,6 +45,6 @@ export class PopupController {
   }
 
   retry(): Promise<UiState> {
-    return this.generate();
+    return this.generate(true);
   }
 }

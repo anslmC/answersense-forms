@@ -82,6 +82,8 @@ describe('P6 popup workflow boundary', () => {
     await expect(controller.generate()).resolves.toMatchObject({ name: 'ERROR' });
     await expect(controller.retry()).resolves.toMatchObject({ name: 'REVIEW' });
     expect(workflow.generate).toHaveBeenCalledTimes(2);
+    expect(workflow.generate).toHaveBeenNthCalledWith(1, false);
+    expect(workflow.generate).toHaveBeenNthCalledWith(2, true);
   });
 
   it('does not expose Generate on an unsupported page', async () => {

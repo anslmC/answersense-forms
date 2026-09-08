@@ -200,6 +200,17 @@ export class PageLifecycle {
     return this.activeCycle;
   }
 
+  retryGeneration(): ProcessingCycle {
+    this.generation.invalidate();
+    this.activeCycle = this.generation.beginCycle();
+    this.activePage = { ...this.activePage, processingCycle: this.activeCycle };
+    const activeVisit = this.visits[this.visits.length - 1];
+    if (activeVisit) {
+      activeVisit.cycleId = this.activeCycle.cycleId;
+    }
+    return this.activeCycle;
+  }
+
   handlePreviousOrBack(document: Document): NormalizedActivePage | null {
     const activePage = confirmPageTransition(document, {
       oldPageId: this.activePage.form.activePageId,

@@ -1,5 +1,15 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
-import { requestBackendGeneration } from './Bridge';
+import {
+  deleteGeminiCredential,
+  hasGeminiCredential,
+  readGeminiCredential,
+  storeGeminiCredential,
+} from '../Generation/Credentials';
+import {
+  GeminiProvider,
+  GeminiProviderError,
+  validateGeminiCredential,
+} from '../Generation/GeminiProvider';
 import { IntegrationStateStore } from './State';
 
 log(`${EXTENSION_NAME} service worker initialized.`);
@@ -11,6 +21,8 @@ interface WorkerMessage {
   page?: { pageId: string; questionCount: number };
   result?: unknown;
   error?: string;
+  apiKey?: unknown;
+  retry?: boolean;
 }
 
 const stateStore = new IntegrationStateStore();
@@ -37,15 +49,77 @@ function tabIdFromSender(sender: chrome.runtime.MessageSender): number {
 
 async function handleMessage(
   message: WorkerMessage,
-  sender: chrome.runtime.MessageSender,
+  sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
-  if (message.type === 'backend-generate') {
+  if (message.type === 'gemini-generate') {
     if (!sender.tab) {
-      throw new Error('Backend generation is only available to a content-script operation.');
+      throw new Error(
+        'Gemini generation is only available to a content-script operation.'
+      );
     }
-    return requestBackendGeneration(
-      message.request as Parameters<typeof requestBackendGeneration>[0],
-    );
+    const apiKey = await readGeminiCredential();
+    if (!apiKey) {
+      throw new Error('Configuration required.');
+    }
+    try {
+      return await new GeminiProvider(apiKey).generate(
+        message.request as Parameters<GeminiProvider['generate']>[0]
+      );
+    } catch (error) {
+      if (error instanceof GeminiProviderError) {
+        throw new Error(error.message);
+      }
+      throw new Error('Provider unavailable.');
+    }
+  }
+
+  if (message.type === 'credential-status') {
+    return { configured: await hasGeminiCredential() };
+  }
+
+  if (message.type === 'credential-save') {
+    if (
+      sender.tab ||
+      sender.id !== chrome.runtime.id ||
+      typeof message.apiKey !== 'string'
+    ) {
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
+    }
+    await storeGeminiCredential(message.apiKey);
+    return { configured: true };
+  }
+
+  if (message.type === 'credential-delete') {
+    if (sender.tab || sender.id !== chrome.runtime.id) {
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
+    }
+    await deleteGeminiCredential();
+    return { configured: false };
+  }
+
+  if (message.type === 'credential-test') {
+    if (sender.tab || sender.id !== chrome.runtime.id) {
+      throw new Error(
+        'Credential configuration is only available to the extension UI.'
+      );
+    }
+    const apiKey = await readGeminiCredential();
+    if (!apiKey) {
+      throw new Error('Configuration required.');
+    }
+    try {
+      await validateGeminiCredential(apiKey);
+      return { valid: true };
+    } catch (error) {
+      if (error instanceof GeminiProviderError) {
+        throw new Error(error.message);
+      }
+      throw new Error('Provider unavailable.');
+    }
   }
 
   if (message.type === 'get-lifecycle-snapshot') {
@@ -62,7 +136,7 @@ async function handleMessage(
             pageId: message.snapshot.activePage.form.activePageId,
             questionCount: message.snapshot.activePage.form.questions.length,
           }
-        : current?.page ?? null,
+        : (current?.page ?? null),
       uiState: current?.uiState ?? 'READY',
     });
     return { status: 'snapshot-stored' };
@@ -87,11 +161,16 @@ async function handleMessage(
     if (snapshot) {
       return { supported: snapshot.page !== null, ...snapshot };
     }
-    const response = await chrome.tabs.sendMessage(tabId, { type: 'discover-active-page' });
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: 'discover-active-page',
+    });
     if (response?.page) {
       const stored = stateStore.update(tabId, {
         uiState: 'READY',
-        page: { pageId: response.page.pageId, questionCount: response.page.questions.length },
+        page: {
+          pageId: response.page.pageId,
+          questionCount: response.page.questions.length,
+        },
       });
       return { supported: true, ...stored };
     }
@@ -101,7 +180,10 @@ async function handleMessage(
     const tabId = await activeTabId();
     stateStore.update(tabId, { uiState: 'GENERATING', error: null });
     try {
-      const result = await chrome.tabs.sendMessage(tabId, { type: 'generate-current-page' });
+      const result = await chrome.tabs.sendMessage(tabId, {
+        type: 'generate-current-page',
+        retry: message.retry === true,
+      });
       if (result?.status === 'reused') {
         stateStore.update(tabId, { uiState: 'READY', result: null });
         return result;
@@ -117,7 +199,9 @@ async function handleMessage(
     }
   }
   if (message.type === 'p7-review-complete') {
-    const snapshot = stateStore.update(await activeTabId(), { uiState: 'READY_FOR_NEXT' });
+    const snapshot = stateStore.update(await activeTabId(), {
+      uiState: 'READY_FOR_NEXT',
+    });
     void chrome.runtime.sendMessage({ type: 'p7-state-updated', snapshot });
     return snapshot;
   }
@@ -137,14 +221,21 @@ async function handleMessage(
   return { status: 'ready', extension: EXTENSION_NAME };
 }
 
-chrome.runtime.onMessage.addListener((message: WorkerMessage, sender, sendResponse) => {
-  void handleMessage(message ?? {}, sender)
-    .then((response) => sendResponse(response))
-    .catch((error: unknown) => {
-      sendResponse({ error: error instanceof Error ? error.message : 'Browser bridge operation failed.' });
-    });
-  return true;
-});
+chrome.runtime.onMessage.addListener(
+  (message: WorkerMessage, sender, sendResponse) => {
+    void handleMessage(message ?? {}, sender)
+      .then((response) => sendResponse(response))
+      .catch((error: unknown) => {
+        sendResponse({
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Browser bridge operation failed.',
+        });
+      });
+    return true;
+  }
+);
 
 chrome.runtime.onInstalled.addListener(() => {
   log('Extension installed and ready for P7 integration.');

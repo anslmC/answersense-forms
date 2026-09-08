@@ -175,18 +175,42 @@ Responsible for:
 * page discovery
 * DOM extraction
 * DOM resolution/filling
+* page/form interaction lifecycle
+* generation coordination
 * response validation
-* user interaction
-* backend communication
+* user interaction and review flow
+* requesting provider work through the service worker
+* never receiving the raw provider credential
+
+### Service Worker Layer
+
+Responsible for:
+
+* provider credential access
+* provider transport
+* selecting and using the configured provider adapter
+* sending provider requests directly to Gemini
+* never exposing the raw credential through runtime messages
+
+### Provider Adapter Layer
+
+Responsible for:
+
+* Gemini-specific API interaction
+* normalizing provider behavior into the established provider interface
+* validating provider response structure before returning it
+* preserving the application-level `GenerationResponse` contract
 
 ### Backend Layer
 
 Responsible for:
 
-* request validation
-* generation boundary
-* response validation
-* mock generation during early implementation
+* developer/local `.env` configuration
+* local API/provider testing
+* request and response validation for backend tests
+* mock generation and deliberate smoke tests
+
+The backend is not part of the end-user BYOK runtime generation path.
 
 ### Shared Logical Layer
 

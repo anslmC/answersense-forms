@@ -15,7 +15,7 @@ const request: GenerationRequest = {
   settledContext: [],
 };
 
-describe('P7 backend bridge', () => {
+describe('Legacy developer/local backend bridge', () => {
   it('posts the existing request contract and returns the backend response', async () => {
     const response = {
       cycleId: 'cycle-bridge',

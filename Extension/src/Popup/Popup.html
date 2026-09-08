@@ -16,11 +16,34 @@
         <p class="status" data-status>Checking this page...</p>
         <p class="detail" data-detail></p>
       </section>
+      <section class="credential-panel" aria-labelledby="credential-heading">
+        <h2 id="credential-heading">Gemini provider</h2>
+        <p class="detail" data-credential-status>Checking credential...</p>
+        <label for="gemini-api-key">API key</label>
+        <input
+          id="gemini-api-key"
+          type="password"
+          autocomplete="off"
+          data-api-key
+        />
+        <div class="actions">
+          <button type="button" data-save-credential>Save key</button>
+          <button type="button" class="secondary" data-test-credential>
+            Test key
+          </button>
+          <button type="button" class="secondary" data-delete-credential>
+            Delete key
+          </button>
+        </div>
+        <p class="message" data-credential-message hidden></p>
+      </section>
       <section class="results" data-results hidden></section>
       <p class="message" data-message hidden></p>
       <div class="actions">
         <button type="button" data-primary-action hidden></button>
-        <button type="button" class="secondary" data-review-action hidden>Review complete</button>
+        <button type="button" class="secondary" data-review-action hidden>
+          Review complete
+        </button>
       </div>
     </main>
     <script type="module" src="./Popup.ts"></script>

@@ -18,7 +18,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "MIT",
+  "license": "PolyForm-Shield-1.0.0",
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/chrome": "^0.2.7",

@@ -9,8 +9,12 @@ function render(state: UiState): void {
   const detail = document.querySelector<HTMLElement>('[data-detail]');
   const message = document.querySelector<HTMLElement>('[data-message]');
   const results = document.querySelector<HTMLElement>('[data-results]');
-  const primary = document.querySelector<HTMLButtonElement>('[data-primary-action]');
-  const review = document.querySelector<HTMLButtonElement>('[data-review-action]');
+  const primary = document.querySelector<HTMLButtonElement>(
+    '[data-primary-action]'
+  );
+  const review = document.querySelector<HTMLButtonElement>(
+    '[data-review-action]'
+  );
   if (!status || !detail || !message || !results || !primary || !review) {
     return;
   }
@@ -48,10 +52,12 @@ function render(state: UiState): void {
       primary.disabled = true;
       return;
     }
-    status.textContent = state.name === 'REVIEW' ? 'Review answers' : 'Answers filled';
-    detail.textContent = state.name === 'REVIEW'
-      ? 'Review the values in Google Forms before continuing.'
-      : 'Review answers before clicking Next in Google Forms.';
+    status.textContent =
+      state.name === 'REVIEW' ? 'Review answers' : 'Answers filled';
+    detail.textContent =
+      state.name === 'REVIEW'
+        ? 'Review the values in Google Forms before continuing.'
+        : 'Review answers before clicking Next in Google Forms.';
     primary.textContent = 'Regenerate';
     review.hidden = state.name !== 'REVIEW';
     const fragment = document.createDocumentFragment();
@@ -66,14 +72,115 @@ function render(state: UiState): void {
   }
 }
 
+async function updateCredentialStatus(): Promise<void> {
+  const status = document.querySelector<HTMLElement>(
+    '[data-credential-status]'
+  );
+  const message = document.querySelector<HTMLElement>(
+    '[data-credential-message]'
+  );
+  if (!status || !message) {
+    return;
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'credential-status',
+    });
+    status.textContent = response?.configured
+      ? 'Credential stored locally.'
+      : 'Configuration required.';
+  } catch {
+    status.textContent = 'Credential status unavailable.';
+  }
+  message.hidden = true;
+}
+
+function showCredentialMessage(text: string): void {
+  const message = document.querySelector<HTMLElement>(
+    '[data-credential-message]'
+  );
+  if (message) {
+    message.textContent = text;
+    message.hidden = false;
+  }
+}
+
+async function sendCredentialMessage(
+  message: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = (await chrome.runtime.sendMessage(message)) as
+    Record<string, unknown> | undefined;
+  if (response?.error) {
+    throw new Error(String(response.error));
+  }
+  return response ?? {};
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   log(`${EXTENSION_NAME} popup initialized.`);
   const controller = new PopupController(createBrowserPopupWorkflow());
-  const primary = document.querySelector<HTMLButtonElement>('[data-primary-action]');
-  const review = document.querySelector<HTMLButtonElement>('[data-review-action]');
+  const primary = document.querySelector<HTMLButtonElement>(
+    '[data-primary-action]'
+  );
+  const review = document.querySelector<HTMLButtonElement>(
+    '[data-review-action]'
+  );
+  const apiKey = document.querySelector<HTMLInputElement>('[data-api-key]');
+  const saveCredential = document.querySelector<HTMLButtonElement>(
+    '[data-save-credential]'
+  );
+  const testCredential = document.querySelector<HTMLButtonElement>(
+    '[data-test-credential]'
+  );
+  const deleteCredential = document.querySelector<HTMLButtonElement>(
+    '[data-delete-credential]'
+  );
   if (!primary || !review) {
     return;
   }
+  void updateCredentialStatus();
+  saveCredential?.addEventListener('click', async () => {
+    try {
+      await sendCredentialMessage({
+        type: 'credential-save',
+        apiKey: apiKey?.value ?? '',
+      });
+      if (apiKey) {
+        apiKey.value = '';
+      }
+      showCredentialMessage('Credential saved locally.');
+      await updateCredentialStatus();
+    } catch (error) {
+      showCredentialMessage(
+        error instanceof Error
+          ? error.message
+          : 'Credential could not be saved.'
+      );
+    }
+  });
+  testCredential?.addEventListener('click', async () => {
+    try {
+      await sendCredentialMessage({ type: 'credential-test' });
+      showCredentialMessage('Credential is valid.');
+    } catch (error) {
+      showCredentialMessage(
+        error instanceof Error ? error.message : 'Credential validation failed.'
+      );
+    }
+  });
+  deleteCredential?.addEventListener('click', async () => {
+    try {
+      await sendCredentialMessage({ type: 'credential-delete' });
+      showCredentialMessage('Credential deleted.');
+      await updateCredentialStatus();
+    } catch (error) {
+      showCredentialMessage(
+        error instanceof Error
+          ? error.message
+          : 'Credential could not be deleted.'
+      );
+    }
+  });
   primary.addEventListener('click', async () => {
     render(await controller.generate());
   });

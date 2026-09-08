@@ -19,7 +19,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "MIT",
+  "license": "PolyForm-Shield-1.0.0",
   "devDependencies": {
     "@types/node": "^26.4.0",
     "@vitest/ui": "^4.1.11",

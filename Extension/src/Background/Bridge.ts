@@ -1,5 +1,6 @@
 import type { GenerationRequest, GenerationResponse } from '../Generation/Contract';
 
+// Legacy developer/local backend bridge; end-user BYOK generation uses the service worker provider path.
 export const BACKEND_GENERATE_URL = 'http://127.0.0.1:3000/generate';
 
 export type BridgeErrorCode =

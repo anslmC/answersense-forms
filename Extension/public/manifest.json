@@ -3,10 +3,10 @@
   "name": "AnswerSense: Forms",
   "version": "0.1.0",
   "description": "AI-assisted Chromium browser extension for supported Google Forms.",
-  "permissions": [],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://docs.google.com/forms/*",
-    "http://127.0.0.1:3000/*"
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background/background.js",

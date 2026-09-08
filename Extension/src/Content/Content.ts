@@ -13,7 +13,10 @@ import {
   shouldGeneratePage,
   waitForInitialDiscovery,
 } from './Navigation';
-import type { GenerationRequest, GenerationResponse } from '../Generation/Contract';
+import type {
+  GenerationRequest,
+  GenerationResponse,
+} from '../Generation/Contract';
 import type { DiscoveredPage } from '../Forms/Discovery';
 
 log(`${EXTENSION_NAME} content script initialized.`);
@@ -32,7 +35,9 @@ function publishLifecycleSnapshot(): void {
   }
 }
 
-function publishTransition(page: ReturnType<PageLifecycle['confirmTransition']>): void {
+function publishTransition(
+  page: ReturnType<PageLifecycle['confirmTransition']>
+): void {
   if (!page || !lifecycle) {
     return;
   }
@@ -52,7 +57,10 @@ function observeNextIntent(): void {
       return;
     }
     const button = target.closest<HTMLElement>('[role="button"], button');
-    const label = button?.textContent?.replace(/\s+/g, ' ').trim().toLowerCase();
+    const label = button?.textContent
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
     if (label === 'next' || label?.endsWith(' next')) {
       try {
         ensureLifecycle().beginNext();
@@ -67,7 +75,12 @@ function observeNextIntent(): void {
     if (!lifecycle) {
       return;
     }
-    processObservedNavigation(lifecycle, document, discoverPage, publishTransition);
+    processObservedNavigation(
+      lifecycle,
+      document,
+      discoverPage,
+      publishTransition
+    );
   });
   if (document.documentElement) {
     observer.observe(document.documentElement, pageNavigationMutationOptions);
@@ -88,7 +101,7 @@ function ensureLifecycle(discovered?: DiscoveredPage): PageLifecycle {
   }
   lifecycle = new PageLifecycle(
     normalizeDiscoveredActivePage(page),
-    generation,
+    generation
   );
   publishLifecycleSnapshot();
   return lifecycle;
@@ -100,7 +113,9 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
   }
 
   lifecycleInitialization = (async () => {
-    const snapshot = await chrome.runtime.sendMessage({ type: 'get-lifecycle-snapshot' });
+    const snapshot = await chrome.runtime.sendMessage({
+      type: 'get-lifecycle-snapshot',
+    });
     if (lifecycle) {
       return;
     }
@@ -108,7 +123,7 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
       lifecycle = new PageLifecycle(
         normalizeDiscoveredActivePage(discovered),
         generation,
-        snapshot.lifecycle,
+        snapshot.lifecycle
       );
       const transitioned = lifecycle.confirmTransition(document);
       if (transitioned) {
@@ -128,15 +143,22 @@ const hydration = waitForInitialDiscovery(document, discoverPage)
   .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined))
   .catch(() => undefined);
 
-function createBackendGenerator() {
+function createGeminiGenerator() {
   return {
-    generate(request: GenerationRequest): Promise<GenerationResponse> {
-      return chrome.runtime.sendMessage({ type: 'backend-generate', request });
+    async generate(request: GenerationRequest): Promise<GenerationResponse> {
+      const response = await chrome.runtime.sendMessage({
+        type: 'gemini-generate',
+        request,
+      });
+      if (response?.error) {
+        throw new Error(String(response.error));
+      }
+      return response as GenerationResponse;
     },
   };
 }
 
-async function handleRequest(request: { type?: string }): Promise<unknown> {
+async function handleRequest(request: { type?: string; retry?: boolean }): Promise<unknown> {
   if (request.type === 'discover-active-page') {
     if (!supportedPage) {
       return { status: 'unsupported-page', supported: false };
@@ -155,6 +177,10 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
   if (request.type === 'generate-current-page') {
     await hydration;
     const pageLifecycle = ensureLifecycle();
+    if (request.retry === true) {
+      pageLifecycle.retryGeneration();
+      publishLifecycleSnapshot();
+    }
     if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {
       return {
         status: 'reused',
@@ -164,8 +190,8 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
     const report = await generation.generate(
       pageLifecycle.currentPage,
       pageLifecycle.settledPageStates,
-      createBackendGenerator(),
-      pageLifecycle.currentCycle,
+      createGeminiGenerator(),
+      pageLifecycle.currentCycle
     );
     if (!report) {
       throw new Error('Generation response was stale or invalidated.');
@@ -174,12 +200,12 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
       document,
       pageLifecycle.currentPage.form,
       report,
-      createAcceptedReviewDecisions(report),
+      createAcceptedReviewDecisions(report)
     );
     const handoff = createFinalizedPageHandoff(
       document,
       pageLifecycle.currentPage.form,
-      fillReport,
+      fillReport
     );
     pageLifecycle.acceptFinalizedHandoff(handoff);
     publishLifecycleSnapshot();
@@ -197,7 +223,11 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
     await hydration;
     const nextPage = ensureLifecycle().confirmTransition(document);
     return nextPage
-      ? { status: 'transition-confirmed', pageId: nextPage.form.activePageId, questionCount: nextPage.form.questions.length }
+      ? {
+          status: 'transition-confirmed',
+          pageId: nextPage.form.activePageId,
+          questionCount: nextPage.form.questions.length,
+        }
       : { status: 'transition-pending' };
   }
 
@@ -219,11 +249,14 @@ async function handleRequest(request: { type?: string }): Promise<unknown> {
 }
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  log('Content script received a message.', request);
+  log('Content script received a message.');
   void handleRequest(request ?? {})
     .then((response) => sendResponse(response))
     .catch((error: unknown) => {
-      sendResponse({ error: error instanceof Error ? error.message : 'Content operation failed.' });
+      sendResponse({
+        error:
+          error instanceof Error ? error.message : 'Content operation failed.',
+      });
     });
   return true;
 });
