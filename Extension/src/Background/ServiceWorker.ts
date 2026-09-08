@@ -1,15 +1,27 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
 import {
   deleteGeminiCredential,
+  getConfigurationStateRevision,
   hasGeminiCredential,
-  readGeminiCredential,
+  saveValidation,
   storeGeminiCredential,
 } from '../Generation/Credentials';
+import { validateGeminiCredential } from '../Generation/GeminiProvider';
+import type { GenerationRequest } from '../Generation/Contract';
 import {
-  GeminiProvider,
-  GeminiProviderError,
-  validateGeminiCredential,
-} from '../Generation/GeminiProvider';
+  resolveActiveProviderConfiguration,
+  resolveAuthorizedProviderConfiguration,
+} from './ServiceWorkerConfiguration';
+import { sanitizeProviderError } from './ProviderErrorSanitizer';
+import {
+  isTrustedContentSender,
+  isTrustedContentTabSender,
+  isTrustedPopupSender,
+} from './ServiceWorkerSecurity';
+import {
+  SafeServiceWorkerError,
+  serviceWorkerErrorResponse,
+} from './ServiceWorkerResponse';
 import { IntegrationStateStore } from './State';
 
 log(`${EXTENSION_NAME} service worker initialized.`);
@@ -23,6 +35,8 @@ interface WorkerMessage {
   error?: string;
   apiKey?: unknown;
   retry?: boolean;
+  configurationDigest?: unknown;
+  configurationRevision?: unknown;
 }
 
 const stateStore = new IntegrationStateStore();
@@ -41,46 +55,121 @@ async function sendToActiveContent(message: WorkerMessage): Promise<unknown> {
 }
 
 function tabIdFromSender(sender: chrome.runtime.MessageSender): number {
-  if (sender.tab?.id === undefined) {
+  if (
+    !isTrustedContentSender(sender, chrome.runtime.id) ||
+    sender.tab?.id === undefined
+  ) {
     throw new Error('The message is not associated with a browser tab.');
   }
   return sender.tab.id;
 }
 
-async function handleMessage(
+export async function handleMessage(
   message: WorkerMessage,
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
+  if (sender.id !== chrome.runtime.id) {
+    throw new Error('Unauthorized extension message.');
+  }
+
   if (message.type === 'gemini-generate') {
-    if (!sender.tab) {
+    if (
+      !isTrustedContentSender(sender, chrome.runtime.id) ||
+      typeof message.configurationDigest !== 'string' ||
+      !message.configurationDigest
+    ) {
       throw new Error(
         'Gemini generation is only available to a content-script operation.'
       );
     }
-    const apiKey = await readGeminiCredential();
-    if (!apiKey) {
-      throw new Error('Configuration required.');
+    if (
+      typeof message.configurationRevision !== 'number' ||
+      !Number.isInteger(message.configurationRevision) ||
+      message.configurationRevision < 0
+    ) {
+      throw new SafeServiceWorkerError(
+        'CONFIGURATION_STALE',
+        'Generation configuration is stale.'
+      );
     }
+    const senderTab = sender.tab;
+    const requestingTabId = senderTab?.id;
+    if (
+      typeof requestingTabId !== 'number' ||
+      !Number.isInteger(requestingTabId) ||
+      requestingTabId < 0
+    ) {
+      throw new SafeServiceWorkerError(
+        'UNAUTHORIZED_SENDER',
+        'Generation request is not from a valid content tab.'
+      );
+    }
+    const initialActiveTabId = await activeTabId();
+    if (
+      !isTrustedContentTabSender(
+        sender,
+        chrome.runtime.id,
+        initialActiveTabId
+      )
+    ) {
+      throw new SafeServiceWorkerError(
+        'UNAUTHORIZED_SENDER',
+        'Generation request is not from the active tab.'
+      );
+    }
+    let resolved;
     try {
-      return await new GeminiProvider(apiKey).generate(
-        message.request as Parameters<GeminiProvider['generate']>[0]
+      resolved = await resolveAuthorizedProviderConfiguration(
+        message.configurationDigest,
+        undefined,
+        message.configurationRevision
       );
     } catch (error) {
-      if (error instanceof GeminiProviderError) {
-        throw new Error(error.message);
-      }
-      throw new Error('Provider unavailable.');
+      throw new SafeServiceWorkerError(
+        error instanceof Error && error.message.includes('changed')
+          ? 'CONFIGURATION_STALE'
+          : 'CONFIGURATION_NOT_AUTHORIZED',
+        error instanceof Error && error.message.includes('changed')
+          ? 'Generation configuration is stale.'
+          : 'Generation configuration is not authorized.'
+      );
+    }
+    const finalActiveTabId = await activeTabId();
+    if (
+      !isTrustedContentTabSender(sender, chrome.runtime.id, finalActiveTabId)
+    ) {
+      throw new SafeServiceWorkerError(
+        'UNAUTHORIZED_SENDER',
+        'Generation request is not from the active tab.'
+      );
+    }
+    const finalRevision = await getConfigurationStateRevision();
+    if (finalRevision !== resolved.authorizationRevision) {
+      throw new SafeServiceWorkerError(
+        'CONFIGURATION_STALE',
+        'Generation configuration is stale.'
+      );
+    }
+    try {
+      return await resolved.adapter(resolved.secret).generate(
+        message.request as GenerationRequest
+      );
+    } catch (error) {
+      const safe = sanitizeProviderError(error);
+      throw new SafeServiceWorkerError(safe.code, safe.message);
     }
   }
 
   if (message.type === 'credential-status') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Credential configuration is only available to the extension UI.');
+    }
     return { configured: await hasGeminiCredential() };
   }
 
   if (message.type === 'credential-save') {
     if (
-      sender.tab ||
-      sender.id !== chrome.runtime.id ||
+      !isTrustedPopupSender(sender, chrome.runtime.id) ||
       typeof message.apiKey !== 'string'
     ) {
       throw new Error(
@@ -92,7 +181,7 @@ async function handleMessage(
   }
 
   if (message.type === 'credential-delete') {
-    if (sender.tab || sender.id !== chrome.runtime.id) {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Credential configuration is only available to the extension UI.'
       );
@@ -102,24 +191,53 @@ async function handleMessage(
   }
 
   if (message.type === 'credential-test') {
-    if (sender.tab || sender.id !== chrome.runtime.id) {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Credential configuration is only available to the extension UI.'
       );
     }
-    const apiKey = await readGeminiCredential();
-    if (!apiKey) {
-      throw new Error('Configuration required.');
+    const resolved = await resolveActiveProviderConfiguration();
+    if (resolved.provider.providerId !== 'gemini') {
+      throw new Error('Provider validation unavailable.');
     }
     try {
-      await validateGeminiCredential(apiKey);
-      return { valid: true };
+      await validateGeminiCredential(resolved.secret);
     } catch (error) {
-      if (error instanceof GeminiProviderError) {
-        throw new Error(error.message);
+      const safe = sanitizeProviderError(error);
+      const current = await resolveActiveProviderConfiguration();
+      if (current.configurationDigest !== resolved.configurationDigest) {
+        throw new SafeServiceWorkerError(
+          'CONFIGURATION_STALE',
+          'Configuration changed during validation.'
+        );
       }
-      throw new Error('Provider unavailable.');
+      await saveValidation({
+        configurationDigest: resolved.configurationDigest,
+        providerId: resolved.provider.providerId,
+        modelId: resolved.model.modelId,
+        credentialId: resolved.configuration.credentialId,
+        status: 'INVALID',
+        validatedAt: new Date().toISOString(),
+        failureCode: safe.code,
+      });
+      throw new SafeServiceWorkerError(safe.code, safe.message);
     }
+    const current = await resolveActiveProviderConfiguration();
+    if (current.configurationDigest !== resolved.configurationDigest) {
+      throw new SafeServiceWorkerError(
+        'CONFIGURATION_STALE',
+        'Configuration changed during validation.'
+      );
+    }
+    await saveValidation({
+      configurationDigest: resolved.configurationDigest,
+      providerId: resolved.provider.providerId,
+      modelId: resolved.model.modelId,
+      credentialId: resolved.configuration.credentialId,
+      status: 'VALID',
+      validatedAt: new Date().toISOString(),
+    });
+    return { valid: true };
   }
 
   if (message.type === 'get-lifecycle-snapshot') {
@@ -156,6 +274,9 @@ async function handleMessage(
   }
 
   if (message.type === 'p7-discover') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Discovery is only available to the extension UI.');
+    }
     const tabId = await activeTabId();
     const snapshot = stateStore.get(tabId);
     if (snapshot) {
@@ -177,12 +298,30 @@ async function handleMessage(
     return response;
   }
   if (message.type === 'p7-generate') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Generation is only available to the extension UI.');
+    }
+    let resolved;
+    try {
+      resolved = await resolveAuthorizedProviderConfiguration();
+    } catch (error) {
+      throw new SafeServiceWorkerError(
+        error instanceof Error && error.message.includes('changed')
+          ? 'CONFIGURATION_STALE'
+          : 'CONFIGURATION_NOT_AUTHORIZED',
+        error instanceof Error && error.message.includes('changed')
+          ? 'Generation configuration is stale.'
+          : 'Generation configuration is not authorized.'
+      );
+    }
     const tabId = await activeTabId();
     stateStore.update(tabId, { uiState: 'GENERATING', error: null });
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
         retry: message.retry === true,
+        configurationDigest: resolved.configurationDigest,
+        configurationRevision: resolved.authorizationRevision,
       });
       if (result?.status === 'reused') {
         stateStore.update(tabId, { uiState: 'READY', result: null });
@@ -199,6 +338,9 @@ async function handleMessage(
     }
   }
   if (message.type === 'p7-review-complete') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Review control is only available to the extension UI.');
+    }
     const snapshot = stateStore.update(await activeTabId(), {
       uiState: 'READY_FOR_NEXT',
     });
@@ -206,15 +348,27 @@ async function handleMessage(
     return snapshot;
   }
   if (message.type === 'p7-begin-next') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Navigation control is only available to the extension UI.');
+    }
     return sendToActiveContent({ type: 'begin-next' });
   }
   if (message.type === 'p7-confirm-transition') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Navigation control is only available to the extension UI.');
+    }
     return sendToActiveContent({ type: 'confirm-transition' });
   }
   if (message.type === 'p7-abandon') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Navigation control is only available to the extension UI.');
+    }
     return sendToActiveContent({ type: 'abandon' });
   }
   if (message.type === 'p7-restart') {
+    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+      throw new Error('Navigation control is only available to the extension UI.');
+    }
     return sendToActiveContent({ type: 'restart' });
   }
 
@@ -226,6 +380,10 @@ chrome.runtime.onMessage.addListener(
     void handleMessage(message ?? {}, sender)
       .then((response) => sendResponse(response))
       .catch((error: unknown) => {
+        if (error instanceof SafeServiceWorkerError) {
+          sendResponse(serviceWorkerErrorResponse(error));
+          return;
+        }
         sendResponse({
           error:
             error instanceof Error

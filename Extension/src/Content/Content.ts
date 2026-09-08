@@ -143,12 +143,17 @@ const hydration = waitForInitialDiscovery(document, discoverPage)
   .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined))
   .catch(() => undefined);
 
-function createGeminiGenerator() {
+function createGeminiGenerator(
+  configurationDigest: string,
+  configurationRevision: number
+) {
   return {
     async generate(request: GenerationRequest): Promise<GenerationResponse> {
       const response = await chrome.runtime.sendMessage({
         type: 'gemini-generate',
         request,
+        configurationDigest,
+        configurationRevision,
       });
       if (response?.error) {
         throw new Error(String(response.error));
@@ -161,6 +166,8 @@ function createGeminiGenerator() {
 async function handleRequest(request: {
   type?: string;
   retry?: boolean;
+  configurationDigest?: string;
+  configurationRevision?: number;
 }): Promise<unknown> {
   if (request.type === 'discover-active-page') {
     if (!supportedPage) {
@@ -179,6 +186,12 @@ async function handleRequest(request: {
 
   if (request.type === 'generate-current-page') {
     await hydration;
+    if (
+      !request.configurationDigest ||
+      request.configurationRevision === undefined
+    ) {
+      throw new Error('Generation configuration is missing.');
+    }
     const pageLifecycle = ensureLifecycle();
     if (request.retry === true) {
       pageLifecycle.retryGeneration();
@@ -193,7 +206,10 @@ async function handleRequest(request: {
     const report = await generation.generate(
       pageLifecycle.currentPage,
       pageLifecycle.settledPageStates,
-      createGeminiGenerator(),
+      createGeminiGenerator(
+        request.configurationDigest,
+        request.configurationRevision
+      ),
       pageLifecycle.currentCycle
     );
     if (!report) {
