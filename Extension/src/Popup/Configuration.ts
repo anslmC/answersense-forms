@@ -64,6 +64,9 @@ export function isCurrentValidationValid(
   const validation = state.validation;
   return Boolean(
     configuration &&
+    state.credentials.some(
+      (credential) => credential.credentialId === configuration.credentialId
+    ) &&
     state.configurationDigest &&
     validation?.status === 'VALID' &&
     validation.configurationDigest === state.configurationDigest &&
@@ -71,6 +74,43 @@ export function isCurrentValidationValid(
     validation.modelId === configuration.modelId &&
     validation.credentialId === configuration.credentialId
   );
+}
+
+export const VALID_GENERATION_MESSAGE =
+  'Configuration is valid. Generate is available on a supported page.';
+
+export function validGenerationMessage(
+  state: PopupConfigurationState
+): string | null {
+  return isCurrentValidationValid(state) ? VALID_GENERATION_MESSAGE : null;
+}
+
+export function authorizationStatus(
+  state: PopupConfigurationState,
+  validating: boolean,
+  configurationDirty = false
+): string {
+  if (configurationDirty && !validating) {
+    return 'NOT VALIDATED — Save the configuration before validating';
+  }
+  const status = validationStatus(state, validating);
+  if (
+    status === 'NOT_VALIDATED' &&
+    (!state.activeConfiguration || state.credentials.length === 0)
+  ) {
+    return 'NOT VALIDATED — Save the configuration before validating';
+  }
+  if (
+    status === 'NOT_VALIDATED' &&
+    state.activeConfiguration &&
+    state.credentials.some(
+      (credential) =>
+        credential.credentialId === state.activeConfiguration?.credentialId
+    )
+  ) {
+    return 'NOT VALIDATED — Configuration saved. Validate it before generating.';
+  }
+  return status.replace(/_/g, ' ');
 }
 
 export function validationStatus(

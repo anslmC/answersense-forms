@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import {
   isCurrentValidationValid,
   modelsForProvider,
+  authorizationStatus,
+  validGenerationMessage,
   validationStatus,
   type PopupConfigurationState,
 } from '../src/Popup/Configuration';
@@ -43,12 +45,76 @@ describe('popup configuration state', () => {
       resolve(process.cwd(), 'src/Popup/Popup.html'),
       'utf8'
     );
+    const styles = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.css'),
+      'utf8'
+    );
     const visibleText = markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    expect(markup.indexOf('data-status')).toBeGreaterThan(
+      markup.indexOf('</header>')
+    );
+    expect(markup.indexOf('data-status')).toBeLessThan(
+      markup.indexOf('credential-heading')
+    );
+    expect(markup.indexOf('credential-heading')).toBeLessThan(
+      markup.indexOf('configuration-heading')
+    );
+    expect(markup.indexOf('configuration-heading')).toBeLessThan(
+      markup.indexOf('validation-heading')
+    );
+    expect(markup.indexOf('validation-heading')).toBeLessThan(
+      markup.indexOf('generation-heading')
+    );
+    expect(styles).toContain('.generation-panel');
+    expect(styles).toMatch(/\.generation-panel[\s\S]*border-top/);
     expect(visibleText).toContain('API Keys');
+    expect(visibleText).toContain('No API keys added yet');
     expect(visibleText).toContain('Add API key');
     expect(visibleText).toContain('Replace API key');
-    expect(visibleText).toContain('Delete API key');
+    expect(visibleText).toContain('Delete All keys');
+    expect(visibleText).not.toContain('Clear');
     expect(visibleText).not.toContain('Credential');
+  });
+
+  it('keeps generation interactive only through the authorized flow', () => {
+    const markup = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.html'),
+      'utf8'
+    );
+    const popupSource = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.ts'),
+      'utf8'
+    );
+    expect(markup).toMatch(
+      /<button type="button" data-primary-action hidden>\s*Generate &amp; Auto-Fill/
+    );
+    expect(popupSource).toContain(
+      'primary.disabled = !isCurrentValidationValid(configurationState);'
+    );
+    expect(popupSource).toContain(
+      'if (!isCurrentValidationValid(configurationState)) return;'
+    );
+  });
+
+  it('shows the unsaved validation message until configuration is saved', () => {
+    const markup = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.html'),
+      'utf8'
+    );
+    const popupSource = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.ts'),
+      'utf8'
+    );
+    expect(markup).toContain(
+      'data-unsaved-configuration hidden>\n          Save the configuration before validating'
+    );
+    expect(popupSource).toContain(
+      'unsavedConfiguration.hidden = !configurationDirty;'
+    );
+    expect(popupSource).toContain('configurationDirty = false;');
+    expect(popupSource).toContain(
+      'validateButton.disabled =\n    validating || !configurationState.activeConfiguration || configurationDirty;'
+    );
   });
 
   it('restricts models to the selected compiled provider', () => {
@@ -60,6 +126,9 @@ describe('popup configuration state', () => {
 
   it('starts not validated and gates generation until exact validation exists', () => {
     expect(validationStatus(baseState, false)).toBe('NOT_VALIDATED');
+    expect(authorizationStatus(baseState, false)).toBe(
+      'NOT VALIDATED — Configuration saved. Validate it before generating.'
+    );
     expect(isCurrentValidationValid(baseState)).toBe(false);
     const validated = {
       ...baseState,
@@ -74,6 +143,50 @@ describe('popup configuration state', () => {
     };
     expect(validationStatus(validated, false)).toBe('VALID');
     expect(isCurrentValidationValid(validated)).toBe(true);
+    expect(authorizationStatus(validated, false)).toBe('VALID');
+    expect(validGenerationMessage(validated)).toBe(
+      'Configuration is valid. Generate is available on a supported page.'
+    );
+    expect(authorizationStatus(validated, false, true)).toBe(
+      'NOT VALIDATED — Save the configuration before validating'
+    );
+  });
+
+  it('uses the initial authorization reason when no configuration or keys exist', () => {
+    const initial = {
+      ...baseState,
+      credentials: [],
+      activeConfiguration: null,
+      configurationDigest: null,
+      validation: null,
+    };
+    expect(authorizationStatus(initial, false)).toBe(
+      'NOT VALIDATED — Save the configuration before validating'
+    );
+    expect(isCurrentValidationValid(initial)).toBe(false);
+  });
+
+  it('invalidates a previously valid configuration when its API key is deleted', () => {
+    const validated = {
+      ...baseState,
+      validation: {
+        configurationDigest: 'digest-1',
+        providerId: 'gemini',
+        modelId: 'gemini-model',
+        credentialId: 'credential-1',
+        status: 'VALID' as const,
+        validatedAt: '2026-09-08T00:00:00.000Z',
+      },
+    };
+    const deleted = { ...validated, credentials: [] };
+    expect(isCurrentValidationValid(validated)).toBe(true);
+    expect(authorizationStatus(validated, false)).toBe('VALID');
+    expect(isCurrentValidationValid(deleted)).toBe(false);
+    expect(authorizationStatus(deleted, false)).toBe(
+      'NOT VALIDATED — Save the configuration before validating'
+    );
+    expect(validGenerationMessage(deleted)).toBeNull();
+    expect(isCurrentValidationValid(deleted)).toBe(false);
   });
 
   it('marks validation as loading and rejects stale or mismatched records', () => {

@@ -16,30 +16,9 @@
         <p class="status" data-status>Checking this page...</p>
         <p class="detail" data-detail></p>
       </section>
-      <section
-        class="configuration-panel"
-        aria-labelledby="configuration-heading"
-      >
-        <h2 id="configuration-heading">Configuration</h2>
-        <label for="provider-select">Provider</label>
-        <select id="provider-select" data-provider-select></select>
-        <label for="model-select">Model</label>
-        <select id="model-select" data-model-select></select>
-        <label for="credential-select">API Key</label>
-        <select id="credential-select" data-credential-select></select>
-        <div class="actions">
-          <button type="button" data-save-configuration>
-            Save configuration
-          </button>
-          <button type="button" class="secondary" data-clear-configuration>
-            Clear
-          </button>
-        </div>
-        <p class="detail" data-credential-status>Loading configuration...</p>
-      </section>
       <section class="credential-panel" aria-labelledby="credential-heading">
         <h2 id="credential-heading">API Keys</h2>
-        <label for="credential-label">Label</label>
+        <label for="credential-label">Key Name</label>
         <input
           id="credential-label"
           type="text"
@@ -58,28 +37,56 @@
           <button type="button" class="secondary" data-replace-credential>
             Replace API key
           </button>
-          <button type="button" class="secondary" data-delete-credential>
-            Delete API key
-          </button>
         </div>
         <p class="message" data-credential-message hidden></p>
       </section>
+      <section
+        class="configuration-panel"
+        aria-labelledby="configuration-heading"
+      >
+        <h2 id="configuration-heading">Configuration</h2>
+        <label for="provider-select">Provider</label>
+        <select id="provider-select" data-provider-select></select>
+        <label for="model-select">Model</label>
+        <select id="model-select" data-model-select></select>
+        <label for="credential-select">API Key</label>
+        <select id="credential-select" data-credential-select>
+          <option value="">No API keys added yet</option>
+        </select>
+        <div class="actions">
+          <button type="button" data-save-configuration>
+            Save configuration
+          </button>
+          <button type="button" class="secondary" data-delete-credential>
+            Delete All keys
+          </button>
+        </div>
+        <p class="detail" data-credential-status>Loading configuration...</p>
+      </section>
       <section class="validation-panel" aria-labelledby="validation-heading">
         <h2 id="validation-heading">Authorization</h2>
-        <p class="status" data-validation-status>Not validated</p>
+        <p class="status" data-validation-status></p>
+        <p class="detail" data-unsaved-configuration hidden>
+          Save the configuration before validating
+        </p>
         <button type="button" data-validate-configuration>
           Validate configuration
         </button>
         <p class="message" data-validation-message hidden></p>
       </section>
-      <section class="results" data-results hidden></section>
-      <p class="message" data-message hidden></p>
-      <div class="actions">
-        <button type="button" data-primary-action hidden></button>
-        <button type="button" class="secondary" data-review-action hidden>
-          Review complete
-        </button>
-      </div>
+      <section class="generation-panel" aria-labelledby="generation-heading">
+        <h2 id="generation-heading">Generate &amp; Auto-Fill</h2>
+        <section class="results" data-results hidden></section>
+        <p class="message" data-message hidden></p>
+        <div class="actions">
+          <button type="button" data-primary-action hidden>
+            Generate &amp; Auto-Fill
+          </button>
+          <button type="button" class="secondary" data-review-action hidden>
+            Review complete
+          </button>
+        </div>
+      </section>
     </main>
     <script type="module" src="./Popup.ts"></script>
   </body>

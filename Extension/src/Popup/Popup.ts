@@ -2,8 +2,9 @@ import { EXTENSION_NAME, log } from '../Shared/Utils';
 import { PopupController } from './Controller';
 import {
   isCurrentValidationValid,
+  authorizationStatus,
   modelsForProvider,
-  validationStatus,
+  validGenerationMessage,
   type PopupConfigurationState,
 } from './Configuration';
 import { createBrowserPopupWorkflow } from './Workflow';
@@ -18,6 +19,7 @@ let configurationState: PopupConfigurationState = {
   validation: null,
 };
 let validating = false;
+let configurationDirty = false;
 
 function element<T extends HTMLElement>(selector: string): T | null {
   return document.querySelector<T>(selector);
@@ -84,6 +86,20 @@ function renderGeneration(state: UiState): void {
   }
 }
 
+function renderValidationAvailability(): void {
+  const validateButton = element<HTMLButtonElement>(
+    '[data-validate-configuration]'
+  );
+  const unsavedConfiguration = element<HTMLElement>(
+    '[data-unsaved-configuration]'
+  );
+  if (!validateButton || !unsavedConfiguration) return;
+
+  unsavedConfiguration.hidden = !configurationDirty;
+  validateButton.disabled =
+    validating || !configurationState.activeConfiguration || configurationDirty;
+}
+
 function renderConfiguration(): void {
   const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
   const modelSelect = element<HTMLSelectElement>('[data-model-select]');
@@ -93,16 +109,12 @@ function renderConfiguration(): void {
   const validationStatusElement = element<HTMLElement>(
     '[data-validation-status]'
   );
-  const validateButton = element<HTMLButtonElement>(
-    '[data-validate-configuration]'
-  );
   const credentialStatus = element<HTMLElement>('[data-credential-status]');
   if (
     !providerSelect ||
     !modelSelect ||
     !credentialSelect ||
     !validationStatusElement ||
-    !validateButton ||
     !credentialStatus
   )
     return;
@@ -120,9 +132,13 @@ function renderConfiguration(): void {
   if (active?.modelId) modelSelect.value = active.modelId;
 
   credentialSelect.replaceChildren();
-  for (const credential of configurationState.credentials.filter(
+  const providerCredentials = configurationState.credentials.filter(
     (item) => item.providerId === providerSelect.value
-  )) {
+  );
+  if (!providerCredentials.length) {
+    credentialSelect.add(new Option('No API keys added yet', ''));
+  }
+  for (const credential of providerCredentials) {
     credentialSelect.add(
       new Option(credential.label || 'Unnamed API key', credential.credentialId)
     );
@@ -131,11 +147,26 @@ function renderConfiguration(): void {
   credentialStatus.textContent = configurationState.credentials.length
     ? `${configurationState.credentials.length} credential${configurationState.credentials.length === 1 ? '' : 's'} stored.`
     : 'Add an API key to configure a provider.';
-  validationStatusElement.textContent = validationStatus(
+  validationStatusElement.textContent = authorizationStatus(
     configurationState,
-    validating
-  ).replace(/_/g, ' ');
-  validateButton.disabled = validating || !active;
+    validating,
+    configurationDirty
+  );
+  const validationMessage = element<HTMLElement>('[data-validation-message]');
+  if (validationMessage) {
+    const generationMessage = validGenerationMessage(configurationState);
+    if (generationMessage) {
+      validationMessage.textContent = generationMessage;
+      validationMessage.hidden = false;
+    } else if (
+      validationMessage.textContent ===
+      'Configuration is valid. Generate is available on a supported page.'
+    ) {
+      validationMessage.textContent = '';
+      validationMessage.hidden = true;
+    }
+  }
+  renderValidationAvailability();
 }
 
 function renderAll(state: UiState): void {
@@ -193,22 +224,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
 
   providerSelect.addEventListener('change', () => {
+    configurationDirty = true;
     modelSelect.replaceChildren(
       ...modelsForProvider(configurationState, providerSelect.value).map(
         (model) => new Option(model.displayName, model.modelId)
       )
     );
-    credentialSelect.replaceChildren(
-      ...configurationState.credentials
-        .filter((item) => item.providerId === providerSelect.value)
-        .map(
-          (credential) =>
-            new Option(
-              credential.label || 'Unnamed API key',
-              credential.credentialId
-            )
-        )
+    const credentials = configurationState.credentials.filter(
+      (item) => item.providerId === providerSelect.value
     );
+    credentialSelect.replaceChildren(
+      ...(credentials.length
+        ? credentials.map(
+            (credential) =>
+              new Option(
+                credential.label || 'Unnamed API key',
+                credential.credentialId
+              )
+          )
+        : [new Option('No API keys added yet', '')])
+    );
+    renderValidationAvailability();
+  });
+  modelSelect.addEventListener('change', () => {
+    configurationDirty = true;
+    renderValidationAvailability();
+  });
+  credentialSelect.addEventListener('change', () => {
+    configurationDirty = true;
+    renderValidationAvailability();
   });
   element<HTMLButtonElement>('[data-save-configuration]')?.addEventListener(
     'click',
@@ -220,6 +264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           modelId: modelSelect.value,
           credentialId: credentialSelect.value,
         })) as unknown as PopupConfigurationState;
+        configurationDirty = false;
         showMessage(
           '[data-validation-message]',
           'Configuration saved. Validate it before generating.'
@@ -231,24 +276,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           error instanceof Error
             ? error.message
             : 'Configuration could not be saved.'
-        );
-      }
-    }
-  );
-  element<HTMLButtonElement>('[data-clear-configuration]')?.addEventListener(
-    'click',
-    async () => {
-      try {
-        configurationState = (await send({
-          type: 'configuration-clear',
-        })) as unknown as PopupConfigurationState;
-        renderAll(controller.state);
-      } catch (error) {
-        showMessage(
-          '[data-validation-message]',
-          error instanceof Error
-            ? error.message
-            : 'Configuration could not be cleared.'
         );
       }
     }
@@ -307,11 +334,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     'click',
     async () => {
       try {
-        await send({
-          type: 'credential-delete-selected',
-          credentialId: credentialSelect.value,
-        });
+        for (const credential of configurationState.credentials) {
+          await send({
+            type: 'credential-delete-selected',
+            credentialId: credential.credentialId,
+          });
+        }
         await reloadConfiguration();
+        configurationDirty = false;
+        renderAll(controller.state);
         showMessage('[data-credential-message]', 'API key deleted.');
       } catch (error) {
         showMessage(
@@ -332,10 +363,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         await send({ type: 'configuration-validate' });
         await reloadConfiguration();
-        showMessage(
-          '[data-validation-message]',
-          'Configuration is valid. Generate is available on a supported page.'
-        );
       } catch (error) {
         await reloadConfiguration().catch(() => undefined);
         showMessage(
