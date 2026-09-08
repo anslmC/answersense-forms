@@ -215,7 +215,7 @@ async function handleRequest(request: {
     if (!report) {
       throw new Error('Generation response was stale or invalidated.');
     }
-    const fillReport = fillReviewedAnswers(
+    const fillReport = await fillReviewedAnswers(
       document,
       pageLifecycle.currentPage.form,
       report,

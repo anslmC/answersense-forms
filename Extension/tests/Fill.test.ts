@@ -197,7 +197,7 @@ describe('P4 current DOM resolver', () => {
 });
 
 describe('P4 sequential filling and preservation', () => {
-  it('fills multiple choice, checkboxes, short answer, and paragraph in report order', () => {
+  it('fills multiple choice, checkboxes, short answer, and paragraph in report order', async () => {
     const document = createDocument();
     const report = reportFor([
       { questionId: 'choice', value: 'Beta' },
@@ -206,7 +206,7 @@ describe('P4 sequential filling and preservation', () => {
       { questionId: 'paragraph', value: 'A paragraph' },
     ]);
 
-    const result = fillReviewedAnswers(
+    const result = await fillReviewedAnswers(
       document,
       form,
       report,
@@ -221,6 +221,11 @@ describe('P4 sequential filling and preservation', () => {
       'FILLED',
       'FILLED',
     ]);
+    expect(result.outcomes).toHaveLength(4);
+    expect(result.outcomes[1]).toMatchObject({
+      questionId: 'checks',
+      status: 'FILLED',
+    });
     expect(
       document
         .querySelector('[data-question-id="choice"] [aria-label="Beta"]')
@@ -252,7 +257,7 @@ describe('P4 sequential filling and preservation', () => {
     ).toBe('A paragraph');
   });
 
-  it('fills required controls through the same live-DOM path', () => {
+  it('fills required controls through the same live-DOM path', async () => {
     const document = createDocument();
     const requiredForm: Form = {
       ...form,
@@ -265,7 +270,7 @@ describe('P4 sequential filling and preservation', () => {
       { questionId: 'paragraph', value: 'Required paragraph' },
     ]);
 
-    const result = fillReviewedAnswers(
+    const result = await fillReviewedAnswers(
       document,
       requiredForm,
       report,
@@ -282,7 +287,7 @@ describe('P4 sequential filling and preservation', () => {
     ]);
   });
 
-  it('preserves existing answers without overwriting them', () => {
+  it('preserves existing answers without overwriting them', async () => {
     const document = createDocument();
     const choice = document.querySelector(
       '[data-question-id="choice"] [aria-label="Alpha"]'
@@ -307,7 +312,7 @@ describe('P4 sequential filling and preservation', () => {
       { questionId: 'short', value: 'Generated short' },
       { questionId: 'paragraph', value: 'Generated paragraph' },
     ]);
-    const result = fillReviewedAnswers(
+    const result = await fillReviewedAnswers(
       document,
       form,
       report,
@@ -326,13 +331,13 @@ describe('P4 sequential filling and preservation', () => {
     expect(paragraph.value).toBe('Existing paragraph');
   });
 
-  it('supports edited and skipped review decisions', () => {
+  it('supports edited and skipped review decisions', async () => {
     const document = createDocument();
     const report = reportFor([
       { questionId: 'short', value: 'Generated' },
       { questionId: 'paragraph', value: 'Ignored' },
     ]);
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       editReviewedAnswer('short', { questionId: 'short', value: 'Edited' }),
       skipReviewedAnswer('paragraph'),
     ]);
@@ -357,12 +362,12 @@ describe('P4 sequential filling and preservation', () => {
     ).toBe('');
   });
 
-  it('reports checkbox partial and total failures', () => {
+  it('reports checkbox partial and total failures', async () => {
     const document = createDocument();
     const report = reportFor([
       { questionId: 'checks', value: ['One', 'Missing'] },
     ]);
-    const partial = fillReviewedAnswers(document, form, report, [
+    const partial = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('checks', report.results[0].answer!),
     ]);
     expect(partial.outcomes[0]).toMatchObject({
@@ -378,7 +383,7 @@ describe('P4 sequential filling and preservation', () => {
     const failedReport = reportFor([
       { questionId: 'checks', value: ['Missing'] },
     ]);
-    const failed = fillReviewedAnswers(document, form, failedReport, [
+    const failed = await fillReviewedAnswers(document, form, failedReport, [
       acceptGeneratedAnswer('checks', failedReport.results[0].answer!),
     ]);
     expect(failed.outcomes[0]).toMatchObject({
@@ -387,7 +392,7 @@ describe('P4 sequential filling and preservation', () => {
     });
   });
 
-  it('preserves checkbox extras and reports already-satisfied selections', () => {
+  it('preserves checkbox extras and reports already-satisfied selections', async () => {
     const document = createDocument();
     const checks = document.querySelector('[data-question-id="checks"]')!;
     checks
@@ -398,7 +403,7 @@ describe('P4 sequential filling and preservation', () => {
       ?.setAttribute('aria-checked', 'true');
     const report = reportFor([{ questionId: 'checks', value: ['One'] }]);
 
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('checks', report.results[0].answer!),
     ]);
 
@@ -408,7 +413,7 @@ describe('P4 sequential filling and preservation', () => {
     ).toBe('true');
   });
 
-  it('rolls back newly selected checkboxes when mutation fails', () => {
+  it('rolls back newly selected checkboxes when mutation fails', async () => {
     const document = createDocument();
     const checks = document.querySelector('[data-question-id="checks"]')!;
     const first = checks.querySelector<HTMLElement>('[aria-label="One"]')!;
@@ -424,7 +429,7 @@ describe('P4 sequential filling and preservation', () => {
     first.click = firstClick;
     const report = reportFor([{ questionId: 'checks', value: ['One', 'Two'] }]);
 
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('checks', report.results[0].answer!),
     ]);
 
@@ -432,7 +437,7 @@ describe('P4 sequential filling and preservation', () => {
     expect(first.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('reports partial fill when checkbox rollback cannot restore state', () => {
+  it('reports partial fill when checkbox rollback cannot restore state', async () => {
     const document = createDocument();
     const checks = document.querySelector('[data-question-id="checks"]')!;
     const first = checks.querySelector<HTMLElement>('[aria-label="One"]')!;
@@ -451,14 +456,14 @@ describe('P4 sequential filling and preservation', () => {
     };
     const report = reportFor([{ questionId: 'checks', value: ['One', 'Two'] }]);
 
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('checks', report.results[0].answer!),
     ]);
 
     expect(result.outcomes[0].status).toBe('PARTIAL_FILL');
   });
 
-  it('fails single-choice filling when the click does not change live state', () => {
+  it('fails single-choice filling when the click does not change live state', async () => {
     const document = createDocument();
     const option = document.querySelector<HTMLElement>(
       '[data-question-id="choice"] [aria-label="Beta"]'
@@ -466,7 +471,7 @@ describe('P4 sequential filling and preservation', () => {
     option.replaceWith(option.cloneNode(true));
     const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
 
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('choice', report.results[0].answer!),
     ]);
 
@@ -481,7 +486,60 @@ describe('P4 sequential filling and preservation', () => {
     ).toBe('false');
   });
 
-  it('fills contenteditable paragraph controls and verifies their content', () => {
+  it('waits for asynchronous single-choice selection before verifying', async () => {
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => {
+      setTimeout(() => option.setAttribute('aria-checked', 'true'), 0);
+    };
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+
+    const result = await fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('choice', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({
+      questionId: 'choice',
+      status: 'FILLED',
+    });
+    expect(option.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('waits for all asynchronous checkbox selections as one outcome', async () => {
+    const document = createDocument();
+    const options = ['One', 'Three'].map(
+      (label) =>
+        document.querySelector<HTMLElement>(
+          `[data-question-id="checks"] [aria-label="${label}"]`
+        )!
+    );
+    for (const option of options) {
+      option.click = () => {
+        setTimeout(() => option.setAttribute('aria-checked', 'true'), 0);
+      };
+    }
+    const report = reportFor([
+      { questionId: 'checks', value: ['One', 'Three'] },
+    ]);
+
+    const result = await fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('checks', report.results[0].answer!),
+    ]);
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({
+      questionId: 'checks',
+      status: 'FILLED',
+    });
+    expect(
+      options.map((option) => option.getAttribute('aria-checked'))
+    ).toEqual(['true', 'true']);
+  });
+
+  it('fills contenteditable paragraph controls and verifies their content', async () => {
     const document = createDocument(`
       <div role="listitem" data-question-id="editable" data-question-type="paragraph">
         <div contenteditable="true"></div>
@@ -490,7 +548,7 @@ describe('P4 sequential filling and preservation', () => {
     const report = reportFor([
       { questionId: 'editable', value: 'Editable details' },
     ]);
-    const result = fillReviewedAnswers(
+    const result = await fillReviewedAnswers(
       document,
       { ...form, questions: [editableQuestion] },
       report,
@@ -505,7 +563,7 @@ describe('P4 sequential filling and preservation', () => {
     ).toBe('Editable details');
   });
 
-  it('fails when a checkbox mutation does not appear in the live DOM', () => {
+  it('fails when a checkbox mutation does not appear in the live DOM', async () => {
     const document = createDocument();
     const option = document.querySelector<HTMLElement>(
       '[data-question-id="checks"] [aria-label="One"]'
@@ -513,20 +571,20 @@ describe('P4 sequential filling and preservation', () => {
     option.replaceWith(option.cloneNode(true));
     const report = reportFor([{ questionId: 'checks', value: ['One'] }]);
 
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('checks', report.results[0].answer!),
     ]);
 
     expect(result.outcomes[0].status).toBe('FILL_FAILED');
   });
 
-  it('continues after a failed question and preserves deterministic order', () => {
+  it('continues after a failed question and preserves deterministic order', async () => {
     const document = createDocument();
     const report = reportFor([
       { questionId: 'missing', value: 'No target' },
       { questionId: 'short', value: 'Still fills' },
     ]);
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('missing', report.results[0].answer!),
       acceptGeneratedAnswer('short', report.results[1].answer!),
     ]);
@@ -544,12 +602,12 @@ describe('P4 sequential filling and preservation', () => {
     ).toBe('Still fills');
   });
 
-  it('does not fill a DOM question without a generation result', () => {
+  it('does not fill a DOM question without a generation result', async () => {
     const document = createDocument();
     const report = reportFor([
       { questionId: 'short', value: 'Only generated answer' },
     ]);
-    const result = fillReviewedAnswers(document, form, report, [
+    const result = await fillReviewedAnswers(document, form, report, [
       acceptGeneratedAnswer('short', report.results[0].answer!),
     ]);
 

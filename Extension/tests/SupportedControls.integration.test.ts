@@ -123,7 +123,7 @@ async function runIntegrationCase(testCase: IntegrationCase) {
     },
   ]);
 
-  const fillReport = fillReviewedAnswers(
+  const fillReport = await fillReviewedAnswers(
     document,
     normalized.form,
     report!,

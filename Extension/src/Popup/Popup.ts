@@ -35,6 +35,7 @@ function renderGeneration(state: UiState): void {
   if (!status || !detail || !message || !results || !primary || !review) return;
 
   results.replaceChildren();
+  results.hidden = true;
   message.hidden = true;
   primary.hidden = false;
   review.hidden = true;
@@ -76,12 +77,21 @@ function renderGeneration(state: UiState): void {
         : 'Review answers before clicking Next in Google Forms.';
     primary.textContent = 'Regenerate';
     review.hidden = state.name !== 'REVIEW';
-    for (const outcome of state.result.fillReport.outcomes) {
-      const item = document.createElement('p');
-      item.className = `result result-${outcome.status.toLowerCase()}`;
-      item.textContent = `${outcome.questionId ?? 'Question'}: ${outcome.status.replace(/_/g, ' ')}`;
-      results.append(item);
-    }
+    const outcomes = state.result.fillReport.outcomes;
+    const filledCount = outcomes.filter(
+      ({ status }) => status === 'FILLED'
+    ).length;
+    const alreadyFilledCount = outcomes.filter(
+      ({ status }) => status === 'PRESERVED_EXISTING'
+    ).length;
+    const failedCount = outcomes.filter(
+      ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
+    ).length;
+
+    const summary = document.createElement('p');
+    summary.className = 'result-summary';
+    summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed`;
+    results.append(summary);
     results.hidden = false;
   }
 }

@@ -33,6 +33,9 @@ export interface FillReport {
   readonly outcomes: readonly FillOutcome[];
 }
 
+const CHOICE_VERIFICATION_ATTEMPTS = 3;
+const CHOICE_VERIFICATION_DELAY_MS = 16;
+
 function failureOutcome(
   questionId: string | null,
   failure: ResolutionFailure | { code: FillFailureCode; reason: string },
@@ -146,10 +149,24 @@ function deactivateOption(option: HTMLElement): void {
   option.click();
 }
 
-function fillSingleChoice(
+async function verifyChoiceSelection(
+  isSelected: () => boolean
+): Promise<boolean> {
+  for (let attempt = 0; attempt < CHOICE_VERIFICATION_ATTEMPTS; attempt += 1) {
+    if (isSelected()) return true;
+    if (attempt < CHOICE_VERIFICATION_ATTEMPTS - 1) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, CHOICE_VERIFICATION_DELAY_MS);
+      });
+    }
+  }
+  return false;
+}
+
+async function fillSingleChoice(
   target: ResolvedChoiceTarget,
   answer: Answer
-): FillOutcome {
+): Promise<FillOutcome> {
   if (typeof answer.value !== 'string') {
     return failureOutcome(
       target.questionId,
@@ -175,7 +192,7 @@ function fillSingleChoice(
     );
   }
   activateOption(option);
-  if (!isOptionSelected(option)) {
+  if (!(await verifyChoiceSelection(() => isOptionSelected(option)))) {
     return failureOutcome(
       target.questionId,
       {
@@ -194,10 +211,10 @@ function fillSingleChoice(
   };
 }
 
-function fillCheckboxes(
+async function fillCheckboxes(
   target: ResolvedChoiceTarget,
   answer: Answer
-): FillOutcome {
+): Promise<FillOutcome> {
   if (!Array.isArray(answer.value)) {
     return failureOutcome(
       target.questionId,
@@ -284,10 +301,12 @@ function fillCheckboxes(
   }
 
   const labelsToVerify = missing.length > 0 ? available : requested;
-  const verified = labelsToVerify.every((label) => {
-    const option = optionsByLabel.get(label);
-    return option !== undefined && isOptionSelected(option);
-  });
+  const verified = await verifyChoiceSelection(() =>
+    labelsToVerify.every((label) => {
+      const option = optionsByLabel.get(label);
+      return option !== undefined && isOptionSelected(option);
+    })
+  );
   if (!verified) {
     try {
       for (const option of newlySelected) {
@@ -333,11 +352,11 @@ function fillCheckboxes(
   };
 }
 
-function fillQuestion(
+async function fillQuestion(
   document: Document,
   question: Question,
   answer: Answer
-): FillOutcome {
+): Promise<FillOutcome> {
   const resolved = resolveCurrentQuestionTarget(document, question);
   if (!resolved.ok) {
     return failureOutcome(question.id, resolved, answer);
@@ -370,45 +389,48 @@ function fillQuestion(
   );
 }
 
-export function fillReviewedAnswers(
+export async function fillReviewedAnswers(
   document: Document,
   form: Form,
   report: GenerationReport,
   decisions: readonly ReviewDecision[]
-): FillReport {
+): Promise<FillReport> {
   const decisionsById = new Map(
     decisions.map((decision) => [decision.questionId, decision])
   );
-  const outcomes = report.results.map((result): FillOutcome => {
+  const outcomes: FillOutcome[] = [];
+  for (const result of report.results) {
     const questionId = result.questionId;
     const decision =
       questionId === null ? undefined : decisionsById.get(questionId);
     if (!decision || decision.decision === 'skip' || decision.answer === null) {
-      return {
+      outcomes.push({
         questionId,
         status: 'SKIPPED',
         answer: null,
         reason: 'The reviewed answer was skipped.',
         code: null,
-      };
+      });
+      continue;
     }
 
     if (decision.answer.questionId !== questionId) {
-      return failureOutcome(
+      outcomes.push(failureOutcome(
         questionId,
         {
           code: 'INVALID_ANSWER',
           reason: 'The reviewed answer questionId does not match the decision.',
         },
         decision.answer
-      );
+      ));
+      continue;
     }
 
     const question = form.questions.find(
       (candidate) => candidate.id === questionId
     );
     if (!question) {
-      return failureOutcome(
+      outcomes.push(failureOutcome(
         questionId,
         {
           code: 'ELEMENT_NOT_FOUND',
@@ -416,11 +438,12 @@ export function fillReviewedAnswers(
             'The reviewed question is not present in the normalized form.',
         },
         decision.answer
-      );
+      ));
+      continue;
     }
 
-    return fillQuestion(document, question, decision.answer);
-  });
+    outcomes.push(await fillQuestion(document, question, decision.answer));
+  }
 
   return Object.freeze({
     cycleId: report.cycleId,
