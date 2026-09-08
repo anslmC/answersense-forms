@@ -13,6 +13,8 @@ import {
   shouldGeneratePage,
   waitForInitialDiscovery,
 } from './Navigation';
+import { comparePageOrder } from '../Lifecycle/Transition';
+import { belongsToSameForm } from './Identity';
 import type {
   GenerationRequest,
   GenerationResponse,
@@ -30,7 +32,7 @@ function publishLifecycleSnapshot(): void {
   if (lifecycle) {
     void chrome.runtime.sendMessage({
       type: 'lifecycle-snapshot',
-      snapshot: lifecycle.getSnapshot(),
+      snapshot: lifecycle.getSnapshot(window.location.pathname),
     });
   }
 }
@@ -46,8 +48,17 @@ function publishTransition(
     pageId: page.form.activePageId,
     questionCount: page.form.questions.length,
     revisitStatus: lifecycle.currentRevisitStatus,
-    snapshot: lifecycle.getSnapshot(),
+    snapshot: lifecycle.getSnapshot(window.location.pathname),
   });
+}
+
+function isNextNavigationButton(button: HTMLElement): boolean {
+  const label = button.textContent?.replace(/\s+/g, ' ').trim().toLowerCase();
+  return (
+    label === 'next' ||
+    label?.endsWith(' next') === true ||
+    button.getAttribute('jsname') === 'OCpkoe'
+  );
 }
 
 function observeNextIntent(): void {
@@ -57,11 +68,7 @@ function observeNextIntent(): void {
       return;
     }
     const button = target.closest<HTMLElement>('[role="button"], button');
-    const label = button?.textContent
-      ?.replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-    if (label === 'next' || label?.endsWith(' next')) {
+    if (button && isNextNavigationButton(button)) {
       try {
         ensureLifecycle().beginNext();
         publishLifecycleSnapshot();
@@ -107,6 +114,36 @@ function ensureLifecycle(discovered?: DiscoveredPage): PageLifecycle {
   return lifecycle;
 }
 
+function isViewFormPath(pathname: string): boolean {
+  return pathname.endsWith('/viewform');
+}
+
+function isFormResponsePath(pathname: string | undefined): boolean {
+  return pathname?.endsWith('/formResponse') === true;
+}
+
+function documentTransitionFor(
+  snapshot: import('../Lifecycle/PageLifecycle').LifecycleSnapshot,
+  discovered: DiscoveredPage
+): 'forward' | 'backward' | 'reload' {
+  const currentPage = normalizeDiscoveredActivePage(discovered);
+  if (
+    snapshot.activePage.form.activePageId === currentPage.form.activePageId ||
+    (isFormResponsePath(snapshot.documentPathname) &&
+      isViewFormPath(window.location.pathname))
+  ) {
+    return 'reload';
+  }
+  const order = comparePageOrder(snapshot.activePage, currentPage);
+  if (order === 1 || snapshot.navigation) {
+    return 'forward';
+  }
+  if (order === -1) {
+    return 'backward';
+  }
+  return 'reload';
+}
+
 async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
   if (lifecycleInitialization) {
     return lifecycleInitialization;
@@ -119,17 +156,25 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
     if (lifecycle) {
       return;
     }
-    if (snapshot?.lifecycle) {
+    if (
+      snapshot?.lifecycle &&
+      belongsToSameForm(snapshot.lifecycle, discovered)
+    ) {
       lifecycle = new PageLifecycle(
         normalizeDiscoveredActivePage(discovered),
         generation,
         snapshot.lifecycle
       );
-      const transitioned = lifecycle.confirmTransition(document);
-      if (transitioned) {
-        publishTransition(transitioned);
-      } else {
+      const transition = documentTransitionFor(snapshot.lifecycle, discovered);
+      const reconciled = lifecycle.reconcileDocument(
+        discovered,
+        document,
+        transition
+      );
+      if (transition === 'reload') {
         publishLifecycleSnapshot();
+      } else {
+        publishTransition(reconciled);
       }
     } else {
       ensureLifecycle(discovered);
@@ -181,6 +226,27 @@ async function handleRequest(request: {
       status: page ? 'discovered' : 'no-active-page',
       supported: true,
       page,
+    };
+  }
+
+  if (request.type === 'get-current-state') {
+    await hydration;
+    if (!supportedPage) {
+      return { status: 'unsupported-page', supported: false };
+    }
+    const page = discoverPage();
+    if (!page) {
+      return { status: 'no-active-page', supported: true };
+    }
+    await hydrateLifecycle(page);
+    return {
+      status: 'current-state',
+      supported: true,
+      lifecycle: lifecycle?.getSnapshot(window.location.pathname) ?? null,
+      page: {
+        pageId: page.pageId,
+        questionCount: page.questions.length,
+      },
     };
   }
 

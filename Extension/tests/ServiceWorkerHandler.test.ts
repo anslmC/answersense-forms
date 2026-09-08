@@ -224,3 +224,177 @@ describe('Service Worker generation handler security boundary', () => {
     expect(handlerState.providerCalls).toBe(0);
   });
 });
+
+describe('Service Worker current-content discovery reconciliation', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('returns the current content page instead of a stale cached page', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    const currentLifecycle = {
+      activePage: {
+        form: {
+          formId: 'form-1',
+          activePageId: 'entry:3-6',
+          questions: [],
+        },
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-2' },
+      },
+      activeCycle: { cycleId: 'cycle-2' },
+      pending: null,
+      settledPages: [],
+      visits: [{ pageId: 'entry:3-6', cycleId: 'cycle-2', status: 'active' }],
+      navigation: null,
+      documentPathname: '/formResponse',
+    };
+    chromeApi.tabs.sendMessage.mockResolvedValue({
+      status: 'current-state',
+      supported: true,
+      lifecycle: currentLifecycle,
+      page: { pageId: 'entry:3-6', questionCount: 2 },
+    });
+    const handleMessage = await loadHandler();
+    const staleLifecycle = {
+      ...currentLifecycle,
+      activePage: {
+        ...currentLifecycle.activePage,
+        form: { ...currentLifecycle.activePage.form, activePageId: 'entry:0-3' },
+        processingCycle: { cycleId: 'cycle-1' },
+      },
+      activeCycle: { cycleId: 'cycle-1' },
+      visits: [{ pageId: 'entry:0-3', cycleId: 'cycle-1', status: 'active' }],
+      documentPathname: '/viewform',
+    };
+
+    await handleMessage(
+      {
+        type: 'lifecycle-snapshot',
+        snapshot: staleLifecycle,
+      },
+      sender(activeTabId)
+    );
+    const response = await handleMessage(
+      { type: 'p7-discover' },
+      { id: extensionId } as HandlerSender
+    );
+
+    expect(response).toMatchObject({
+      supported: true,
+      page: { pageId: 'entry:3-6', questionCount: 2 },
+      uiState: 'READY',
+      result: null,
+    });
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(activeTabId, {
+      type: 'get-current-state',
+    });
+  });
+
+  it('falls back to the cached snapshot when the content script is unavailable', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    chromeApi.tabs.sendMessage.mockRejectedValue(new Error('No receiver'));
+    const handleMessage = await loadHandler();
+    const cached = {
+      activePage: {
+        form: { formId: 'form-1', activePageId: 'entry:0-3', questions: [] },
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-1' },
+      },
+      activeCycle: { cycleId: 'cycle-1' },
+      pending: null,
+      settledPages: [],
+      visits: [{ pageId: 'entry:0-3', cycleId: 'cycle-1', status: 'active' }],
+      navigation: null,
+      documentPathname: '/viewform',
+    };
+    await handleMessage(
+      { type: 'lifecycle-snapshot', snapshot: cached },
+      sender(activeTabId)
+    );
+
+    await expect(
+      handleMessage({ type: 'p7-discover' }, { id: extensionId } as HandlerSender)
+    ).resolves.toMatchObject({
+      supported: true,
+      page: { pageId: 'entry:0-3' },
+    });
+  });
+});
+
+describe('Service Worker popup broadcast reliability', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('does not reject when the popup receiver disappeared after a transition', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    chromeApi.runtime.sendMessage.mockRejectedValue(
+      new Error('Could not establish connection. Receiving end does not exist.')
+    );
+    const handleMessage = await loadHandler();
+
+    await expect(
+      handleMessage(
+        {
+          type: 'lifecycle-transition-confirmed',
+          page: { pageId: 'entry:3-6', questionCount: 2 },
+          snapshot: {
+            activePage: {
+              form: {
+                formId: 'form-1',
+                activePageId: 'entry:3-6',
+                questions: [],
+              },
+              questionResults: [],
+              processingCycle: { cycleId: 'cycle-2' },
+            },
+            activeCycle: { cycleId: 'cycle-2' },
+            pending: null,
+            settledPages: [],
+            visits: [
+              {
+                pageId: 'entry:3-6',
+                cycleId: 'cycle-2',
+                status: 'active',
+              },
+            ],
+            navigation: null,
+            documentPathname: '/formResponse',
+          },
+        },
+        sender(activeTabId)
+      )
+    ).resolves.toMatchObject({ page: { pageId: 'entry:3-6' } });
+  });
+
+  it('does not reject when the popup receiver disappeared after review completion', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    chromeApi.runtime.sendMessage.mockRejectedValue(
+      new Error('Receiving end does not exist.')
+    );
+    const handleMessage = await loadHandler();
+
+    await expect(
+      handleMessage({ type: 'p7-review-complete' }, { id: extensionId } as HandlerSender)
+    ).resolves.toMatchObject({ uiState: 'READY_FOR_NEXT' });
+  });
+});

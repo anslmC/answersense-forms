@@ -36,7 +36,11 @@ import {
   SafeServiceWorkerError,
   serviceWorkerErrorResponse,
 } from './ServiceWorkerResponse';
-import { IntegrationStateStore } from './State';
+import {
+  IntegrationStateStore,
+  reconcileContentState,
+  type CurrentContentState,
+} from './State';
 
 log(`${EXTENSION_NAME} service worker initialized.`);
 
@@ -72,6 +76,25 @@ async function activeTabId(): Promise<number> {
 
 async function sendToActiveContent(message: WorkerMessage): Promise<unknown> {
   return chrome.tabs.sendMessage(await activeTabId(), message);
+}
+
+function isMissingMessageReceiver(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /Could not establish connection|Receiving end does not exist/i.test(
+      error.message
+    )
+  );
+}
+
+async function notifyPopup(message: Record<string, unknown>): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    if (!isMissingMessageReceiver(error)) {
+      throw error;
+    }
+  }
 }
 
 async function configurationState(): Promise<Record<string, unknown>> {
@@ -418,7 +441,7 @@ export async function handleMessage(
       result: null,
       error: null,
     });
-    void chrome.runtime.sendMessage({ type: 'p7-state-updated', snapshot });
+    void notifyPopup({ type: 'p7-state-updated', snapshot });
     return snapshot;
   }
 
@@ -428,23 +451,29 @@ export async function handleMessage(
     }
     const tabId = await activeTabId();
     const snapshot = stateStore.get(tabId);
-    if (snapshot) {
-      return { supported: snapshot.page !== null, ...snapshot };
-    }
-    const response = await chrome.tabs.sendMessage(tabId, {
-      type: 'discover-active-page',
-    });
-    if (response?.page) {
-      const stored = stateStore.update(tabId, {
-        uiState: 'READY',
-        page: {
-          pageId: response.page.pageId,
-          questionCount: response.page.questions.length,
-        },
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, {
+        type: 'get-current-state',
       });
-      return { supported: true, ...stored };
+      if (response?.lifecycle && response?.page) {
+        const reconciled = reconcileContentState(snapshot, {
+          lifecycle: response.lifecycle,
+          page: response.page,
+        } satisfies CurrentContentState);
+        const stored = reconciled === snapshot
+          ? snapshot
+          : stateStore.set(tabId, reconciled);
+        return { supported: true, ...stored };
+      }
+      if (response?.supported === false) {
+        return { supported: false };
+      }
+    } catch {
+      // Fall back to the worker projection when the tab has no content script.
     }
-    return response;
+    return snapshot
+      ? { supported: snapshot.page !== null, ...snapshot }
+      : { supported: false, page: null };
   }
   if (message.type === 'p7-generate') {
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
@@ -493,7 +522,7 @@ export async function handleMessage(
     const snapshot = stateStore.update(await activeTabId(), {
       uiState: 'READY_FOR_NEXT',
     });
-    void chrome.runtime.sendMessage({ type: 'p7-state-updated', snapshot });
+    void notifyPopup({ type: 'p7-state-updated', snapshot });
     return snapshot;
   }
   if (message.type === 'p7-begin-next') {

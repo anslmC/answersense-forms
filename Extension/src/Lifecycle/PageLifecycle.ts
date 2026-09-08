@@ -1,4 +1,5 @@
 import type { NormalizedActivePage, ProcessingCycle } from '../Models/Logical';
+import type { DiscoveredPage } from '../Forms/Discovery';
 import {
   computePageFingerprint,
   normalizeDiscoveredActivePage,
@@ -18,6 +19,7 @@ import { GenerationCoordinator } from '../Generation/Pipeline';
 import {
   beginNextNavigation,
   confirmPageTransition,
+  type DocumentPageTransition,
   type PendingNavigation,
 } from './Transition';
 
@@ -37,6 +39,7 @@ export interface LifecycleSnapshot {
   visits: readonly PageVisit[];
   navigation: PendingNavigation | null;
   revisitStatus?: PageRevisitStatus;
+  documentPathname?: string;
 }
 
 export class PageLifecycle {
@@ -48,6 +51,7 @@ export class PageLifecycle {
   private revisitStatus: PageRevisitStatus = 'NEW';
   private readonly settledPages: SettledPageState[] = [];
   private readonly visits: PageVisit[] = [];
+  private documentPathname: string | undefined;
 
   constructor(
     initialPage: NormalizedActivePage,
@@ -55,13 +59,14 @@ export class PageLifecycle {
     snapshot?: LifecycleSnapshot
   ) {
     if (snapshot) {
-      this.activePage = initialPage;
+      this.activePage = snapshot.activePage;
       this.activeCycle = snapshot.activeCycle;
       this.pending = snapshot.pending;
       this.settledPages.push(...snapshot.settledPages);
       this.visits.push(...snapshot.visits);
       this.navigation = snapshot.navigation;
       this.revisitStatus = snapshot.revisitStatus ?? 'NEW';
+      this.documentPathname = snapshot.documentPathname;
       this.generation.adoptCycle(this.activeCycle.cycleId);
     } else {
       this.activePage = initialPage;
@@ -117,7 +122,7 @@ export class PageLifecycle {
       : 'CHANGED_REVISIT';
   }
 
-  getSnapshot(): LifecycleSnapshot {
+  getSnapshot(documentPathname = this.documentPathname): LifecycleSnapshot {
     return {
       activePage: this.activePage,
       activeCycle: this.activeCycle,
@@ -126,7 +131,12 @@ export class PageLifecycle {
       visits: this.visits,
       navigation: this.navigation,
       revisitStatus: this.revisitStatus,
+      documentPathname,
     };
+  }
+
+  setDocumentPathname(documentPathname: string): void {
+    this.documentPathname = documentPathname;
   }
 
   acceptFinalizedHandoff(handoff: FinalizedPageHandoff): PendingPageState {
@@ -158,43 +168,21 @@ export class PageLifecycle {
       return null;
     }
 
-    if (this.pending) {
-      const settledPending = capturePendingPageAtSettlement(
-        this.oldPageDocument ?? document,
-        this.activePage.form,
-        this.pending
-      );
-      const settledPage = commitPendingPageAfterSuccessfulTransition(
-        settledPending,
-        {
-          nextAcceptedAndTransitioned: true,
-        }
-      );
-      const existingIndex = this.settledPages.findIndex(
-        (page) => page.pageId === settledPage.pageId
-      );
-      if (existingIndex >= 0) {
-        this.settledPages[existingIndex] = settledPage;
-      } else {
-        this.settledPages.push(settledPage);
-      }
+    return this.commitForwardTransition(discovered, document);
+  }
+
+  reconcileDocument(
+    discovered: DiscoveredPage,
+    document: Document,
+    transition: DocumentPageTransition
+  ): NormalizedActivePage {
+    if (transition === 'forward') {
+      return this.commitForwardTransition(discovered, document);
     }
-    this.pending = null;
-    this.navigation = null;
-    this.oldPageDocument = null;
-    this.visits[this.visits.length - 1].status = 'settled';
-    this.activeCycle = this.generation.beginCycle();
-    this.activePage = normalizeDiscoveredActivePage(
-      discovered,
-      this.activeCycle.cycleId
-    );
-    this.revisitStatus = this.classifyPageRevisit(this.activePage);
-    this.visits.push({
-      pageId: discovered.pageId,
-      cycleId: this.activeCycle.cycleId,
-      status: 'active',
-    });
-    return this.activePage;
+    if (transition === 'backward') {
+      return this.activateRevisit(discovered);
+    }
+    return this.resetForNewDocument(discovered);
   }
 
   abandon(): void {
@@ -234,19 +222,86 @@ export class PageLifecycle {
     if (!activePage) {
       return null;
     }
+    return this.activateRevisit(activePage);
+  }
+
+  private commitForwardTransition(
+    discovered: DiscoveredPage,
+    document: Document
+  ): NormalizedActivePage {
+    if (this.pending) {
+      const settledPending = capturePendingPageAtSettlement(
+        this.oldPageDocument ?? document,
+        this.activePage.form,
+        this.pending
+      );
+      const settledPage = commitPendingPageAfterSuccessfulTransition(
+        settledPending,
+        { nextAcceptedAndTransitioned: true }
+      );
+      const existingIndex = this.settledPages.findIndex(
+        (page) => page.pageId === settledPage.pageId
+      );
+      if (existingIndex >= 0) {
+        this.settledPages[existingIndex] = settledPage;
+      } else {
+        this.settledPages.push(settledPage);
+      }
+    }
+    this.pending = null;
+    this.navigation = null;
+    this.oldPageDocument = null;
+    this.visits[this.visits.length - 1].status = 'settled';
+    this.activeCycle = this.generation.beginCycle();
+    this.activePage = normalizeDiscoveredActivePage(
+      discovered,
+      this.activeCycle.cycleId
+    );
+    this.revisitStatus = this.classifyPageRevisit(this.activePage);
+    this.visits.push({
+      pageId: discovered.pageId,
+      cycleId: this.activeCycle.cycleId,
+      status: 'active',
+    });
+    return this.activePage;
+  }
+
+  private activateRevisit(discovered: DiscoveredPage): NormalizedActivePage {
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
     this.generation.invalidate();
     this.activeCycle = this.generation.beginCycle();
     this.activePage = normalizeDiscoveredActivePage(
-      activePage,
+      discovered,
       this.activeCycle.cycleId
     );
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
     this.visits[this.visits.length - 1].status = 'abandoned';
     this.visits.push({
-      pageId: activePage.pageId,
+      pageId: discovered.pageId,
+      cycleId: this.activeCycle.cycleId,
+      status: 'active',
+    });
+    return this.activePage;
+  }
+
+  private resetForNewDocument(
+    discovered: DiscoveredPage
+  ): NormalizedActivePage {
+    this.pending = null;
+    this.navigation = null;
+    this.oldPageDocument = null;
+    this.generation.invalidate();
+    this.activeCycle = this.generation.beginCycle();
+    this.activePage = normalizeDiscoveredActivePage(
+      discovered,
+      this.activeCycle.cycleId
+    );
+    this.revisitStatus = this.classifyPageRevisit(this.activePage);
+    this.visits[this.visits.length - 1].status = 'abandoned';
+    this.visits.push({
+      pageId: discovered.pageId,
       cycleId: this.activeCycle.cycleId,
       status: 'active',
     });

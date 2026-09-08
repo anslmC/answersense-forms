@@ -13,6 +13,53 @@ export interface IntegrationSnapshot {
   error: string | null;
 }
 
+export interface CurrentContentState {
+  lifecycle: LifecycleSnapshot | null;
+  page: PageSummary | null;
+}
+
+function sameSerializedContentState(
+  current: IntegrationSnapshot,
+  content: CurrentContentState
+): boolean {
+  return (
+    JSON.stringify(current.lifecycle) === JSON.stringify(content.lifecycle) &&
+    JSON.stringify(current.page) === JSON.stringify(content.page)
+  );
+}
+
+export function reconcileContentState(
+  current: IntegrationSnapshot | null,
+  content: CurrentContentState
+): IntegrationSnapshot {
+  if (!content.lifecycle || !content.page) {
+    return (
+      current ?? {
+        lifecycle: null,
+        uiState: 'UNSUPPORTED',
+        page: null,
+        result: null,
+        error: null,
+      }
+    );
+  }
+
+  const isCurrent =
+    current?.lifecycle !== null &&
+    current?.lifecycle !== undefined &&
+    sameSerializedContentState(current, content);
+  if (isCurrent && current) {
+    return current;
+  }
+  return {
+    lifecycle: content.lifecycle,
+    uiState: isCurrent ? current.uiState : 'READY',
+    page: content.page,
+    result: isCurrent ? current.result : null,
+    error: isCurrent ? current.error : null,
+  };
+}
+
 export class IntegrationStateStore {
   private readonly snapshots = new Map<number, IntegrationSnapshot>();
 

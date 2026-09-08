@@ -159,18 +159,7 @@ describe('Active Google Forms page discovery', () => {
       'text/html'
     );
 
-    expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
-      expect.objectContaining({
-        kind: 'unsupported',
-        id: null,
-        text: 'Missing identity',
-      }),
-      expect.objectContaining({
-        kind: 'unsupported',
-        id: null,
-        text: 'Malformed identity',
-      }),
-    ]);
+    expect(discoverActiveGoogleFormsPage(document)).toBeNull();
   });
 
   it('discovers the current respondent form structure using its clean view-form URL', () => {
@@ -192,12 +181,13 @@ describe('Active Google Forms page discovery', () => {
     );
 
     expect(discoverActiveGoogleFormsPage(document)).toEqual({
-      pageId: 'https://docs.google.com/forms/d/e/example/viewform',
+      pageId: 'questions:301',
+      formId: 'example',
       questions: [expect.objectContaining({ id: '301', kind: 'supported' })],
     });
   });
 
-  it('selects the visible respondent form and returns an empty page when it has no questions', () => {
+  it('fails closed when the visible respondent form has no page identity', () => {
     const document = new DOMParser().parseFromString(
       `<!doctype html><main>
       <form data-clean-viewform-url="https://docs.google.com/forms/d/e/hidden/viewform" hidden>
@@ -210,10 +200,68 @@ describe('Active Google Forms page discovery', () => {
       'text/html'
     );
 
-    expect(discoverActiveGoogleFormsPage(document)).toEqual({
-      pageId: 'https://docs.google.com/forms/d/e/visible/viewform',
-      questions: [],
+    expect(discoverActiveGoogleFormsPage(document)).toBeNull();
+  });
+
+  it('uses the respondent form entry range as page identity', () => {
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform"
+        data-first-entry="3" data-last-entry="6">
+        <div class="o3Dpx" role="list">
+          <div role="listitem">
+            <div data-params='%.@.[301,"Question",null,0,[[401,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"Question"]]'></div>
+            <h3 role="heading">Question</h3>
+            <input type="text">
+          </div>
+        </div>
+      </form>
+    </main>`,
+      'text/html'
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)).toMatchObject({
+      pageId: 'entry:3-6',
+      formId: 'example',
+      pageEntryRange: { first: 3, last: 6 },
     });
+  });
+
+  it('falls back to the ordered question IDs when entry metadata is absent', () => {
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div class="o3Dpx" role="list">
+          <div role="listitem">
+            <div data-params='%.@.[301,"First",null,0,[[401,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"First"]]'></div>
+            <h3 role="heading">First</h3><input type="text">
+          </div>
+          <div role="listitem">
+            <div data-params='%.@.[302,"Second",null,0,[[402,null,false,null,null,null,null,null,null,[]]],null,null,null,null,null,null,[null,"Second"]]'></div>
+            <h3 role="heading">Second</h3><input type="text">
+          </div>
+        </div>
+      </form>
+    </main>`,
+      'text/html'
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.pageId).toBe(
+      'questions:301,302'
+    );
+  });
+
+  it('fails closed when neither entry metadata nor complete question IDs exist', () => {
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div class="o3Dpx" role="list"><div role="listitem"><h3 role="heading">Unknown</h3></div></div>
+      </form>
+    </main>`,
+      'text/html'
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)).toBeNull();
   });
 
   it('discovers only the active page and its questions', () => {

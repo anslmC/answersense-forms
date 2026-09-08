@@ -93,15 +93,18 @@ export function normalizeDiscoveredActivePage(
 ): NormalizedActivePage {
   const questions = page.questions.map(normalizeQuestion);
   const form: Form = {
-    formId: null,
+    formId: page.formId ?? null,
     activePageId: page.pageId,
     questions,
     pageFingerprint: computePageFingerprint({
-      formId: null,
+      formId: page.formId ?? null,
       activePageId: page.pageId,
       questions,
     }),
   };
+  if (page.pageEntryRange) {
+    form.pageEntryRange = page.pageEntryRange;
+  }
 
   return {
     form,

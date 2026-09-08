@@ -2,6 +2,7 @@ import {
   isSupportedQuestionType,
   type SupportedQuestionType,
 } from '../../../Shared/QuestionTypes';
+import type { PageEntryRange } from '../Models/Logical';
 import { findTopLevelQuestionContainers } from './QuestionBoundary';
 import { extractQuestionId } from './QuestionIdentity';
 export type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
@@ -30,6 +31,8 @@ export interface UnsupportedQuestion {
 
 export interface DiscoveredPage {
   pageId: string;
+  formId?: string | null;
+  pageEntryRange?: PageEntryRange;
   questions: Array<DiscoveredQuestion | UnsupportedQuestion>;
 }
 
@@ -233,6 +236,56 @@ function findActivePage(document: Document): HTMLElement | null {
   );
 }
 
+function extractFormId(form: HTMLFormElement): string | null {
+  const candidate =
+    form.getAttribute('data-clean-viewform-url') ?? form.getAttribute('action');
+  if (!candidate) {
+    return null;
+  }
+  try {
+    const url = new URL(candidate, 'https://docs.google.com');
+    const match = url.pathname.match(/^\/forms\/d\/e\/([^/]+)\//);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function extractPageEntryRange(
+  form: HTMLFormElement
+): PageEntryRange | undefined {
+  const firstValue = form.getAttribute('data-first-entry');
+  const lastValue = form.getAttribute('data-last-entry');
+  if (firstValue === null || lastValue === null) {
+    return undefined;
+  }
+  const first = Number(firstValue);
+  const last = Number(lastValue);
+  if (
+    !Number.isSafeInteger(first) ||
+    !Number.isSafeInteger(last) ||
+    first < 0 ||
+    last < first
+  ) {
+    return undefined;
+  }
+  return { first, last };
+}
+
+function questionIdPageId(
+  questions: Array<DiscoveredQuestion | UnsupportedQuestion>
+): string | null {
+  const ids = questions.map((question) => question.id);
+  if (
+    ids.length === 0 ||
+    ids.some((id): id is null => id === null) ||
+    new Set(ids).size !== ids.length
+  ) {
+    return null;
+  }
+  return `questions:${ids.join(',')}`;
+}
+
 export function discoverActiveGoogleFormsPage(
   document: Document
 ): DiscoveredPage | null {
@@ -241,19 +294,13 @@ export function discoverActiveGoogleFormsPage(
     return null;
   }
 
-  const pageId =
-    page.dataset.answersensePageId ??
-    page.dataset.pageId ??
-    page.getAttribute('data-clean-viewform-url') ??
-    page.id ??
-    page.getAttribute('aria-label');
-  if (!pageId) {
-    return null;
-  }
-
   const respondentForm = page.closest<HTMLFormElement>(
     'form[data-clean-viewform-url]'
   );
+  const explicitPageId =
+    page.dataset.answersensePageId ??
+    page.dataset.pageId ??
+    (respondentForm ? null : page.id || page.getAttribute('aria-label'));
   const questions = respondentForm
     ? (findTopLevelQuestionContainers(respondentForm)?.filter(isVisible) ?? [])
     : Array.from(
@@ -262,12 +309,27 @@ export function discoverActiveGoogleFormsPage(
         )
       ).filter(isVisible);
 
+  const discoveredQuestions = rejectDuplicateQuestionIds(
+    questions.map((question) =>
+      discoverQuestion(question, respondentForm !== null)
+    )
+  );
+  const pageEntryRange = respondentForm
+    ? extractPageEntryRange(respondentForm)
+    : undefined;
+  const resolvedPageId =
+    explicitPageId ??
+    (pageEntryRange
+      ? `entry:${pageEntryRange.first}-${pageEntryRange.last}`
+      : questionIdPageId(discoveredQuestions));
+  if (!resolvedPageId) {
+    return null;
+  }
+
   return {
-    pageId,
-    questions: rejectDuplicateQuestionIds(
-      questions.map((question) =>
-        discoverQuestion(question, respondentForm !== null)
-      )
-    ),
+    pageId: resolvedPageId,
+    formId: respondentForm ? extractFormId(respondentForm) : null,
+    pageEntryRange,
+    questions: discoveredQuestions,
   };
 }

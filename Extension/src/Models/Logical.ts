@@ -49,11 +49,17 @@ export interface ProcessingCycle {
   cycleId: string;
 }
 
+export interface PageEntryRange {
+  first: number;
+  last: number;
+}
+
 export interface Form {
   formId: string | null;
   activePageId: string;
   questions: Question[];
   pageFingerprint?: string;
+  pageEntryRange?: PageEntryRange;
 }
 
 export interface NormalizedActivePage {

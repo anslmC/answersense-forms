@@ -90,6 +90,30 @@ function createHandoff(document: Document, value = 'Ada', cycleId = 'cycle-1') {
   return createFinalizedPageHandoff(document, form, report);
 }
 
+function discoveredPage(
+  pageId: string,
+  first: number,
+  last: number,
+  questionId: string
+) {
+  return {
+    pageId,
+    formId: 'form-1',
+    pageEntryRange: { first, last },
+    questions: [
+      {
+        kind: 'supported' as const,
+        id: questionId,
+        text: questionId,
+        type: 'short-text' as const,
+        required: false,
+        options: [],
+        existingValue: null,
+      },
+    ],
+  };
+}
+
 describe('P5 finalized handoff and transition boundary', () => {
   it('snapshots a user-corrected current DOM value before pending state', () => {
     const document = createDocument();
@@ -758,6 +782,90 @@ describe('P5 page lifecycle', () => {
       },
     ]);
     expect(replacement.currentCycle.cycleId).toBe('cycle-rehydrated');
+  });
+
+  it('reconciles a forward document replacement from serialized lifecycle state', () => {
+    const original = createLifecycle();
+    const document = createDocument();
+    (document.querySelector('input') as HTMLInputElement).value = 'Ada';
+    original.acceptFinalizedHandoff(
+      createHandoff(document, 'Ada', original.currentCycle.cycleId)
+    );
+    original.beginNext(document);
+    const snapshot = original.getSnapshot('/forms/d/e/form/viewform');
+    const next = discoveredPage('entry:3-6', 3, 6, 'next');
+    const replacement = new PageLifecycle(
+      normalizeDiscoveredActivePage(next),
+      new GenerationCoordinator(() => 'cycle-next-document'),
+      snapshot
+    );
+
+    const active = replacement.reconcileDocument(next, createDocument('page-2'), 'forward');
+
+    expect(active.form.activePageId).toBe('entry:3-6');
+    expect(replacement.context).toEqual([
+      { questionId: 'name', questionText: 'name', answer: 'Ada' },
+    ]);
+    expect(replacement.currentCycle.cycleId).toBe('cycle-next-document');
+  });
+
+  it('reconciles a Back document replacement as an unchanged revisit', () => {
+    const original = createLifecycle();
+    const document = createDocument();
+    (document.querySelector('input') as HTMLInputElement).value = 'Ada';
+    original.acceptFinalizedHandoff(
+      createHandoff(document, 'Ada', original.currentCycle.cycleId)
+    );
+    original.beginNext(document);
+    const next = discoveredPage('entry:3-6', 3, 6, 'next');
+    original.reconcileDocument(next, createDocument('page-2'), 'forward');
+    const snapshot = original.getSnapshot('/forms/d/e/form/formResponse');
+    const previousPage = discoveredPage('page-1', 0, 3, 'name');
+    const replacement = new PageLifecycle(
+      normalizeDiscoveredActivePage(previousPage),
+      new GenerationCoordinator(() => 'cycle-back-document'),
+      snapshot
+    );
+
+    replacement.reconcileDocument(
+      previousPage,
+      createDocument(),
+      'backward'
+    );
+
+    expect(replacement.currentRevisitStatus).toBe('UNCHANGED_REVISIT');
+    expect(replacement.context).toEqual([
+      { questionId: 'name', questionText: 'name', answer: 'Ada' },
+    ]);
+    expect(replacement.currentCycle.cycleId).toBe('cycle-back-document');
+  });
+
+  it('resets the active page and cycle on a reload document replacement', () => {
+    const original = createLifecycle();
+    const document = createDocument();
+    (document.querySelector('input') as HTMLInputElement).value = 'Ada';
+    original.acceptFinalizedHandoff(
+      createHandoff(document, 'Ada', original.currentCycle.cycleId)
+    );
+    original.beginNext(document);
+    const next = discoveredPage('entry:3-6', 3, 6, 'next');
+    original.reconcileDocument(next, createDocument('page-2'), 'forward');
+    const snapshot = original.getSnapshot('/forms/d/e/form/formResponse');
+    const first = discoveredPage('entry:0-3', 0, 3, 'name');
+    const replacement = new PageLifecycle(
+      normalizeDiscoveredActivePage(first),
+      new GenerationCoordinator(() => 'cycle-reloaded'),
+      snapshot
+    );
+
+    replacement.reconcileDocument(first, createDocument(), 'reload');
+
+    expect(replacement.currentPage.form.activePageId).toBe('entry:0-3');
+    expect(replacement.pendingPage).toBeNull();
+    expect(replacement.currentCycle.cycleId).toBe('cycle-reloaded');
+    expect(replacement.settledPageStates.map((page) => page.pageId)).toEqual([
+      'page-1',
+    ]);
   });
 });
 
