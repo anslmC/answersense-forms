@@ -9,6 +9,7 @@ import {
 import { GEMINI_MODEL } from '../src/Generation/GeminiProvider';
 import { GEMINI_PROVIDER_ID } from '../src/Generation/ProviderRegistry';
 import { resolveActiveProviderConfiguration } from '../src/Background/ServiceWorkerConfiguration';
+import type { LifecycleSnapshot } from '../src/Lifecycle/PageLifecycle';
 
 const handlerState = vi.hoisted(() => ({
   adapterCalls: 0,
@@ -48,7 +49,9 @@ type ChromeTestGlobal = { chrome: { storage: { local: CredentialStorage } } };
 
 type ChromeTestState = {
   values: Record<string, unknown>;
+  sessionValues?: Record<string, unknown>;
   queryCount: number;
+  removedListener?: (tabId: number) => Promise<void>;
 };
 
 function installChrome(
@@ -71,6 +74,11 @@ function installChrome(
         return [{ id: activeTabId }];
       }),
       sendMessage: vi.fn(),
+      onRemoved: {
+        addListener: (listener: (tabId: number) => Promise<void>) => {
+          state.removedListener = listener;
+        },
+      },
     },
     storage: {
       local: {
@@ -80,6 +88,15 @@ function installChrome(
         },
         remove: async (key: string) => {
           delete state.values[key];
+        },
+      },
+      session: {
+        get: async (key: string) => ({
+          [key]: state.sessionValues?.[key],
+        }),
+        set: async (values: Record<string, unknown>) => {
+          state.sessionValues ??= {};
+          Object.assign(state.sessionValues, values);
         },
       },
     },
@@ -261,7 +278,7 @@ describe('Service Worker current-content discovery reconciliation', () => {
       page: { pageId: 'entry:3-6', questionCount: 2 },
     });
     const handleMessage = await loadHandler();
-    const staleLifecycle = {
+    const staleLifecycle: LifecycleSnapshot = {
       ...currentLifecycle,
       activePage: {
         ...currentLifecycle.activePage,
@@ -304,7 +321,7 @@ describe('Service Worker current-content discovery reconciliation', () => {
     }).chrome;
     chromeApi.tabs.sendMessage.mockRejectedValue(new Error('No receiver'));
     const handleMessage = await loadHandler();
-    const cached = {
+    const cached: LifecycleSnapshot = {
       activePage: {
         form: { formId: 'form-1', activePageId: 'entry:0-3', questions: [] },
         questionResults: [],
@@ -328,6 +345,128 @@ describe('Service Worker current-content discovery reconciliation', () => {
       supported: true,
       page: { pageId: 'entry:0-3' },
     });
+  });
+
+  it('restores lifecycle state from session storage after worker module restart', async () => {
+    const state: ChromeTestState = {
+      values: {},
+      sessionValues: {},
+      queryCount: 0,
+    };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const cached: LifecycleSnapshot = {
+      activePage: {
+        form: { formId: 'form-1', activePageId: 'entry:3-6', questions: [] },
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-2' },
+      },
+      activeCycle: { cycleId: 'cycle-2' },
+      pending: null,
+      settledPages: [],
+      visits: [{ pageId: 'entry:3-6', cycleId: 'cycle-2', status: 'active' }],
+      navigation: null,
+      documentPathname: '/formResponse',
+    };
+
+    await handleMessage(
+      { type: 'lifecycle-snapshot', snapshot: cached },
+      sender(activeTabId)
+    );
+    await handleMessage(
+      {
+        type: 'lifecycle-snapshot',
+        snapshot: {
+          ...cached,
+          activePage: {
+            ...cached.activePage,
+            form: {
+              ...cached.activePage.form,
+              formId: 'form-2',
+              activePageId: 'entry:0-3',
+            },
+          },
+          activeCycle: { cycleId: 'cycle-other' },
+          visits: [
+            { pageId: 'entry:0-3', cycleId: 'cycle-other', status: 'active' },
+          ],
+        },
+      },
+      sender(activeTabId + 1)
+    );
+
+    vi.resetModules();
+    installChrome(state);
+    const restartedHandleMessage = await loadHandler();
+
+    await expect(
+      restartedHandleMessage(
+        { type: 'get-lifecycle-snapshot' },
+        sender(activeTabId)
+      )
+    ).resolves.toMatchObject({
+      lifecycle: { activeCycle: { cycleId: 'cycle-2' } },
+      page: { pageId: 'entry:3-6' },
+    });
+    await expect(
+      restartedHandleMessage(
+        { type: 'get-lifecycle-snapshot' },
+        sender(activeTabId + 1)
+      )
+    ).resolves.toMatchObject({
+      lifecycle: {
+        activePage: { form: { formId: 'form-2', activePageId: 'entry:0-3' } },
+      },
+    });
+  });
+
+  it('cleans the closed tab entry without affecting another tab', async () => {
+    const state: ChromeTestState = {
+      values: {},
+      sessionValues: {},
+      queryCount: 0,
+    };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const snapshot: LifecycleSnapshot = {
+      activePage: {
+        form: { formId: 'form-1', activePageId: 'entry:0-3', questions: [] },
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-1' },
+      },
+      activeCycle: { cycleId: 'cycle-1' },
+      pending: null,
+      settledPages: [],
+      visits: [{ pageId: 'entry:0-3', cycleId: 'cycle-1', status: 'active' }],
+      navigation: null,
+      documentPathname: '/viewform',
+    };
+    await handleMessage(
+      { type: 'lifecycle-snapshot', snapshot },
+      sender(activeTabId)
+    );
+    await handleMessage(
+      { type: 'lifecycle-snapshot', snapshot },
+      sender(activeTabId + 1)
+    );
+
+    await state.removedListener?.(activeTabId);
+
+    vi.resetModules();
+    installChrome(state);
+    const restartedHandleMessage = await loadHandler();
+    await expect(
+      restartedHandleMessage(
+        { type: 'get-lifecycle-snapshot' },
+        sender(activeTabId)
+      )
+    ).resolves.toBeNull();
+    await expect(
+      restartedHandleMessage(
+        { type: 'get-lifecycle-snapshot' },
+        sender(activeTabId + 1)
+      )
+    ).resolves.toMatchObject({ page: { pageId: 'entry:0-3' } });
   });
 });
 

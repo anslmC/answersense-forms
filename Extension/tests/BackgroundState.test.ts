@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  INTEGRATION_STATE_STORAGE_KEY,
   IntegrationStateStore,
   reconcileContentState,
 } from '../src/Background/State';
@@ -32,19 +33,128 @@ function lifecycle(
   };
 }
 
+function sessionStorage(initial: Record<string, unknown> = {}) {
+  const values = { ...initial };
+  return {
+    values,
+    async get(key: string) {
+      return { [key]: values[key] };
+    },
+    async set(update: Record<string, unknown>) {
+      Object.assign(values, update);
+    },
+  };
+}
+
 describe('P7 worker integration state', () => {
-  it('retains lifecycle and popup recovery state per tab without owning domain decisions', () => {
+  it('restores valid state after the in-memory store is recreated', async () => {
+    const storage = sessionStorage();
+    const firstWorker = new IntegrationStateStore(storage);
+    await firstWorker.update(10, {
+      lifecycle: lifecycle('page-2', 'cycle-2'),
+      uiState: 'READY',
+      page: { pageId: 'page-2', questionCount: 2 },
+      result: null,
+      error: null,
+    });
+
+    const restartedWorker = new IntegrationStateStore(storage);
+    await expect(restartedWorker.get(10)).resolves.toMatchObject({
+      page: { pageId: 'page-2', questionCount: 2 },
+      lifecycle: { activeCycle: { cycleId: 'cycle-2' } },
+    });
+  });
+
+  it('ignores malformed stored entries without blocking valid state', async () => {
+    const storage = sessionStorage({
+      [INTEGRATION_STATE_STORAGE_KEY]: {
+        '10': { uiState: 'INVALID' },
+        '11': {
+          lifecycle: lifecycle('page-1', 'cycle-1'),
+          uiState: 'READY',
+          page: { pageId: 'page-1', questionCount: 1 },
+          result: null,
+          error: null,
+        },
+      },
+    });
+
+    const store = new IntegrationStateStore(storage);
+    await expect(store.get(10)).resolves.toBeNull();
+    await expect(store.get(11)).resolves.toMatchObject({
+      page: { pageId: 'page-1' },
+    });
+  });
+
+  it('removes one closed tab without affecting another tab', async () => {
+    const storage = sessionStorage();
+    const store = new IntegrationStateStore(storage);
+    await store.set(10, {
+      lifecycle: lifecycle('page-1', 'cycle-1'),
+      uiState: 'READY',
+      page: { pageId: 'page-1', questionCount: 1 },
+      result: null,
+      error: null,
+    });
+    await store.set(11, {
+      lifecycle: lifecycle('page-2', 'cycle-2'),
+      uiState: 'READY',
+      page: { pageId: 'page-2', questionCount: 2 },
+      result: null,
+      error: null,
+    });
+
+    await store.remove(10);
+
+    await expect(store.get(10)).resolves.toBeNull();
+    await expect(store.get(11)).resolves.toMatchObject({
+      page: { pageId: 'page-2' },
+    });
+    expect(storage.values[INTEGRATION_STATE_STORAGE_KEY]).toEqual({
+      '11': await store.get(11),
+    });
+  });
+
+  it('does not carry Form A state into a recycled tab displaying Form B', async () => {
+    const storage = sessionStorage();
+    const firstWorker = new IntegrationStateStore(storage);
+    await firstWorker.set(10, {
+      lifecycle: lifecycle('page-2', 'cycle-a', '/viewform', 'form-a'),
+      uiState: 'READY',
+      page: { pageId: 'page-2', questionCount: 2 },
+      result: null,
+      error: null,
+    });
+    await firstWorker.remove(10);
+
+    const recycledWorker = new IntegrationStateStore(storage);
+    await expect(recycledWorker.get(10)).resolves.toBeNull();
+    await recycledWorker.set(10, {
+      lifecycle: lifecycle('page-1', 'cycle-b', '/viewform', 'form-b'),
+      uiState: 'READY',
+      page: { pageId: 'page-1', questionCount: 1 },
+      result: null,
+      error: null,
+    });
+
+    await expect(recycledWorker.get(10)).resolves.toMatchObject({
+      lifecycle: { activePage: { form: { formId: 'form-b' } } },
+      page: { pageId: 'page-1' },
+    });
+  });
+
+  it('retains lifecycle and popup recovery state per tab without owning domain decisions', async () => {
     const store = new IntegrationStateStore();
-    const snapshot = store.update(7, {
+    const snapshot = await store.update(7, {
       uiState: 'READY_FOR_NEXT',
       page: { pageId: 'page-1', questionCount: 2 },
       result: null,
       error: null,
     });
 
-    expect(store.get(7)).toEqual(snapshot);
-    expect(store.get(8)).toBeNull();
-    expect(store.update(7, { uiState: 'GENERATING' })).toMatchObject({
+    await expect(store.get(7)).resolves.toEqual(snapshot);
+    await expect(store.get(8)).resolves.toBeNull();
+    await expect(store.update(7, { uiState: 'GENERATING' })).resolves.toMatchObject({
       uiState: 'GENERATING',
       page: { pageId: 'page-1', questionCount: 2 },
     });
@@ -211,16 +321,16 @@ describe('P7 worker integration state', () => {
     ).toMatchObject({ uiState: 'UNSUPPORTED', page: null });
   });
 
-  it('keeps same-form states isolated by the worker tab store', () => {
+  it('keeps same-form states isolated by the worker tab store', async () => {
     const store = new IntegrationStateStore();
-    store.set(1, {
+    await store.set(1, {
       lifecycle: lifecycle('entry:0-3', 'cycle-a'),
       uiState: 'READY',
       page: { pageId: 'entry:0-3', questionCount: 3 },
       result: null,
       error: null,
     });
-    store.set(2, {
+    await store.set(2, {
       lifecycle: lifecycle('entry:3-6', 'cycle-b'),
       uiState: 'READY',
       page: { pageId: 'entry:3-6', questionCount: 2 },
@@ -228,7 +338,7 @@ describe('P7 worker integration state', () => {
       error: null,
     });
 
-    expect(store.get(1)?.page?.pageId).toBe('entry:0-3');
-    expect(store.get(2)?.page?.pageId).toBe('entry:3-6');
+    expect((await store.get(1))?.page?.pageId).toBe('entry:0-3');
+    expect((await store.get(2))?.page?.pageId).toBe('entry:3-6');
   });
 });

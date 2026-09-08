@@ -63,7 +63,7 @@ interface WorkerMessage {
   providerConfig?: unknown;
 }
 
-const stateStore = new IntegrationStateStore();
+const stateStore = new IntegrationStateStore(chrome.storage.session);
 
 async function activeTabId(): Promise<number> {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -418,8 +418,8 @@ export async function handleMessage(
 
   if (message.type === 'lifecycle-snapshot') {
     const tabId = tabIdFromSender(sender);
-    const current = stateStore.get(tabId);
-    stateStore.update(tabId, {
+    const current = await stateStore.get(tabId);
+    await stateStore.update(tabId, {
       lifecycle: message.snapshot ?? null,
       page: message.snapshot
         ? {
@@ -434,7 +434,7 @@ export async function handleMessage(
 
   if (message.type === 'lifecycle-transition-confirmed') {
     const tabId = tabIdFromSender(sender);
-    const snapshot = stateStore.update(tabId, {
+    const snapshot = await stateStore.update(tabId, {
       lifecycle: message.snapshot ?? null,
       uiState: 'READY',
       page: message.page ?? null,
@@ -450,7 +450,7 @@ export async function handleMessage(
       throw new Error('Discovery is only available to the extension UI.');
     }
     const tabId = await activeTabId();
-    const snapshot = stateStore.get(tabId);
+    const snapshot = await stateStore.get(tabId);
     try {
       const response = await chrome.tabs.sendMessage(tabId, {
         type: 'get-current-state',
@@ -462,7 +462,7 @@ export async function handleMessage(
         } satisfies CurrentContentState);
         const stored = reconciled === snapshot
           ? snapshot
-          : stateStore.set(tabId, reconciled);
+          : await stateStore.set(tabId, reconciled);
         return { supported: true, ...stored };
       }
       if (response?.supported === false) {
@@ -493,7 +493,7 @@ export async function handleMessage(
       );
     }
     const tabId = await activeTabId();
-    stateStore.update(tabId, { uiState: 'GENERATING', error: null });
+    await stateStore.update(tabId, { uiState: 'GENERATING', error: null });
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
@@ -502,13 +502,13 @@ export async function handleMessage(
         configurationRevision: resolved.authorizationRevision,
       });
       if (result?.status === 'reused') {
-        stateStore.update(tabId, { uiState: 'READY', result: null });
+        await stateStore.update(tabId, { uiState: 'READY', result: null });
         return result;
       }
-      stateStore.update(tabId, { uiState: 'REVIEW', result });
+      await stateStore.update(tabId, { uiState: 'REVIEW', result });
       return result;
     } catch (error) {
-      stateStore.update(tabId, {
+      await stateStore.update(tabId, {
         uiState: 'ERROR',
         error: error instanceof Error ? error.message : 'Generation failed.',
       });
@@ -519,7 +519,7 @@ export async function handleMessage(
     if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
       throw new Error('Review control is only available to the extension UI.');
     }
-    const snapshot = stateStore.update(await activeTabId(), {
+    const snapshot = await stateStore.update(await activeTabId(), {
       uiState: 'READY_FOR_NEXT',
     });
     void notifyPopup({ type: 'p7-state-updated', snapshot });
@@ -583,4 +583,8 @@ chrome.runtime.onMessage.addListener(
 
 chrome.runtime.onInstalled.addListener(() => {
   log('Extension installed and ready for P7 integration.');
+});
+
+chrome.tabs.onRemoved?.addListener((tabId) => {
+  return stateStore.remove(tabId);
 });
