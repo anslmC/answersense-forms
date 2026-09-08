@@ -13,7 +13,7 @@ function createCycleId(): string {
 }
 
 export function createProcessingCycle(
-  idFactory: () => string = createCycleId,
+  idFactory: () => string = createCycleId
 ): ProcessingCycle {
   const cycleId = idFactory();
   if (!cycleId.trim()) {
@@ -24,7 +24,7 @@ export function createProcessingCycle(
 
 export function isCurrentCycle(
   responseCycleId: string,
-  currentCycle: ProcessingCycle,
+  currentCycle: ProcessingCycle
 ): boolean {
   return responseCycleId === currentCycle.cycleId;
 }

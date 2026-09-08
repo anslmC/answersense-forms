@@ -19,7 +19,7 @@ function createDocument(): Document {
         </div>
       </section>
     </main>`,
-    'text/html',
+    'text/html'
   );
 }
 
@@ -78,7 +78,10 @@ describe('Active page normalization', () => {
   });
 
   it('normalizes an empty active page deterministically', () => {
-    const normalized = normalizeDiscoveredActivePage({ pageId: 'empty', questions: [] });
+    const normalized = normalizeDiscoveredActivePage({
+      pageId: 'empty',
+      questions: [],
+    });
     expect(normalized.form.questions).toEqual([]);
     expect(normalized.questionResults).toEqual([]);
     expect(normalized.processingCycle).toEqual({ cycleId: 'discovery' });
@@ -89,26 +92,66 @@ describe('Active page normalization', () => {
     const normalized = normalizeDiscoveredActivePage(discovered!);
 
     expect(JSON.stringify(normalized)).not.toContain('HTMLElement');
-    expect(Object.values(normalized).some((value) => value instanceof Node)).toBe(false);
+    expect(
+      Object.values(normalized).some((value) => value instanceof Node)
+    ).toBe(false);
   });
 
   it('normalizes all four MVP types and preserves paragraph input state', () => {
     const normalized = normalizeDiscoveredActivePage({
       pageId: 'page-1',
       questions: [
-        { kind: 'supported', id: 'short', text: 'Short', type: 'short-text', required: true, options: [], existingValue: '' },
-        { kind: 'supported', id: 'paragraph', text: 'Paragraph', type: 'paragraph', required: true, options: [], existingValue: 'Details' },
-        { kind: 'supported', id: 'choice', text: 'Choice', type: 'single-choice', required: true, options: [{ label: 'A', selected: false }], existingValue: null },
-        { kind: 'supported', id: 'checks', text: 'Checks', type: 'multiple-choice', required: true, options: [{ label: 'A', selected: true }], existingValue: ['A'] },
+        {
+          kind: 'supported',
+          id: 'short',
+          text: 'Short',
+          type: 'short-text',
+          required: true,
+          options: [],
+          existingValue: '',
+        },
+        {
+          kind: 'supported',
+          id: 'paragraph',
+          text: 'Paragraph',
+          type: 'paragraph',
+          required: true,
+          options: [],
+          existingValue: 'Details',
+        },
+        {
+          kind: 'supported',
+          id: 'choice',
+          text: 'Choice',
+          type: 'single-choice',
+          required: true,
+          options: [{ label: 'A', selected: false }],
+          existingValue: null,
+        },
+        {
+          kind: 'supported',
+          id: 'checks',
+          text: 'Checks',
+          type: 'multiple-choice',
+          required: true,
+          options: [{ label: 'A', selected: true }],
+          existingValue: ['A'],
+        },
       ],
     });
 
     expect(normalized.form.questions.map((question) => question.type)).toEqual([
-      'short-text', 'paragraph', 'single-choice', 'multiple-choice',
+      'short-text',
+      'paragraph',
+      'single-choice',
+      'multiple-choice',
     ]);
-    expect(normalized.form.questions.map((question) => question.required)).toEqual([
-      true, true, true, true,
-    ]);
-    expect(normalized.form.questions[1].existingInput).toEqual({ value: 'Details', hasValue: true });
+    expect(
+      normalized.form.questions.map((question) => question.required)
+    ).toEqual([true, true, true, true]);
+    expect(normalized.form.questions[1].existingInput).toEqual({
+      value: 'Details',
+      hasValue: true,
+    });
   });
 });

@@ -9,11 +9,41 @@ const result: UiGenerationResult = {
   fillReport: {
     cycleId: 'cycle-1',
     outcomes: [
-      { questionId: 'name', status: 'FILLED', answer: null, reason: null, code: null },
-      { questionId: 'other', status: 'PRESERVED_EXISTING', answer: null, reason: null, code: null },
-      { questionId: 'partial', status: 'PARTIAL_FILL', answer: null, reason: 'Missing option', code: 'INVALID_OPTION' },
-      { questionId: 'failed', status: 'FILL_FAILED', answer: null, reason: 'Missing', code: 'ELEMENT_NOT_FOUND' },
-      { questionId: 'skipped', status: 'SKIPPED', answer: null, reason: 'Skipped', code: null },
+      {
+        questionId: 'name',
+        status: 'FILLED',
+        answer: null,
+        reason: null,
+        code: null,
+      },
+      {
+        questionId: 'other',
+        status: 'PRESERVED_EXISTING',
+        answer: null,
+        reason: null,
+        code: null,
+      },
+      {
+        questionId: 'partial',
+        status: 'PARTIAL_FILL',
+        answer: null,
+        reason: 'Missing option',
+        code: 'INVALID_OPTION',
+      },
+      {
+        questionId: 'failed',
+        status: 'FILL_FAILED',
+        answer: null,
+        reason: 'Missing',
+        code: 'ELEMENT_NOT_FOUND',
+      },
+      {
+        questionId: 'skipped',
+        status: 'SKIPPED',
+        answer: null,
+        reason: 'Skipped',
+        code: null,
+      },
     ],
   },
 };
@@ -64,8 +94,12 @@ describe('P6 popup workflow boundary', () => {
       generate: vi.fn(async () => result),
     };
     const controller = new PopupController(workflow);
-    await expect(controller.discover()).resolves.toMatchObject({ name: 'READY' });
-    await expect(controller.generate()).resolves.toMatchObject({ name: 'REVIEW' });
+    await expect(controller.discover()).resolves.toMatchObject({
+      name: 'READY',
+    });
+    await expect(controller.generate()).resolves.toMatchObject({
+      name: 'REVIEW',
+    });
     expect(workflow.discover).toHaveBeenCalledOnce();
     expect(workflow.generate).toHaveBeenCalledOnce();
   });
@@ -73,13 +107,16 @@ describe('P6 popup workflow boundary', () => {
   it('enters ERROR on generation failure and retries through the workflow', async () => {
     const workflow: PopupWorkflow = {
       discover: vi.fn(async () => page),
-      generate: vi.fn()
+      generate: vi
+        .fn()
         .mockRejectedValueOnce(new Error('Backend unavailable'))
         .mockResolvedValueOnce(result),
     };
     const controller = new PopupController(workflow);
     await controller.discover();
-    await expect(controller.generate()).resolves.toMatchObject({ name: 'ERROR' });
+    await expect(controller.generate()).resolves.toMatchObject({
+      name: 'ERROR',
+    });
     await expect(controller.retry()).resolves.toMatchObject({ name: 'REVIEW' });
     expect(workflow.generate).toHaveBeenCalledTimes(2);
     expect(workflow.generate).toHaveBeenNthCalledWith(1, false);

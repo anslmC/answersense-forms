@@ -4,10 +4,7 @@ import type {
   QuestionResult,
   AnswerValue,
 } from '../Models/Logical';
-import type {
-  GenerationResponse,
-  GenerationResult,
-} from './Contract';
+import type { GenerationResponse, GenerationResult } from './Contract';
 
 export class GenerationResponseValidationError extends Error {
   constructor(message: string) {
@@ -27,7 +24,10 @@ function isAnswerValue(value: unknown): value is AnswerValue {
   );
 }
 
-function isValidAnswer(question: Question, value: unknown): value is AnswerValue {
+function isValidAnswer(
+  question: Question,
+  value: unknown
+): value is AnswerValue {
   if (!isAnswerValue(value) || question.type === null) {
     return false;
   }
@@ -51,71 +51,114 @@ function isValidAnswer(question: Question, value: unknown): value is AnswerValue
 function validateResponseShape(
   response: unknown,
   expectedCycleId: string,
-  expectedQuestions: Question[],
+  expectedQuestions: Question[]
 ): GenerationResponse {
   if (!isRecord(response)) {
-    throw new GenerationResponseValidationError('Generation response must be an object.');
+    throw new GenerationResponseValidationError(
+      'Generation response must be an object.'
+    );
   }
   if (typeof response.cycleId !== 'string' || !response.cycleId.trim()) {
-    throw new GenerationResponseValidationError('Generation response cycleId is invalid.');
+    throw new GenerationResponseValidationError(
+      'Generation response cycleId is invalid.'
+    );
   }
   if (response.cycleId !== expectedCycleId) {
-    throw new GenerationResponseValidationError('Generation response cycleId is stale or invalid.');
+    throw new GenerationResponseValidationError(
+      'Generation response cycleId is stale or invalid.'
+    );
   }
   if (!Array.isArray(response.results)) {
-    throw new GenerationResponseValidationError('Generation response results must be an array.');
+    throw new GenerationResponseValidationError(
+      'Generation response results must be an array.'
+    );
   }
 
   const expectedIds = expectedQuestions
     .filter((question) => question.supported)
     .map((question) => question.id);
   if (expectedIds.some((questionId) => questionId === null)) {
-    throw new GenerationResponseValidationError('Supported questions require question IDs.');
+    throw new GenerationResponseValidationError(
+      'Supported questions require question IDs.'
+    );
   }
   const expectedIdSet = new Set(expectedIds as string[]);
   const seenIds = new Set<string>();
 
   for (const result of response.results) {
-    if (!isRecord(result) || typeof result.questionId !== 'string' || !result.questionId.trim()) {
-      throw new GenerationResponseValidationError('Each generation result requires a questionId.');
+    if (
+      !isRecord(result) ||
+      typeof result.questionId !== 'string' ||
+      !result.questionId.trim()
+    ) {
+      throw new GenerationResponseValidationError(
+        'Each generation result requires a questionId.'
+      );
     }
     if (seenIds.has(result.questionId)) {
-      throw new GenerationResponseValidationError(`Duplicate questionId: ${result.questionId}`);
+      throw new GenerationResponseValidationError(
+        `Duplicate questionId: ${result.questionId}`
+      );
     }
     if (!expectedIdSet.has(result.questionId)) {
-      throw new GenerationResponseValidationError(`Unknown questionId: ${result.questionId}`);
+      throw new GenerationResponseValidationError(
+        `Unknown questionId: ${result.questionId}`
+      );
     }
     seenIds.add(result.questionId);
 
     if (result.status === 'GENERATED') {
-      if (!isRecord(result.answer) || result.answer.questionId !== result.questionId || !('value' in result.answer)) {
-        throw new GenerationResponseValidationError(`Invalid generated answer for ${result.questionId}`);
+      if (
+        !isRecord(result.answer) ||
+        result.answer.questionId !== result.questionId ||
+        !('value' in result.answer)
+      ) {
+        throw new GenerationResponseValidationError(
+          `Invalid generated answer for ${result.questionId}`
+        );
       }
     } else if (result.status === 'ABSTAINED') {
       if (result.answer !== null) {
-        throw new GenerationResponseValidationError(`Abstained result for ${result.questionId} must have null answer.`);
+        throw new GenerationResponseValidationError(
+          `Abstained result for ${result.questionId} must have null answer.`
+        );
       }
-      if (typeof result.reason !== 'string' || !['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE'].includes(result.reason)) {
-        throw new GenerationResponseValidationError(`Invalid abstention reason for ${result.questionId}`);
+      if (
+        typeof result.reason !== 'string' ||
+        !['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE'].includes(
+          result.reason
+        )
+      ) {
+        throw new GenerationResponseValidationError(
+          `Invalid abstention reason for ${result.questionId}`
+        );
       }
     } else if (result.status === 'GENERATION_FAILED') {
       if (result.answer !== null) {
-        throw new GenerationResponseValidationError(`Failed result for ${result.questionId} must have null answer.`);
+        throw new GenerationResponseValidationError(
+          `Failed result for ${result.questionId} must have null answer.`
+        );
       }
       if (
         !isRecord(result.failure) ||
         typeof result.failure.code !== 'string' ||
         typeof result.failure.message !== 'string'
       ) {
-        throw new GenerationResponseValidationError(`Invalid generation failure for ${result.questionId}`);
+        throw new GenerationResponseValidationError(
+          `Invalid generation failure for ${result.questionId}`
+        );
       }
     } else {
-      throw new GenerationResponseValidationError(`Invalid result status for ${result.questionId}`);
+      throw new GenerationResponseValidationError(
+        `Invalid result status for ${result.questionId}`
+      );
     }
   }
 
   if (seenIds.size !== expectedIdSet.size) {
-    throw new GenerationResponseValidationError('Generation results must be exhaustive.');
+    throw new GenerationResponseValidationError(
+      'Generation results must be exhaustive.'
+    );
   }
 
   return response as unknown as GenerationResponse;
@@ -124,11 +167,15 @@ function validateResponseShape(
 export function validateGenerationResponse(
   response: unknown,
   form: Form,
-  expectedCycleId: string,
+  expectedCycleId: string
 ): QuestionResult[] {
-  const validResponse = validateResponseShape(response, expectedCycleId, form.questions);
+  const validResponse = validateResponseShape(
+    response,
+    expectedCycleId,
+    form.questions
+  );
   const resultsById = new Map<string, GenerationResult>(
-    validResponse.results.map((result) => [result.questionId, result]),
+    validResponse.results.map((result) => [result.questionId, result])
   );
 
   return form.questions.map((question): QuestionResult => {

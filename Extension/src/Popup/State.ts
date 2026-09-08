@@ -41,7 +41,9 @@ export type UiState =
   | { name: 'READY_FOR_NEXT'; page: PageSummary; result: UiGenerationResult }
   | { name: 'ERROR'; page: PageSummary | null; message: string };
 
-export function unsupportedState(message = "This page isn't supported."): UiState {
+export function unsupportedState(
+  message = "This page isn't supported."
+): UiState {
   return { name: 'UNSUPPORTED', message };
 }
 
@@ -70,12 +72,21 @@ export class PopupStateMachine {
     } else if (snapshot.uiState === 'GENERATING') {
       this.current = { name: 'GENERATING', page: snapshot.page };
     } else if (snapshot.uiState === 'ERROR') {
-      this.current = { name: 'ERROR', page: snapshot.page, message: snapshot.error ?? 'Generation failed.' };
+      this.current = {
+        name: 'ERROR',
+        page: snapshot.page,
+        message: snapshot.error ?? 'Generation failed.',
+      };
     } else if (
-      (snapshot.uiState === 'REVIEW' || snapshot.uiState === 'READY_FOR_NEXT') &&
+      (snapshot.uiState === 'REVIEW' ||
+        snapshot.uiState === 'READY_FOR_NEXT') &&
       snapshot.result
     ) {
-      this.current = { name: snapshot.uiState, page: snapshot.page, result: snapshot.result };
+      this.current = {
+        name: snapshot.uiState,
+        page: snapshot.page,
+        result: snapshot.result,
+      };
     } else {
       this.current = readyState(snapshot.page);
     }
@@ -91,7 +102,8 @@ export class PopupStateMachine {
     ) {
       return this.current;
     }
-    const page = this.current.name === 'ERROR' ? this.current.page : this.current.page;
+    const page =
+      this.current.name === 'ERROR' ? this.current.page : this.current.page;
     if (!page) {
       return this.current;
     }

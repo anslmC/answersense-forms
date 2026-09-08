@@ -32,9 +32,7 @@ export interface GenerationFailure {
 }
 
 export type GenerationAbstentionReason =
-  | 'LOW_CONFIDENCE'
-  | 'UNABLE_TO_DETERMINE'
-  | 'NOT_APPLICABLE';
+  'LOW_CONFIDENCE' | 'UNABLE_TO_DETERMINE' | 'NOT_APPLICABLE';
 
 export interface GeneratedQuestionResult {
   questionId: string;
@@ -57,9 +55,7 @@ export interface FailedQuestionResult {
 }
 
 export type GenerationResult =
-  | GeneratedQuestionResult
-  | AbstainedQuestionResult
-  | FailedQuestionResult;
+  GeneratedQuestionResult | AbstainedQuestionResult | FailedQuestionResult;
 
 export interface GenerationResponse {
   cycleId: string;

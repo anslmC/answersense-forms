@@ -14,7 +14,7 @@ export interface SettledPageState {
 }
 
 export function buildSettledContext(
-  settledPages: readonly SettledPageState[],
+  settledPages: readonly SettledPageState[]
 ): SettledContextItem[] {
   const uniquePages = new Map<string, SettledPageState>();
   for (const page of settledPages) {
@@ -26,7 +26,7 @@ export function buildSettledContext(
     page.answers
       .filter(
         (answer): answer is SettledAnswer & { answer: Answer } =>
-          !answer.skipped && answer.answer !== null,
+          !answer.skipped && answer.answer !== null
       )
       .flatMap((answer) => {
         const questionId = answer.answer.questionId as string;
@@ -34,11 +34,13 @@ export function buildSettledContext(
           return [];
         }
         seen.add(questionId);
-        return [{
-          questionId,
-          questionText: answer.questionText,
-          answer: answer.answer.value,
-        }];
-      }),
+        return [
+          {
+            questionId,
+            questionText: answer.questionText,
+            answer: answer.answer.value,
+          },
+        ];
+      })
   );
 }

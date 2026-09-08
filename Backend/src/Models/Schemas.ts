@@ -71,7 +71,7 @@ export const GenerationResponseSchema = z
         generatedQuestionResultSchema,
         abstainedQuestionResultSchema,
         failedQuestionResultSchema,
-      ]),
+      ])
     ),
   })
   .superRefine((response, context) => {

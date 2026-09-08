@@ -1,4 +1,7 @@
-import type { GenerationRequest, GenerationResponse } from '../Generation/Contract';
+import type {
+  GenerationRequest,
+  GenerationResponse,
+} from '../Generation/Contract';
 
 // Legacy developer/local backend bridge; end-user BYOK generation uses the service worker provider path.
 export const BACKEND_GENERATE_URL = 'http://127.0.0.1:3000/generate';
@@ -22,28 +25,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isAnswerValue(value: unknown): value is string | string[] {
-  return typeof value === 'string' ||
-    (Array.isArray(value) && value.every((item) => typeof item === 'string'));
+  return (
+    typeof value === 'string' ||
+    (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+  );
 }
 
 function parseGenerationResponse(value: unknown): GenerationResponse {
-  if (!isRecord(value) || typeof value.cycleId !== 'string' || !Array.isArray(value.results)) {
+  if (
+    !isRecord(value) ||
+    typeof value.cycleId !== 'string' ||
+    !Array.isArray(value.results)
+  ) {
     throw new Error('Backend returned an invalid generation response.');
   }
 
   const questionIds = new Set<string>();
   for (const result of value.results) {
-    if (!isRecord(result) || typeof result.questionId !== 'string' || questionIds.has(result.questionId)) {
+    if (
+      !isRecord(result) ||
+      typeof result.questionId !== 'string' ||
+      questionIds.has(result.questionId)
+    ) {
       throw new Error('Backend returned an invalid generation response.');
     }
     questionIds.add(result.questionId);
 
     if (result.status === 'GENERATED') {
-      if (!isRecord(result.answer) || result.answer.questionId !== result.questionId || !isAnswerValue(result.answer.value)) {
+      if (
+        !isRecord(result.answer) ||
+        result.answer.questionId !== result.questionId ||
+        !isAnswerValue(result.answer.value)
+      ) {
         throw new Error('Backend returned an invalid generation response.');
       }
     } else if (result.status === 'ABSTAINED') {
-      if (result.answer !== null || !['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE'].includes(String(result.reason))) {
+      if (
+        result.answer !== null ||
+        !['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE'].includes(
+          String(result.reason)
+        )
+      ) {
         throw new Error('Backend returned an invalid generation response.');
       }
     } else if (result.status === 'GENERATION_FAILED') {
@@ -64,7 +86,7 @@ function parseGenerationResponse(value: unknown): GenerationResponse {
 }
 
 export async function requestBackendGeneration(
-  request: GenerationRequest,
+  request: GenerationRequest
 ): Promise<GenerationResponse> {
   const response = await fetch(BACKEND_GENERATE_URL, {
     method: 'POST',

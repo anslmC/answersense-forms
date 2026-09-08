@@ -20,10 +20,14 @@ function freezeDeep<T>(value: T): T {
 
 export function createGenerationReport(
   cycleId: string,
-  results: QuestionResult[],
+  results: QuestionResult[]
 ): GenerationReport {
-  const supportedResults = results.filter((result) => result.status !== 'unsupported');
-  const status = supportedResults.every((result) => result.status === 'GENERATED')
+  const supportedResults = results.filter(
+    (result) => result.status !== 'unsupported'
+  );
+  const status = supportedResults.every(
+    (result) => result.status === 'GENERATED'
+  )
     ? 'complete'
     : 'partial';
   return freezeDeep({
@@ -33,7 +37,12 @@ export function createGenerationReport(
       questionId: result.questionId,
       status: result.status,
       answer: result.answer
-        ? { questionId: result.answer.questionId, value: Array.isArray(result.answer.value) ? [...result.answer.value] : result.answer.value }
+        ? {
+            questionId: result.answer.questionId,
+            value: Array.isArray(result.answer.value)
+              ? [...result.answer.value]
+              : result.answer.value,
+          }
         : null,
       reason: result.reason,
     })),

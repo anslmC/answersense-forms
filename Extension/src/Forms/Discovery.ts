@@ -73,7 +73,7 @@ function getQuestionText(question: HTMLElement): string | null {
   }
 
   const textElement = question.querySelector(
-    '[data-question-text], [role="heading"], .M7eMe, .Y6Myld',
+    '[data-question-text], [role="heading"], .M7eMe, .Y6Myld'
   );
   return getText(textElement) ?? getText(question);
 }
@@ -105,7 +105,9 @@ function getQuestionType(question: HTMLElement): SupportedQuestionType | null {
 
 function getOptions(question: HTMLElement): DiscoveredOption[] {
   return Array.from(
-    question.querySelectorAll('[role="radio"], [role="checkbox"], [role="option"]'),
+    question.querySelectorAll(
+      '[role="radio"], [role="checkbox"], [role="option"]'
+    )
   )
     .map((option) => ({
       label: getText(option),
@@ -120,12 +122,12 @@ function getOptions(question: HTMLElement): DiscoveredOption[] {
 function getExistingValue(
   question: HTMLElement,
   type: SupportedQuestionType,
-  options: DiscoveredOption[],
+  options: DiscoveredOption[]
 ): string | string[] | null {
   if (type === 'short-text' || type === 'paragraph') {
-    const input = question.querySelector<HTMLInputElement | HTMLTextAreaElement>(
-      'input[type="text"], textarea',
-    );
+    const input = question.querySelector<
+      HTMLInputElement | HTMLTextAreaElement
+    >('input[type="text"], textarea');
     return input?.value || null;
   }
 
@@ -143,26 +145,42 @@ function isRequired(question: HTMLElement): boolean {
   return (
     question.getAttribute('aria-required') === 'true' ||
     question.dataset.required === 'true' ||
-    question.querySelector('[aria-required="true"], [data-required="true"]') !== null
+    question.querySelector('[aria-required="true"], [data-required="true"]') !==
+      null
   );
 }
 
 function discoverQuestion(
   question: HTMLElement,
-  requireDataParams = false,
+  requireDataParams = false
 ): DiscoveredQuestion | UnsupportedQuestion {
   const id = extractQuestionId(question, { requireDataParams });
   const text = getQuestionText(question);
   const type = getQuestionType(question);
 
   if (!id) {
-    return { kind: 'unsupported', id: null, text, reason: 'Question ID is unavailable.' };
+    return {
+      kind: 'unsupported',
+      id: null,
+      text,
+      reason: 'Question ID is unavailable.',
+    };
   }
   if (!text) {
-    return { kind: 'unsupported', id, text: null, reason: 'Question text is unavailable.' };
+    return {
+      kind: 'unsupported',
+      id,
+      text: null,
+      reason: 'Question text is unavailable.',
+    };
   }
   if (!type) {
-    return { kind: 'unsupported', id, text, reason: 'Question type is unsupported.' };
+    return {
+      kind: 'unsupported',
+      id,
+      text,
+      reason: 'Question type is unsupported.',
+    };
   }
 
   const options = getOptions(question);
@@ -178,15 +196,15 @@ function discoverQuestion(
 }
 
 function rejectDuplicateQuestionIds(
-  questions: Array<DiscoveredQuestion | UnsupportedQuestion>,
+  questions: Array<DiscoveredQuestion | UnsupportedQuestion>
 ): Array<DiscoveredQuestion | UnsupportedQuestion> {
   const supportedQuestions = questions.filter(
-    (question): question is DiscoveredQuestion => question.kind === 'supported',
+    (question): question is DiscoveredQuestion => question.kind === 'supported'
   );
   const duplicateIds = new Set(
     supportedQuestions
       .map((question) => question.id)
-      .filter((id, index, ids) => ids.indexOf(id) !== index),
+      .filter((id, index, ids) => ids.indexOf(id) !== index)
   );
   return questions.map((question) =>
     question.kind === 'supported' && duplicateIds.has(question.id)
@@ -196,26 +214,27 @@ function rejectDuplicateQuestionIds(
           text: question.text,
           reason: 'Question ID is ambiguous because it is duplicated.',
         }
-      : question,
+      : question
   );
 }
 
 function findActivePage(document: Document): HTMLElement | null {
   const markedPage = Array.from(
-    document.querySelectorAll<HTMLElement>(activePageSelector),
+    document.querySelectorAll<HTMLElement>(activePageSelector)
   ).find(isVisible);
   if (markedPage) {
     return markedPage;
   }
 
   return (
-    Array.from(document.querySelectorAll<HTMLElement>(pageSelector)).find(isVisible) ??
-    null
+    Array.from(document.querySelectorAll<HTMLElement>(pageSelector)).find(
+      isVisible
+    ) ?? null
   );
 }
 
 export function discoverActiveGoogleFormsPage(
-  document: Document,
+  document: Document
 ): DiscoveredPage | null {
   const page = findActivePage(document);
   if (!page) {
@@ -232,17 +251,23 @@ export function discoverActiveGoogleFormsPage(
     return null;
   }
 
-  const respondentForm = page.closest<HTMLFormElement>('form[data-clean-viewform-url]');
+  const respondentForm = page.closest<HTMLFormElement>(
+    'form[data-clean-viewform-url]'
+  );
   const questions = respondentForm
-    ? findTopLevelQuestionContainers(respondentForm)?.filter(isVisible) ?? []
+    ? (findTopLevelQuestionContainers(respondentForm)?.filter(isVisible) ?? [])
     : Array.from(
-        page.querySelectorAll<HTMLElement>('[role="listitem"], [data-question-id]'),
+        page.querySelectorAll<HTMLElement>(
+          '[role="listitem"], [data-question-id]'
+        )
       ).filter(isVisible);
 
   return {
     pageId,
     questions: rejectDuplicateQuestionIds(
-      questions.map((question) => discoverQuestion(question, respondentForm !== null)),
+      questions.map((question) =>
+        discoverQuestion(question, respondentForm !== null)
+      )
     ),
   };
 }

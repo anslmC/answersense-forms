@@ -1,4 +1,7 @@
-import { discoverActiveGoogleFormsPage, type DiscoveredPage } from '../Forms/Discovery';
+import {
+  discoverActiveGoogleFormsPage,
+  type DiscoveredPage,
+} from '../Forms/Discovery';
 
 export interface PendingNavigation {
   readonly oldPageId: string;
@@ -10,7 +13,7 @@ export function beginNextNavigation(oldPageId: string): PendingNavigation {
 
 export function confirmPageTransition(
   document: Document,
-  navigation: PendingNavigation,
+  navigation: PendingNavigation
 ): DiscoveredPage | null {
   const activePage = discoverActiveGoogleFormsPage(document);
   return activePage && activePage.pageId !== navigation.oldPageId

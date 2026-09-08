@@ -8,19 +8,26 @@ import { validateGenerationResponse } from './Validation';
 function createRequest(
   page: NormalizedActivePage,
   cycleId: string,
-  settledPages: readonly SettledPageState[],
+  settledPages: readonly SettledPageState[]
 ): GenerationRequest {
   const questions = page.form.questions.flatMap((question) => {
-    if (!question.supported || question.id === null || question.text === null || question.type === null) {
+    if (
+      !question.supported ||
+      question.id === null ||
+      question.text === null ||
+      question.type === null
+    ) {
       return [];
     }
-    return [{
-      questionId: question.id,
-      text: question.text,
-      type: question.type,
-      required: question.required,
-      options: question.options.map((option) => option.label),
-    }];
+    return [
+      {
+        questionId: question.id,
+        text: question.text,
+        type: question.type,
+        required: question.required,
+        options: question.options.map((option) => option.label),
+      },
+    ];
   });
   return {
     cycleId,
@@ -64,7 +71,7 @@ export class GenerationCoordinator {
     page: NormalizedActivePage,
     settledPages: readonly SettledPageState[],
     generator: GenerationInterface,
-    preparedCycle?: { cycleId: string },
+    preparedCycle?: { cycleId: string }
   ): Promise<GenerationReport | null> {
     const cycle = preparedCycle ?? this.beginCycle();
     if (this.currentCycleId !== cycle.cycleId) {
@@ -72,7 +79,7 @@ export class GenerationCoordinator {
     }
     const generationToken = this.generationToken;
     const response = await generator.generate(
-      createRequest(page, cycle.cycleId, settledPages),
+      createRequest(page, cycle.cycleId, settledPages)
     );
 
     if (
@@ -83,14 +90,18 @@ export class GenerationCoordinator {
       return null;
     }
 
-    const results = validateGenerationResponse(response, page.form, cycle.cycleId);
+    const results = validateGenerationResponse(
+      response,
+      page.form,
+      cycle.cycleId
+    );
     // The page workflow creates pending state from this report after generation; it commits only after a confirmed transition.
     return createGenerationReport(cycle.cycleId, results);
   }
 }
 
 export function createGenerationCoordinator(
-  cycleIdFactory: () => string = () => crypto.randomUUID(),
+  cycleIdFactory: () => string = () => crypto.randomUUID()
 ): GenerationCoordinator {
   return new GenerationCoordinator(cycleIdFactory);
 }

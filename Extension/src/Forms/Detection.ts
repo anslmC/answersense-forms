@@ -5,7 +5,7 @@ export interface PageLocation {
 }
 
 export function isSupportedGoogleFormsPage(
-  location: PageLocation | string,
+  location: PageLocation | string
 ): boolean {
   const pageLocation =
     typeof location === 'string' ? new URL(location) : location;

@@ -4,7 +4,10 @@ import type {
   NormalizedActivePage,
   Question,
 } from '../src/Models/Logical';
-import { buildSettledContext, type SettledPageState } from '../src/Generation/Context';
+import {
+  buildSettledContext,
+  type SettledPageState,
+} from '../src/Generation/Context';
 import { GenerationCoordinator } from '../src/Generation/Pipeline';
 import { createGenerationReport } from '../src/Generation/Report';
 import {
@@ -14,7 +17,11 @@ import {
   editPendingAnswer,
   restartPendingPage,
 } from '../src/Generation/Pending';
-import type { GenerationInterface, GenerationRequest, GenerationResponse } from '../src/Generation/Contract';
+import type {
+  GenerationInterface,
+  GenerationRequest,
+  GenerationResponse,
+} from '../src/Generation/Contract';
 import {
   GenerationResponseValidationError,
   validateGenerationResponse,
@@ -24,7 +31,7 @@ function createQuestion(
   id: string,
   type: Question['type'],
   options: string[] = [],
-  required = false,
+  required = false
 ): Question {
   return {
     id,
@@ -88,7 +95,11 @@ function createGenerator(response: GenerationResponse): GenerationInterface {
 
 describe('Generation response validation', () => {
   it('accepts valid exhaustive results and matches by questionId only', () => {
-    const results = validateGenerationResponse(validResponse(), form, 'cycle-1');
+    const results = validateGenerationResponse(
+      validResponse(),
+      form,
+      'cycle-1'
+    );
 
     expect(results.map((result) => result.status)).toEqual([
       'GENERATED',
@@ -100,24 +111,56 @@ describe('Generation response validation', () => {
 
   it('rejects malformed, stale, duplicate, and non-exhaustive responses', () => {
     expect(() => validateGenerationResponse(null, form, 'cycle-1')).toThrow(
-      GenerationResponseValidationError,
+      GenerationResponseValidationError
     );
-    expect(() => validateGenerationResponse({ ...validResponse(), cycleId: '' }, form, 'cycle-1')).toThrow();
-    expect(() => validateGenerationResponse({ ...validResponse(), cycleId: 'cycle-2' }, form, 'cycle-1')).toThrow();
-    expect(() => validateGenerationResponse({
-      ...validResponse(),
-      results: [...validResponse().results, validResponse().results[0]],
-    }, form, 'cycle-1')).toThrow();
-    expect(() => validateGenerationResponse({
-      ...validResponse(),
-      results: validResponse().results.slice(0, 2),
-    }, form, 'cycle-1')).toThrow();
-    expect(() => validateGenerationResponse({
-      ...validResponse(),
-      results: validResponse().results.map((result) =>
-        result.questionId === 'name' ? { ...result, questionId: 'question-text-match' } : result,
-      ),
-    }, form, 'cycle-1')).toThrow();
+    expect(() =>
+      validateGenerationResponse(
+        { ...validResponse(), cycleId: '' },
+        form,
+        'cycle-1'
+      )
+    ).toThrow();
+    expect(() =>
+      validateGenerationResponse(
+        { ...validResponse(), cycleId: 'cycle-2' },
+        form,
+        'cycle-1'
+      )
+    ).toThrow();
+    expect(() =>
+      validateGenerationResponse(
+        {
+          ...validResponse(),
+          results: [...validResponse().results, validResponse().results[0]],
+        },
+        form,
+        'cycle-1'
+      )
+    ).toThrow();
+    expect(() =>
+      validateGenerationResponse(
+        {
+          ...validResponse(),
+          results: validResponse().results.slice(0, 2),
+        },
+        form,
+        'cycle-1'
+      )
+    ).toThrow();
+    expect(() =>
+      validateGenerationResponse(
+        {
+          ...validResponse(),
+          results: validResponse().results.map((result) =>
+            result.questionId === 'name'
+              ? { ...result, questionId: 'question-text-match' }
+              : result
+          ),
+        },
+        form,
+        'cycle-1'
+      )
+    ).toThrow();
   });
 
   it('preserves valid results and marks invalid answers as VALIDATION_FAILED', () => {
@@ -147,7 +190,9 @@ describe('Generation response validation', () => {
       failure: { code: 'BACKEND_ERROR', message: 'Unavailable' },
     };
 
-    expect(validateGenerationResponse(response, form, 'cycle-1')[2]).toMatchObject({
+    expect(
+      validateGenerationResponse(response, form, 'cycle-1')[2]
+    ).toMatchObject({
       status: 'GENERATION_FAILED',
       reason: 'Unavailable',
     });
@@ -200,16 +245,34 @@ describe('Generation response validation', () => {
     const response: GenerationResponse = {
       cycleId: 'cycle-required',
       results: [
-        { questionId: 'short-required', status: 'GENERATED', answer: { questionId: 'short-required', value: '' } },
-        { questionId: 'paragraph-required', status: 'GENERATED', answer: { questionId: 'paragraph-required', value: '' } },
-        { questionId: 'choice-required', status: 'GENERATED', answer: { questionId: 'choice-required', value: 'A' } },
-        { questionId: 'checks-required', status: 'GENERATED', answer: { questionId: 'checks-required', value: [] } },
+        {
+          questionId: 'short-required',
+          status: 'GENERATED',
+          answer: { questionId: 'short-required', value: '' },
+        },
+        {
+          questionId: 'paragraph-required',
+          status: 'GENERATED',
+          answer: { questionId: 'paragraph-required', value: '' },
+        },
+        {
+          questionId: 'choice-required',
+          status: 'GENERATED',
+          answer: { questionId: 'choice-required', value: 'A' },
+        },
+        {
+          questionId: 'checks-required',
+          status: 'GENERATED',
+          answer: { questionId: 'checks-required', value: [] },
+        },
       ],
     };
 
-    expect(validateGenerationResponse(response, requiredForm, 'cycle-required').map((result) => result.status)).toEqual([
-      'GENERATED', 'GENERATED', 'GENERATED', 'GENERATED',
-    ]);
+    expect(
+      validateGenerationResponse(response, requiredForm, 'cycle-required').map(
+        (result) => result.status
+      )
+    ).toEqual(['GENERATED', 'GENERATED', 'GENERATED', 'GENERATED']);
   });
 
   it('excludes unsupported questions from generation requests and results', async () => {
@@ -235,7 +298,10 @@ describe('Generation response validation', () => {
         results: request.questions.map((question) => ({
           questionId: question.questionId,
           status: 'GENERATED' as const,
-          answer: { questionId: question.questionId, value: question.type === 'multiple-choice' ? ['Testing'] : 'Answer' },
+          answer: {
+            questionId: question.questionId,
+            value: question.type === 'multiple-choice' ? ['Testing'] : 'Answer',
+          },
         })),
       })),
     };
@@ -244,12 +310,16 @@ describe('Generation response validation', () => {
     const report = await coordinator.generate(
       { ...page, form: unsupportedForm },
       [],
-      generator,
+      generator
     );
 
-    expect(generator.generate).toHaveBeenCalledWith(expect.objectContaining({
-      questions: expect.not.arrayContaining([expect.objectContaining({ questionId: 'dropdown' })]),
-    }));
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: expect.not.arrayContaining([
+          expect.objectContaining({ questionId: 'dropdown' }),
+        ]),
+      })
+    );
     expect(report?.results[report.results.length - 1]).toMatchObject({
       questionId: 'dropdown',
       status: 'unsupported',
@@ -259,14 +329,23 @@ describe('Generation response validation', () => {
 
 describe('Settled context and pending page state', () => {
   it('includes settled user edits and excludes skipped or unanswered items', () => {
-    const settledPages: SettledPageState[] = [{
-      pageId: 'page-1',
-      answers: [
-        { answer: { questionId: 'name', value: 'User edit' }, questionText: 'Name' },
-        { answer: { questionId: 'skipped', value: 'ignored' }, questionText: 'Optional', skipped: true },
-        { answer: null, questionText: 'Empty' },
-      ],
-    }];
+    const settledPages: SettledPageState[] = [
+      {
+        pageId: 'page-1',
+        answers: [
+          {
+            answer: { questionId: 'name', value: 'User edit' },
+            questionText: 'Name',
+          },
+          {
+            answer: { questionId: 'skipped', value: 'ignored' },
+            questionText: 'Optional',
+            skipped: true,
+          },
+          { answer: null, questionText: 'Empty' },
+        ],
+      },
+    ];
 
     expect(buildSettledContext(settledPages)).toEqual([
       { questionId: 'name', questionText: 'Name', answer: 'User edit' },
@@ -276,7 +355,7 @@ describe('Settled context and pending page state', () => {
   it('keeps generated and edited answers pending until commit', () => {
     const report = createGenerationReport(
       'cycle-1',
-      validateGenerationResponse(validResponse(), form, 'cycle-1'),
+      validateGenerationResponse(validResponse(), form, 'cycle-1')
     );
     const pending = createPendingPageStateFromReport(form, report);
     const edited = editPendingAnswer(pending, 'name', 'Edited before Next');
@@ -299,21 +378,24 @@ describe('Generation cycles and reports', () => {
   it('creates a new cycle for each attempt and ignores stale responses', async () => {
     const resolvers: Array<(response: GenerationResponse) => void> = [];
     const generator: GenerationInterface = {
-      generate: vi.fn<(request: GenerationRequest) => Promise<GenerationResponse>>((_request) => new Promise((resolve) => resolvers.push(resolve))),
+      generate: vi.fn<
+        (request: GenerationRequest) => Promise<GenerationResponse>
+      >((_request) => new Promise((resolve) => resolvers.push(resolve))),
     };
     const coordinator = new GenerationCoordinator(
       (() => {
         let count = 0;
         return () => `cycle-${++count}`;
-      })(),
+      })()
     );
 
     const firstAttempt = coordinator.generate(page, [], generator);
     const secondAttempt = coordinator.generate(page, [], generator);
-    expect((generator.generate as ReturnType<typeof vi.fn>).mock.calls.map(([request]) => request.cycleId)).toEqual([
-      'cycle-1',
-      'cycle-2',
-    ]);
+    expect(
+      (generator.generate as ReturnType<typeof vi.fn>).mock.calls.map(
+        ([request]) => request.cycleId
+      )
+    ).toEqual(['cycle-1', 'cycle-2']);
 
     resolvers[0](validResponse('cycle-1'));
     resolvers[1](validResponse('cycle-2'));
@@ -324,7 +406,7 @@ describe('Generation cycles and reports', () => {
   it('materializes an exhaustive frozen report without DOM references', () => {
     const report = createGenerationReport(
       'cycle-1',
-      validateGenerationResponse(validResponse(), form, 'cycle-1'),
+      validateGenerationResponse(validResponse(), form, 'cycle-1')
     );
 
     expect(report.results).toHaveLength(3);

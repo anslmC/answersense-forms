@@ -1,13 +1,27 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import { GenerationRequestSchema } from '../Models/Schemas.js';
 import { createGeminiConfig } from '../Ai/Config.js';
-import { createGeminiProvider, validateProviderResponse } from '../Ai/GeminiProvider.js';
-import type { GenerationInterface, GenerationRequest } from '../Models/Generation.js';
+import {
+  createGeminiProvider,
+  validateProviderResponse,
+} from '../Ai/GeminiProvider.js';
+import type {
+  GenerationInterface,
+  GenerationRequest,
+} from '../Models/Generation.js';
 
 export const BACKEND_HOST = '127.0.0.1';
 export const BACKEND_PORT = 3000;
 
-function writeJson(response: ServerResponse, status: number, body: unknown): void {
+function writeJson(
+  response: ServerResponse,
+  status: number,
+  body: unknown
+): void {
   response.statusCode = status;
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Access-Control-Allow-Origin', '*');
@@ -23,7 +37,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
 }
 
 export function createBackendServer(
-  generator: GenerationInterface = createGeminiProvider(createGeminiConfig()),
+  generator: GenerationInterface = createGeminiProvider(createGeminiConfig())
 ) {
   return createServer(async (request, response) => {
     if (request.method === 'OPTIONS') {
@@ -45,8 +59,13 @@ export function createBackendServer(
         writeJson(response, 400, { error: 'Invalid generation request' });
         return;
       }
-      const generationResponse = await generator.generate(parsed.data as GenerationRequest);
-      const validatedResponse = validateProviderResponse(parsed.data, generationResponse);
+      const generationResponse = await generator.generate(
+        parsed.data as GenerationRequest
+      );
+      const validatedResponse = validateProviderResponse(
+        parsed.data,
+        generationResponse
+      );
       writeJson(response, 200, validatedResponse);
     } catch (error) {
       if (error instanceof SyntaxError) {

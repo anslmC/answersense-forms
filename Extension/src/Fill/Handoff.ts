@@ -24,9 +24,11 @@ export interface FinalizedPageHandoff {
 export function snapshotAnswer(
   document: Document,
   form: Form,
-  questionId: string,
+  questionId: string
 ): Answer | null {
-  const question = form.questions.find((candidate) => candidate.id === questionId);
+  const question = form.questions.find(
+    (candidate) => candidate.id === questionId
+  );
   if (!question) {
     return null;
   }
@@ -35,16 +37,25 @@ export function snapshotAnswer(
     return null;
   }
 
-  if (resolved.target.kind === 'short-text' || resolved.target.kind === 'paragraph') {
+  if (
+    resolved.target.kind === 'short-text' ||
+    resolved.target.kind === 'paragraph'
+  ) {
     const control = resolved.target.control;
-    const value = 'value' in control ? control.value : control.textContent ?? '';
+    const value =
+      'value' in control ? control.value : (control.textContent ?? '');
     return value ? { questionId, value } : null;
   }
 
-  if (resolved.target.kind !== 'single-choice' && resolved.target.kind !== 'multiple-choice') {
+  if (
+    resolved.target.kind !== 'single-choice' &&
+    resolved.target.kind !== 'multiple-choice'
+  ) {
     return null;
   }
-  const selected = resolved.target.options.filter(isOptionSelected).map(getOptionLabel);
+  const selected = resolved.target.options
+    .filter(isOptionSelected)
+    .map(getOptionLabel);
   if (selected.length === 0) {
     return null;
   }
@@ -58,15 +69,19 @@ export function createFinalizedPageHandoff(
   document: Document,
   form: Form,
   fillReport: FillReport,
-  acceptedPartialQuestionIds: readonly string[] = [],
+  acceptedPartialQuestionIds: readonly string[] = []
 ): FinalizedPageHandoff {
   const acceptedPartialIds = new Set(acceptedPartialQuestionIds);
   const entries = fillReport.outcomes.map((outcome) => {
-    const question = form.questions.find((candidate) => candidate.id === outcome.questionId);
-    const answer = outcome.status === 'SKIPPED' ||
-      (outcome.status === 'PARTIAL_FILL' && !acceptedPartialIds.has(outcome.questionId as string))
-      ? null
-      : snapshotAnswer(document, form, outcome.questionId as string);
+    const question = form.questions.find(
+      (candidate) => candidate.id === outcome.questionId
+    );
+    const answer =
+      outcome.status === 'SKIPPED' ||
+      (outcome.status === 'PARTIAL_FILL' &&
+        !acceptedPartialIds.has(outcome.questionId as string))
+        ? null
+        : snapshotAnswer(document, form, outcome.questionId as string);
     return {
       questionId: outcome.questionId as string,
       questionText: question?.text ?? '',

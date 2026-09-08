@@ -1,5 +1,9 @@
 import type { LifecycleSnapshot } from '../Lifecycle/PageLifecycle';
-import type { PageSummary, UiGenerationResult, UiStateName } from '../Popup/State';
+import type {
+  PageSummary,
+  UiGenerationResult,
+  UiStateName,
+} from '../Popup/State';
 
 export interface IntegrationSnapshot {
   lifecycle: LifecycleSnapshot | null;
@@ -21,7 +25,10 @@ export class IntegrationStateStore {
     return snapshot;
   }
 
-  update(tabId: number, update: Partial<IntegrationSnapshot>): IntegrationSnapshot {
+  update(
+    tabId: number,
+    update: Partial<IntegrationSnapshot>
+  ): IntegrationSnapshot {
     const current = this.get(tabId) ?? {
       lifecycle: null,
       uiState: 'UNSUPPORTED' as const,

@@ -158,7 +158,10 @@ function createGeminiGenerator() {
   };
 }
 
-async function handleRequest(request: { type?: string; retry?: boolean }): Promise<unknown> {
+async function handleRequest(request: {
+  type?: string;
+  retry?: boolean;
+}): Promise<unknown> {
   if (request.type === 'discover-active-page') {
     if (!supportedPage) {
       return { status: 'unsupported-page', supported: false };

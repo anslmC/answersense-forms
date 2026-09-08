@@ -29,13 +29,14 @@ function createDocument(): Document {
         </div>
       </section>
     </main>`,
-    'text/html',
+    'text/html'
   );
 }
 
 function createRealisticRespondentDocument(): Document {
   const parser = new DOMParser();
-  return parser.parseFromString(`<!doctype html><main>
+  return parser.parseFromString(
+    `<!doctype html><main>
     <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
       <div role="list">
         <div role="listitem">
@@ -72,7 +73,9 @@ function createRealisticRespondentDocument(): Document {
         </div>
       </div>
     </form>
-  </main>`, 'text/html');
+  </main>`,
+    'text/html'
+  );
 }
 
 describe('Extension foundation', () => {
@@ -87,14 +90,18 @@ describe('Extension foundation', () => {
 
 describe('Google Forms detection', () => {
   it('detects supported Google Forms URLs', () => {
-    expect(isSupportedGoogleFormsPage('https://docs.google.com/forms/d/e/abc/view')).toBe(
-      true,
-    );
+    expect(
+      isSupportedGoogleFormsPage('https://docs.google.com/forms/d/e/abc/view')
+    ).toBe(true);
   });
 
   it('rejects non-Google-Forms URLs', () => {
-    expect(isSupportedGoogleFormsPage('https://example.com/forms/d/e/abc/view')).toBe(false);
-    expect(isSupportedGoogleFormsPage('https://docs.google.com/document/d/abc')).toBe(false);
+    expect(
+      isSupportedGoogleFormsPage('https://example.com/forms/d/e/abc/view')
+    ).toBe(false);
+    expect(
+      isSupportedGoogleFormsPage('https://docs.google.com/document/d/abc')
+    ).toBe(false);
   });
 });
 
@@ -102,19 +109,31 @@ describe('Active Google Forms page discovery', () => {
   it('models nested option listitems without treating them as questions', () => {
     const document = createRealisticRespondentDocument();
 
-    expect(document.querySelectorAll('[role="listitem"], [data-question-id]')).toHaveLength(9);
+    expect(
+      document.querySelectorAll('[role="listitem"], [data-question-id]')
+    ).toHaveLength(9);
 
     const result = discoverActiveGoogleFormsPage(document);
 
     expect(result?.questions).toHaveLength(5);
-    expect(result?.questions.map((question) => [question.id, question.text, question.kind])).toEqual([
+    expect(
+      result?.questions.map((question) => [
+        question.id,
+        question.text,
+        question.kind,
+      ])
+    ).toEqual([
       ['101', 'Capital city?', 'supported'],
       ['102', 'Web languages', 'supported'],
       ['103', 'Plant color', 'supported'],
       ['104', 'Bond singer', 'supported'],
       ['105', 'Other languages', 'supported'],
     ]);
-    expect(result?.questions.map((question) => question.kind === 'supported' ? question.type : null)).toEqual([
+    expect(
+      result?.questions.map((question) =>
+        question.kind === 'supported' ? question.type : null
+      )
+    ).toEqual([
       'short-text',
       'multiple-choice',
       'paragraph',
@@ -124,7 +143,8 @@ describe('Active Google Forms page discovery', () => {
   });
 
   it('fails closed when respondent question identity metadata is missing or malformed', () => {
-    const document = new DOMParser().parseFromString(`<!doctype html><main>
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
       <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
         <div role="list">
           <div role="listitem"><h3 role="heading">Missing identity</h3><input type="text"></div>
@@ -135,16 +155,27 @@ describe('Active Google Forms page discovery', () => {
           </div>
         </div>
       </form>
-    </main>`, 'text/html');
+    </main>`,
+      'text/html'
+    );
 
     expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
-      expect.objectContaining({ kind: 'unsupported', id: null, text: 'Missing identity' }),
-      expect.objectContaining({ kind: 'unsupported', id: null, text: 'Malformed identity' }),
+      expect.objectContaining({
+        kind: 'unsupported',
+        id: null,
+        text: 'Missing identity',
+      }),
+      expect.objectContaining({
+        kind: 'unsupported',
+        id: null,
+        text: 'Malformed identity',
+      }),
     ]);
   });
 
   it('discovers the current respondent form structure using its clean view-form URL', () => {
-    const document = new DOMParser().parseFromString(`<!doctype html><main>
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
       <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
         <div class="o3Dpx" role="list">
           <div role="listitem">
@@ -156,7 +187,9 @@ describe('Active Google Forms page discovery', () => {
           </div>
         </div>
       </form>
-    </main>`, 'text/html');
+    </main>`,
+      'text/html'
+    );
 
     expect(discoverActiveGoogleFormsPage(document)).toEqual({
       pageId: 'https://docs.google.com/forms/d/e/example/viewform',
@@ -165,14 +198,17 @@ describe('Active Google Forms page discovery', () => {
   });
 
   it('selects the visible respondent form and returns an empty page when it has no questions', () => {
-    const document = new DOMParser().parseFromString(`<!doctype html><main>
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
       <form data-clean-viewform-url="https://docs.google.com/forms/d/e/hidden/viewform" hidden>
         <div class="o3Dpx" role="list"></div>
       </form>
       <form data-clean-viewform-url="https://docs.google.com/forms/d/e/visible/viewform">
         <div class="o3Dpx" role="list"></div>
       </form>
-    </main>`, 'text/html');
+    </main>`,
+      'text/html'
+    );
 
     expect(discoverActiveGoogleFormsPage(document)).toEqual({
       pageId: 'https://docs.google.com/forms/d/e/visible/viewform',
@@ -185,12 +221,16 @@ describe('Active Google Forms page discovery', () => {
 
     expect(result?.pageId).toBe('page-1');
     expect(result?.questions).toHaveLength(4);
-    expect(result?.questions.map((question) => question.id)).not.toContain('future');
+    expect(result?.questions.map((question) => question.id)).not.toContain(
+      'future'
+    );
   });
 
   it('extracts supported types, required state, options, and existing values', () => {
     const result = discoverActiveGoogleFormsPage(createDocument());
-    const questions = result?.questions.filter((question) => question.kind === 'supported');
+    const questions = result?.questions.filter(
+      (question) => question.kind === 'supported'
+    );
 
     expect(questions).toEqual([
       expect.objectContaining({
@@ -229,7 +269,8 @@ describe('Active Google Forms page discovery', () => {
   });
 
   it('discovers paragraph controls and excludes dropdowns from supported discovery', () => {
-    const document = new DOMParser().parseFromString(`<!doctype html><main>
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
       <section data-page-id="page-1" data-answersense-active-page="true">
         <div role="listitem" data-question-id="paragraph" data-question-text="Details" data-question-type="paragraph" aria-required="true">
           <textarea>Existing details</textarea>
@@ -238,7 +279,9 @@ describe('Active Google Forms page discovery', () => {
           <div role="listbox"></div>
         </div>
       </section>
-    </main>`, 'text/html');
+    </main>`,
+      'text/html'
+    );
 
     expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
       {
@@ -260,13 +303,16 @@ describe('Active Google Forms page discovery', () => {
   });
 
   it('classifies missing and duplicate question IDs as unsupported', () => {
-    const document = new DOMParser().parseFromString(`<!doctype html><main>
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
       <section data-page-id="page-1" data-answersense-active-page="true">
         <div role="listitem" data-question-text="Missing ID"><input type="text"></div>
         <div role="listitem" data-question-id="duplicate" data-question-text="First"><input type="text"></div>
         <div role="listitem" data-question-id="duplicate" data-question-text="Second"><input type="text"></div>
       </section>
-    </main>`, 'text/html');
+    </main>`,
+      'text/html'
+    );
 
     expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
       {
@@ -291,7 +337,8 @@ describe('Active Google Forms page discovery', () => {
   });
 
   it('trims valid IDs and rejects empty or whitespace-only IDs', () => {
-    const document = new DOMParser().parseFromString(`<!doctype html><main>
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
       <section data-page-id="page-1" data-answersense-active-page="true">
         <div role="listitem" data-question-id="  trimmed-id  " data-question-text="Trimmed"><input type="text"></div>
         <div role="listitem" data-question-id="   " data-question-text="Whitespace"><input type="text"></div>
@@ -300,7 +347,9 @@ describe('Active Google Forms page discovery', () => {
         <div role="listitem" data-question-id=" duplicate " data-question-text="First"><input type="text"></div>
         <div role="listitem" data-question-id="duplicate" data-question-text="Second"><input type="text"></div>
       </section>
-    </main>`, 'text/html');
+    </main>`,
+      'text/html'
+    );
 
     expect(discoverActiveGoogleFormsPage(document)?.questions).toEqual([
       expect.objectContaining({ kind: 'supported', id: 'trimmed-id' }),

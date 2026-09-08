@@ -52,9 +52,11 @@ function parsePayload(raw: string): unknown[] | null {
 
 export function extractQuestionId(
   question: HTMLElement,
-  options: QuestionIdentityOptions = {},
+  options: QuestionIdentityOptions = {}
 ): string | null {
-  const metadata = Array.from(question.querySelectorAll<HTMLElement>('[data-params]'));
+  const metadata = Array.from(
+    question.querySelectorAll<HTMLElement>('[data-params]')
+  );
   if (metadata.length > 1) {
     return null;
   }

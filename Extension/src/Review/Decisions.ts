@@ -11,14 +11,14 @@ export interface ReviewDecision {
 
 export function acceptGeneratedAnswer(
   questionId: string,
-  answer: Answer,
+  answer: Answer
 ): ReviewDecision {
   return { questionId, decision: 'accept', answer };
 }
 
 export function editReviewedAnswer(
   questionId: string,
-  answer: Answer,
+  answer: Answer
 ): ReviewDecision {
   return { questionId, decision: 'edit', answer };
 }
@@ -28,7 +28,7 @@ export function skipReviewedAnswer(questionId: string): ReviewDecision {
 }
 
 export function createAcceptedReviewDecisions(
-  report: GenerationReport,
+  report: GenerationReport
 ): ReviewDecision[] {
   return report.results.map((result) => {
     if (result.status === 'GENERATED' && result.answer !== null) {

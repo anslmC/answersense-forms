@@ -42,7 +42,9 @@ function normalizeExistingInput(question: DiscoveredQuestion): ExistingInput {
 }
 
 function normalizeSupportedQuestion(question: DiscoveredQuestion): Question {
-  const options: LogicalOption[] = question.options.map((option) => ({ ...option }));
+  const options: LogicalOption[] = question.options.map((option) => ({
+    ...option,
+  }));
   return {
     id: question.id,
     text: question.text,
@@ -69,7 +71,7 @@ function normalizeUnsupportedQuestion(question: UnsupportedQuestion): Question {
 }
 
 function normalizeQuestion(
-  question: DiscoveredQuestion | UnsupportedQuestion,
+  question: DiscoveredQuestion | UnsupportedQuestion
 ): Question {
   return question.kind === 'supported'
     ? normalizeSupportedQuestion(question)
@@ -87,7 +89,7 @@ function createQuestionResult(question: Question): QuestionResult {
 
 export function normalizeDiscoveredActivePage(
   page: DiscoveredPage,
-  cycleId = 'discovery',
+  cycleId = 'discovery'
 ): NormalizedActivePage {
   const questions = page.questions.map(normalizeQuestion);
   const form: Form = {

@@ -4,9 +4,7 @@ import { findTopLevelQuestionContainers } from '../Forms/QuestionBoundary';
 import { extractQuestionId } from '../Forms/QuestionIdentity';
 
 export type ResolutionFailureCode =
-  | 'ELEMENT_NOT_FOUND'
-  | 'TYPE_MISMATCH'
-  | 'TARGET_NOT_FOUND';
+  'ELEMENT_NOT_FOUND' | 'TYPE_MISMATCH' | 'TARGET_NOT_FOUND';
 
 interface ResolvedQuestionBase {
   questionElement: HTMLElement;
@@ -39,7 +37,9 @@ export interface ResolutionFailure {
 
 export type ResolutionResult = ResolutionSuccess | ResolutionFailure;
 
-function getCurrentQuestionType(question: HTMLElement): SupportedQuestionType | null {
+function getCurrentQuestionType(
+  question: HTMLElement
+): SupportedQuestionType | null {
   const explicitType = question.dataset.questionType;
   if (isSupportedQuestionType(explicitType)) {
     return explicitType;
@@ -60,32 +60,44 @@ function getCurrentQuestionType(question: HTMLElement): SupportedQuestionType | 
   return null;
 }
 
-function findQuestionElement(document: Document, questionId: string): HTMLElement | null {
+function findQuestionElement(
+  document: Document,
+  questionId: string
+): HTMLElement | null {
   const respondentForm = document.querySelector<HTMLFormElement>(
-    'form[data-clean-viewform-url]',
+    'form[data-clean-viewform-url]'
   );
   if (respondentForm) {
-    return findTopLevelQuestionContainers(respondentForm)?.find(
-      (candidate) => extractQuestionId(candidate, { requireDataParams: true }) === questionId,
-    ) ?? null;
+    return (
+      findTopLevelQuestionContainers(respondentForm)?.find(
+        (candidate) =>
+          extractQuestionId(candidate, { requireDataParams: true }) ===
+          questionId
+      ) ?? null
+    );
   }
 
   const candidates = document.querySelectorAll<HTMLElement>(
-    '[role="listitem"], [data-question-id], [aria-labelledby], [id]',
+    '[role="listitem"], [data-question-id], [aria-labelledby], [id]'
   );
-  return Array.from(candidates).find(
-    (candidate) => extractQuestionId(candidate) === questionId,
-  ) ?? null;
+  return (
+    Array.from(candidates).find(
+      (candidate) => extractQuestionId(candidate) === questionId
+    ) ?? null
+  );
 }
 
-function getChoiceOptions(question: HTMLElement, type: 'single-choice' | 'multiple-choice') {
+function getChoiceOptions(
+  question: HTMLElement,
+  type: 'single-choice' | 'multiple-choice'
+) {
   const role = type === 'single-choice' ? 'radio' : 'checkbox';
   return Array.from(question.querySelectorAll<HTMLElement>(`[role="${role}"]`));
 }
 
 export function resolveCurrentQuestionTarget(
   document: Document,
-  question: Question,
+  question: Question
 ): ResolutionResult {
   const questionId = question.id;
   if (questionId === null) {
@@ -113,7 +125,8 @@ export function resolveCurrentQuestionTarget(
       ok: false,
       questionId,
       code: 'TYPE_MISMATCH',
-      reason: 'The current DOM question type does not match the normalized question type.',
+      reason:
+        'The current DOM question type does not match the normalized question type.',
     };
   }
 
@@ -127,11 +140,15 @@ export function resolveCurrentQuestionTarget(
         reason: 'The current DOM question has no choice controls.',
       };
     }
-    return { ok: true, target: { kind: currentType, questionElement, questionId, options } };
+    return {
+      ok: true,
+      target: { kind: currentType, questionElement, questionId, options },
+    };
   }
 
   if (currentType === 'short-text') {
-    const control = questionElement.querySelector<HTMLInputElement>('input[type="text"]');
+    const control =
+      questionElement.querySelector<HTMLInputElement>('input[type="text"]');
     if (!control) {
       return {
         ok: false,
@@ -140,12 +157,15 @@ export function resolveCurrentQuestionTarget(
         reason: 'The current DOM question has no text input.',
       };
     }
-    return { ok: true, target: { kind: currentType, questionElement, questionId, control } };
+    return {
+      ok: true,
+      target: { kind: currentType, questionElement, questionId, control },
+    };
   }
 
   if (currentType === 'paragraph') {
     const control = questionElement.querySelector<HTMLTextAreaElement>(
-      'textarea, [contenteditable="true"]',
+      'textarea, [contenteditable="true"]'
     );
     if (!control) {
       return {
@@ -155,7 +175,10 @@ export function resolveCurrentQuestionTarget(
         reason: 'The current DOM question has no paragraph control.',
       };
     }
-    return { ok: true, target: { kind: currentType, questionElement, questionId, control } };
+    return {
+      ok: true,
+      target: { kind: currentType, questionElement, questionId, control },
+    };
   }
 
   return {
@@ -167,7 +190,9 @@ export function resolveCurrentQuestionTarget(
 }
 
 export function getOptionLabel(option: HTMLElement): string {
-  return (option.getAttribute('aria-label') ?? option.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return (option.getAttribute('aria-label') ?? option.textContent ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function isOptionSelected(option: HTMLElement): boolean {

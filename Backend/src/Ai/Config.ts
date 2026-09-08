@@ -12,7 +12,7 @@ export class GeminiConfigurationError extends Error {
 }
 
 export function createGeminiConfig(
-  environment: NodeJS.ProcessEnv = process.env,
+  environment: NodeJS.ProcessEnv = process.env
 ): GeminiConfig {
   const apiKey = environment.GEMINI_API_KEY?.trim();
   const model = environment.GEMINI_MODEL?.trim();
@@ -27,7 +27,9 @@ export function createGeminiConfig(
 
   const timeoutMs = Number(timeoutValue ?? '30000');
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new GeminiConfigurationError('GEMINI_TIMEOUT_MS must be a positive integer.');
+    throw new GeminiConfigurationError(
+      'GEMINI_TIMEOUT_MS must be a positive integer.'
+    );
   }
 
   return { apiKey, model, timeoutMs };

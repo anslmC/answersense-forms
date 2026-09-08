@@ -33,7 +33,8 @@ export class PopupController {
       const result = await this.workflow.generate(retry);
       return this.stateMachine.completeGeneration(token, result);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not generate answers.';
+      const message =
+        error instanceof Error ? error.message : 'Could not generate answers.';
       return this.stateMachine.failGeneration(token, message);
     }
   }

@@ -1,6 +1,10 @@
 import type { FillReport } from '../Fill/Filler';
 import type { GenerationReport } from '../Generation/Report';
-import type { PageSummary, UiGenerationResult, WorkflowSnapshot } from './State';
+import type {
+  PageSummary,
+  UiGenerationResult,
+  WorkflowSnapshot,
+} from './State';
 
 export interface PopupWorkflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
@@ -23,7 +27,9 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
     async discover(): Promise<PageSummary | WorkflowSnapshot | null> {
       let response: DiscoveryResponse | SnapshotResponse;
       try {
-        response = (await chrome.runtime.sendMessage({ type: 'p7-discover' })) as DiscoveryResponse;
+        response = (await chrome.runtime.sendMessage({
+          type: 'p7-discover',
+        })) as DiscoveryResponse;
       } catch {
         return null;
       }
@@ -62,7 +68,7 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
 
 export function createUiGenerationResult(
   report: GenerationReport,
-  fillReport: FillReport,
+  fillReport: FillReport
 ): UiGenerationResult {
   return { report, fillReport };
 }

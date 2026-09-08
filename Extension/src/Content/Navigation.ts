@@ -25,7 +25,7 @@ export interface InitialDiscoveryOptions {
 export function waitForInitialDiscovery(
   document: Document,
   discoverPage: () => DiscoveredPage | null,
-  options: InitialDiscoveryOptions = {},
+  options: InitialDiscoveryOptions = {}
 ): Promise<DiscoveredPage | null> {
   const maxAttempts = options.maxAttempts ?? 20;
   const timeoutMs = options.timeoutMs ?? 5000;
@@ -73,7 +73,7 @@ export function waitForInitialDiscovery(
 }
 
 export function shouldGeneratePage(
-  revisitStatus: PageLifecycle['currentRevisitStatus'],
+  revisitStatus: PageLifecycle['currentRevisitStatus']
 ): boolean {
   return revisitStatus !== 'UNCHANGED_REVISIT';
 }
@@ -82,7 +82,7 @@ export function processObservedNavigation(
   lifecycle: PageLifecycle,
   document: Document,
   discoverPage: () => DiscoveredPage | null,
-  publishTransition: (page: NormalizedActivePage) => void,
+  publishTransition: (page: NormalizedActivePage) => void
 ): boolean {
   const nextPage = lifecycle.confirmTransition(document);
   if (nextPage) {
@@ -91,7 +91,10 @@ export function processObservedNavigation(
   }
 
   const discovered = discoverPage();
-  if (!discovered || discovered.pageId === lifecycle.currentPage.form.activePageId) {
+  if (
+    !discovered ||
+    discovered.pageId === lifecycle.currentPage.form.activePageId
+  ) {
     return false;
   }
 

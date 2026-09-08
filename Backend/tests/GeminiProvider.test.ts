@@ -30,7 +30,9 @@ const request: GenerationRequest = {
   settledContext: [],
 };
 
-function transport(response: string | undefined): GeminiTransport & { request?: GeminiGenerateRequest } {
+function transport(
+  response: string | undefined
+): GeminiTransport & { request?: GeminiGenerateRequest } {
   const value: GeminiTransport & { request?: GeminiGenerateRequest } = {
     generateContent: async (generationRequest) => {
       value.request = generationRequest;
@@ -43,7 +45,9 @@ function transport(response: string | undefined): GeminiTransport & { request?: 
 function provider(response: unknown): GeminiProvider {
   return new GeminiProvider(
     { apiKey: 'test-secret', model: 'test-model', timeoutMs: 25 },
-    transport(typeof response === 'string' ? response : JSON.stringify(response)),
+    transport(
+      typeof response === 'string' ? response : JSON.stringify(response)
+    )
   );
 }
 
@@ -62,9 +66,14 @@ function validProviderOutput() {
 }
 
 async function actualSdkConnectionError(): Promise<unknown> {
-  vi.stubGlobal('fetch', vi.fn(async () => {
-    throw Object.assign(new TypeError('fetch failed'), { name: 'ConnectionError' });
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw Object.assign(new TypeError('fetch failed'), {
+        name: 'ConnectionError',
+      });
+    })
+  );
   try {
     const client = new GoogleGenAI({
       apiKey: 'synthetic-key',
@@ -87,7 +96,9 @@ describe('GeminiProvider', () => {
   it('returns valid generated output and builds a backend-owned request', async () => {
     const response = await provider(validProviderOutput()).generate(request);
 
-    expect(response.results.every((result) => result.status === 'GENERATED')).toBe(true);
+    expect(
+      response.results.every((result) => result.status === 'GENERATED')
+    ).toBe(true);
   });
 
   it('rejects duplicate, missing, and wrong-cycle results through provider validation', async () => {
@@ -100,7 +111,11 @@ describe('GeminiProvider', () => {
 
     for (const output of [duplicate, missing, wrongCycle]) {
       const response = await provider(output).generate(request);
-      expect(response.results.every((result) => result.status === 'GENERATION_FAILED')).toBe(true);
+      expect(
+        response.results.every(
+          (result) => result.status === 'GENERATION_FAILED'
+        )
+      ).toBe(true);
       expect(response.results[0].failure.code).toBe('INVALID_PROVIDER_OUTPUT');
     }
   });
@@ -129,7 +144,11 @@ describe('GeminiProvider', () => {
 
     for (const output of [invalidAnswer, invalidReason, nonNullAbstention]) {
       const response = await provider(output).generate(request);
-      expect(response.results.every((result) => result.status === 'GENERATION_FAILED')).toBe(true);
+      expect(
+        response.results.every(
+          (result) => result.status === 'GENERATION_FAILED'
+        )
+      ).toBe(true);
       expect(response.results[0].failure.code).toBe('INVALID_PROVIDER_OUTPUT');
     }
   });
@@ -145,14 +164,17 @@ describe('GeminiProvider', () => {
 
     await new GeminiProvider(
       { apiKey: 'test-secret', model: 'configured-model', timeoutMs: 1234 },
-      capturingTransport,
+      capturingTransport
     ).generate(request);
 
     expect(capturedRequest).toMatchObject({
       model: 'configured-model',
       config: {
         responseMimeType: 'application/json',
-        responseJsonSchema: expect.objectContaining({ type: 'object', required: ['cycleId', 'results'] }),
+        responseJsonSchema: expect.objectContaining({
+          type: 'object',
+          required: ['cycleId', 'results'],
+        }),
         httpOptions: { timeout: 1234, retryOptions: { attempts: 1 } },
       },
     });
@@ -170,23 +192,33 @@ describe('GeminiProvider', () => {
           reason,
         })),
       }).generate(request);
-      expect(response.results.every((result) => result.status === 'ABSTAINED')).toBe(true);
-    },
+      expect(
+        response.results.every((result) => result.status === 'ABSTAINED')
+      ).toBe(true);
+    }
   );
 
   it('converts malformed, invalid, and wrong-choice output to sanitized failures', async () => {
     const malformed = await provider('{').generate(request);
-    expect(malformed.results[0]).toMatchObject({ status: 'GENERATION_FAILED', failure: { code: 'MALFORMED_PROVIDER_OUTPUT' } });
+    expect(malformed.results[0]).toMatchObject({
+      status: 'GENERATION_FAILED',
+      failure: { code: 'MALFORMED_PROVIDER_OUTPUT' },
+    });
 
     const invalid = await provider({
       cycleId: request.cycleId,
-      results: [{
-        questionId: 'unknown',
-        status: 'GENERATED',
-        answer: { questionId: 'unknown', value: 'Nope' },
-      }],
+      results: [
+        {
+          questionId: 'unknown',
+          status: 'GENERATED',
+          answer: { questionId: 'unknown', value: 'Nope' },
+        },
+      ],
     }).generate(request);
-    expect(invalid.results[0]).toMatchObject({ status: 'GENERATION_FAILED', failure: { code: 'INVALID_PROVIDER_OUTPUT' } });
+    expect(invalid.results[0]).toMatchObject({
+      status: 'GENERATION_FAILED',
+      failure: { code: 'INVALID_PROVIDER_OUTPUT' },
+    });
 
     const wrongChoice = await provider({
       cycleId: request.cycleId,
@@ -196,7 +228,10 @@ describe('GeminiProvider', () => {
         answer: { questionId: question.questionId, value: 'Invented option' },
       })),
     }).generate(request);
-    expect(wrongChoice.results[0]).toMatchObject({ status: 'GENERATION_FAILED', failure: { code: 'INVALID_PROVIDER_OUTPUT' } });
+    expect(wrongChoice.results[0]).toMatchObject({
+      status: 'GENERATION_FAILED',
+      failure: { code: 'INVALID_PROVIDER_OUTPUT' },
+    });
   });
 
   it('maps an actual SDK connection-classified failure to NETWORK_ERROR', async () => {
@@ -207,7 +242,11 @@ describe('GeminiProvider', () => {
 
     const response = await new GeminiProvider(
       { apiKey: 'test-secret', model: 'test-model', timeoutMs: 25 },
-      { generateContent: async () => { throw sdkError; } },
+      {
+        generateContent: async () => {
+          throw sdkError;
+        },
+      }
     ).generate(request);
 
     expect(response.results[0]).toMatchObject({
@@ -225,20 +264,35 @@ describe('GeminiProvider', () => {
     [Object.assign(new Error('timeout'), { name: 'TimeoutError' }), 'TIMEOUT'],
   ] as const)('sanitizes provider failure %s', async (error, code) => {
     const failingTransport: GeminiTransport = {
-      generateContent: async () => { throw error; },
+      generateContent: async () => {
+        throw error;
+      },
     };
     const response = await new GeminiProvider(
       { apiKey: 'test-secret', model: 'test-model', timeoutMs: 25 },
-      failingTransport,
+      failingTransport
     ).generate(request);
-    expect(response.results[0]).toMatchObject({ status: 'GENERATION_FAILED', failure: { code } });
+    expect(response.results[0]).toMatchObject({
+      status: 'GENERATION_FAILED',
+      failure: { code },
+    });
     expect(JSON.stringify(response)).not.toContain('test-secret');
   });
 
   it('validates required environment configuration without reading a key value', () => {
-    expect(() => createGeminiConfig({ GEMINI_MODEL: 'test-model' })).toThrow('GEMINI_API_KEY is required');
-    expect(() => createGeminiConfig({ GEMINI_API_KEY: 'test-secret' })).toThrow('GEMINI_MODEL is required');
-    expect(createGeminiConfig({ GEMINI_API_KEY: 'test-secret', GEMINI_MODEL: 'test-model', GEMINI_TIMEOUT_MS: '10' })).toEqual({
+    expect(() => createGeminiConfig({ GEMINI_MODEL: 'test-model' })).toThrow(
+      'GEMINI_API_KEY is required'
+    );
+    expect(() => createGeminiConfig({ GEMINI_API_KEY: 'test-secret' })).toThrow(
+      'GEMINI_MODEL is required'
+    );
+    expect(
+      createGeminiConfig({
+        GEMINI_API_KEY: 'test-secret',
+        GEMINI_MODEL: 'test-model',
+        GEMINI_TIMEOUT_MS: '10',
+      })
+    ).toEqual({
       apiKey: 'test-secret',
       model: 'test-model',
       timeoutMs: 10,

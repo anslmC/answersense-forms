@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { createBackendServer } from '../src/Api/Server';
 import { createMockGenerator } from '../src/Ai/Service';
 
-function requestBody(port: number, body: unknown): Promise<{ status: number; body: any }> {
+function requestBody(
+  port: number,
+  body: unknown
+): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const request = fetch(`http://127.0.0.1:${port}/generate`, {
       method: 'POST',
@@ -10,7 +13,9 @@ function requestBody(port: number, body: unknown): Promise<{ status: number; bod
       body: JSON.stringify(body),
     });
     void request
-      .then(async (response) => resolve({ status: response.status, body: await response.json() }))
+      .then(async (response) =>
+        resolve({ status: response.status, body: await response.json() })
+      )
       .catch(reject);
   });
 }
@@ -18,20 +23,27 @@ function requestBody(port: number, body: unknown): Promise<{ status: number; bod
 const validRequest = {
   cycleId: 'extension-cycle',
   pageId: 'page-1',
-  questions: [{
-    questionId: 'name',
-    text: 'Name',
-    type: 'short-text',
-    required: true,
-    options: [],
-  }],
+  questions: [
+    {
+      questionId: 'name',
+      text: 'Name',
+      type: 'short-text',
+      required: true,
+      options: [],
+    },
+  ],
   settledContext: [],
 };
 
 describe('Backend HTTP generation boundary', () => {
   it('rejects invalid requests and echoes the Extension cycleId', async () => {
-    const server = createBackendServer(createMockGenerator()).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const server = createBackendServer(createMockGenerator()).listen(
+      0,
+      '127.0.0.1'
+    );
+    await new Promise<void>((resolve) =>
+      server.once('listening', () => resolve())
+    );
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
@@ -46,12 +58,15 @@ describe('Backend HTTP generation boundary', () => {
 
   it('does not return malformed provider output as a successful response', async () => {
     const server = createBackendServer({
-      generate: async () => ({
-        cycleId: 'extension-cycle',
-        results: [{ questionId: 'unknown', status: 'UNKNOWN' }],
-      } as never),
+      generate: async () =>
+        ({
+          cycleId: 'extension-cycle',
+          results: [{ questionId: 'unknown', status: 'UNKNOWN' }],
+        }) as never,
     }).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    await new Promise<void>((resolve) =>
+      server.once('listening', () => resolve())
+    );
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 

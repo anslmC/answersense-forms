@@ -7,7 +7,7 @@ import { computePageFingerprint } from '../Forms/Normalization';
 export type PendingAnswer = Answer & {
   questionId: string;
   questionText: string;
-}
+};
 
 export interface SuccessfulPageTransition {
   readonly nextAcceptedAndTransitioned: true;
@@ -22,7 +22,7 @@ export interface PendingPageState {
 }
 
 export function createPendingPageStateFromHandoff(
-  handoff: FinalizedPageHandoff,
+  handoff: FinalizedPageHandoff
 ): PendingPageState {
   return Object.freeze({
     cycleId: handoff.cycleId,
@@ -32,14 +32,16 @@ export function createPendingPageStateFromHandoff(
       handoff.entries.flatMap((entry) =>
         entry.answer === null
           ? []
-          : [{
-              questionId: entry.answer.questionId as string,
-              questionText: entry.questionText,
-              value: Array.isArray(entry.answer.value)
-                ? [...entry.answer.value]
-                : entry.answer.value,
-            }],
-      ),
+          : [
+              {
+                questionId: entry.answer.questionId as string,
+                questionText: entry.questionText,
+                value: Array.isArray(entry.answer.value)
+                  ? [...entry.answer.value]
+                  : entry.answer.value,
+              },
+            ]
+      )
     ),
     outcomes: Object.freeze(handoff.entries.map((entry) => ({ ...entry }))),
   });
@@ -47,21 +49,27 @@ export function createPendingPageStateFromHandoff(
 
 export function createPendingPageStateFromReport(
   form: Form,
-  report: GenerationReport,
+  report: GenerationReport
 ): PendingPageState {
   const answers = report.results.flatMap((result) => {
     if (result.status !== 'GENERATED' || result.answer === null) {
       return [];
     }
-    const question = form.questions.find((candidate) => candidate.id === result.questionId);
+    const question = form.questions.find(
+      (candidate) => candidate.id === result.questionId
+    );
     if (!question || question.text === null) {
       return [];
     }
-    return [{
-      questionId: result.questionId as string,
-      questionText: question.text,
-      value: Array.isArray(result.answer.value) ? [...result.answer.value] : result.answer.value,
-    }];
+    return [
+      {
+        questionId: result.questionId as string,
+        questionText: question.text,
+        value: Array.isArray(result.answer.value)
+          ? [...result.answer.value]
+          : result.answer.value,
+      },
+    ];
   });
 
   return Object.freeze({
@@ -76,12 +84,12 @@ export function createPendingPageStateFromReport(
 export function editPendingAnswer(
   state: PendingPageState,
   questionId: string,
-  value: AnswerValue,
+  value: AnswerValue
 ): PendingPageState {
   const answers = state.answers.map((answer) =>
     answer.questionId === questionId
       ? { ...answer, value: Array.isArray(value) ? [...value] : value }
-      : answer,
+      : answer
   );
   if (!answers.some((answer) => answer.questionId === questionId)) {
     throw new Error(`Question is not pending: ${questionId}`);
@@ -92,12 +100,17 @@ export function editPendingAnswer(
 export function capturePendingPageAtSettlement(
   document: Document,
   form: Form,
-  state: PendingPageState,
+  state: PendingPageState
 ): PendingPageState {
   const answers = state.answers.map((answer) => {
     const current = snapshotAnswer(document, form, answer.questionId);
     return current
-      ? { ...answer, value: Array.isArray(current.value) ? [...current.value] : current.value }
+      ? {
+          ...answer,
+          value: Array.isArray(current.value)
+            ? [...current.value]
+            : current.value,
+        }
       : answer;
   });
 
@@ -110,7 +123,7 @@ export function capturePendingPageAtSettlement(
 
 export function commitPendingPageAfterSuccessfulTransition(
   state: PendingPageState,
-  _transition: SuccessfulPageTransition,
+  _transition: SuccessfulPageTransition
 ): SettledPageState {
   return {
     pageId: state.pageId,

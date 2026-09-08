@@ -17,5 +17,6 @@ const request: GenerationRequest = {
   settledContext: [],
 };
 
-const response = await createGeminiProvider(createGeminiConfig()).generate(request);
+const response =
+  await createGeminiProvider(createGeminiConfig()).generate(request);
 console.log(JSON.stringify(response, null, 2));

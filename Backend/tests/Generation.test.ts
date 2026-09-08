@@ -40,7 +40,11 @@ const request: GenerationRequest = {
     },
   ],
   settledContext: [
-    { questionId: 'previous', questionText: 'Previous question', answer: 'Settled answer' },
+    {
+      questionId: 'previous',
+      questionText: 'Previous question',
+      answer: 'Settled answer',
+    },
   ],
 };
 
@@ -56,41 +60,53 @@ describe('Generation contract and mock generator', () => {
   });
 
   it('rejects malformed contract data', () => {
-    expect(GenerationRequestSchema.safeParse({ ...request, cycleId: '' }).success).toBe(false);
-    expect(GenerationResponseSchema.safeParse({ cycleId: '', results: [] }).success).toBe(false);
-    expect(GenerationResponseSchema.safeParse({
-      cycleId: 'cycle-1',
-      results: [{ questionId: 'name', status: 'UNKNOWN' }],
-    }).success).toBe(false);
-    expect(GenerationRequestSchema.safeParse({
-      ...request,
-      questions: [{ ...request.questions[0], type: 'dropdown' }],
-    }).success).toBe(false);
-    expect(GenerationResponseSchema.safeParse({
-      cycleId: 'cycle-1',
-      results: [
-        {
-          questionId: 'name',
-          status: 'GENERATED',
-          answer: { questionId: 'other', value: 'Mismatch' },
-        },
-      ],
-    }).success).toBe(false);
-    expect(GenerationResponseSchema.safeParse({
-      cycleId: 'cycle-1',
-      results: [
-        {
-          questionId: 'name',
-          status: 'GENERATION_FAILED',
-          failure: { code: 'FAILED', message: 'First' },
-        },
-        {
-          questionId: 'name',
-          status: 'GENERATION_FAILED',
-          failure: { code: 'FAILED', message: 'Duplicate' },
-        },
-      ],
-    }).success).toBe(false);
+    expect(
+      GenerationRequestSchema.safeParse({ ...request, cycleId: '' }).success
+    ).toBe(false);
+    expect(
+      GenerationResponseSchema.safeParse({ cycleId: '', results: [] }).success
+    ).toBe(false);
+    expect(
+      GenerationResponseSchema.safeParse({
+        cycleId: 'cycle-1',
+        results: [{ questionId: 'name', status: 'UNKNOWN' }],
+      }).success
+    ).toBe(false);
+    expect(
+      GenerationRequestSchema.safeParse({
+        ...request,
+        questions: [{ ...request.questions[0], type: 'dropdown' }],
+      }).success
+    ).toBe(false);
+    expect(
+      GenerationResponseSchema.safeParse({
+        cycleId: 'cycle-1',
+        results: [
+          {
+            questionId: 'name',
+            status: 'GENERATED',
+            answer: { questionId: 'other', value: 'Mismatch' },
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      GenerationResponseSchema.safeParse({
+        cycleId: 'cycle-1',
+        results: [
+          {
+            questionId: 'name',
+            status: 'GENERATION_FAILED',
+            failure: { code: 'FAILED', message: 'First' },
+          },
+          {
+            questionId: 'name',
+            status: 'GENERATION_FAILED',
+            failure: { code: 'FAILED', message: 'Duplicate' },
+          },
+        ],
+      }).success
+    ).toBe(false);
   });
 
   it('produces deterministic output through the generation interface', async () => {
@@ -136,34 +152,46 @@ describe('Generation contract and mock generator', () => {
   });
 
   it('accepts abstained results and rejects invalid abstention combinations', () => {
-    expect(GenerationResponseSchema.safeParse({
-      cycleId: 'cycle-1',
-      results: [{
-        questionId: 'name',
-        status: 'ABSTAINED',
-        answer: null,
-        reason: 'LOW_CONFIDENCE',
-      }],
-    }).success).toBe(true);
+    expect(
+      GenerationResponseSchema.safeParse({
+        cycleId: 'cycle-1',
+        results: [
+          {
+            questionId: 'name',
+            status: 'ABSTAINED',
+            answer: null,
+            reason: 'LOW_CONFIDENCE',
+          },
+        ],
+      }).success
+    ).toBe(true);
 
-    expect(GenerationResponseSchema.safeParse({
-      cycleId: 'cycle-1',
-      results: [{
-        questionId: 'name',
-        status: 'ABSTAINED',
-        answer: { questionId: 'name', value: 'Not allowed' },
-        reason: 'LOW_CONFIDENCE',
-      }],
-    }).success).toBe(false);
+    expect(
+      GenerationResponseSchema.safeParse({
+        cycleId: 'cycle-1',
+        results: [
+          {
+            questionId: 'name',
+            status: 'ABSTAINED',
+            answer: { questionId: 'name', value: 'Not allowed' },
+            reason: 'LOW_CONFIDENCE',
+          },
+        ],
+      }).success
+    ).toBe(false);
 
-    expect(GenerationResponseSchema.safeParse({
-      cycleId: 'cycle-1',
-      results: [{
-        questionId: 'name',
-        status: 'ABSTAINED',
-        answer: null,
-        reason: 'PROVIDER_REFUSED',
-      }],
-    }).success).toBe(false);
+    expect(
+      GenerationResponseSchema.safeParse({
+        cycleId: 'cycle-1',
+        results: [
+          {
+            questionId: 'name',
+            status: 'ABSTAINED',
+            answer: null,
+            reason: 'PROVIDER_REFUSED',
+          },
+        ],
+      }).success
+    ).toBe(false);
   });
 });

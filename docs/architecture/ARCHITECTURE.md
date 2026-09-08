@@ -10,22 +10,22 @@ It reflects the latest locked decisions and defines the system behavior, data bo
 
 ## Core Constraints
 
-* Google Forms only.
-* Process only the currently active page.
-* Do not crawl the full form upfront.
-* Do not automatically navigate ahead.
-* Process one page at a time.
-* Batch the current page into one generation request.
-* Carry all prior settled Q&A into later generation requests.
-* Omit unanswered optional/skipped questions from context.
-* User-edited values are authoritative once settled.
-* A page settles only after **Next + successful page transition is observed**.
-* Google Forms controls required-field validation.
-* Revisited pages are recognized and re-checked.
-* Changed pages are reprocessed; unchanged pages may reuse existing state.
-* Do not automatically regenerate downstream settled pages after upstream changes.
-* Do not use heuristic dependency detection.
-* Multi-provider routing/fallback remains deferred.
+- Google Forms only.
+- Process only the currently active page.
+- Do not crawl the full form upfront.
+- Do not automatically navigate ahead.
+- Process one page at a time.
+- Batch the current page into one generation request.
+- Carry all prior settled Q&A into later generation requests.
+- Omit unanswered optional/skipped questions from context.
+- User-edited values are authoritative once settled.
+- A page settles only after **Next + successful page transition is observed**.
+- Google Forms controls required-field validation.
+- Revisited pages are recognized and re-checked.
+- Changed pages are reprocessed; unchanged pages may reuse existing state.
+- Do not automatically regenerate downstream settled pages after upstream changes.
+- Do not use heuristic dependency detection.
+- Multi-provider routing/fallback remains deferred.
 
 ---
 
@@ -41,12 +41,12 @@ Identify the supported Google Form and inspect only the currently active page.
 
 Extract:
 
-* questions
-* question types
-* options
-* required state
-* existing inputs
-* page identity/state information
+- questions
+- question types
+- options
+- required state
+- existing inputs
+- page identity/state information
 
 Do not inspect future pages.
 
@@ -58,13 +58,13 @@ The logical model must not contain raw DOM references.
 
 Core concepts include:
 
-* `Form`
-* `Question`
-* `Answer`
-* `ExistingInput`
-* `QuestionResult`
-* `ProcessingCycle`
-* `GenerationReport`
+- `Form`
+- `Question`
+- `Answer`
+- `ExistingInput`
+- `QuestionResult`
+- `ProcessingCycle`
+- `GenerationReport`
 
 DOM nodes and page-specific mappings remain in the DOM layer.
 
@@ -74,13 +74,13 @@ Send the current page as one batched generation request.
 
 The request contains:
 
-* current page questions
-* all prior settled Q&A
+- current page questions
+- all prior settled Q&A
 
 Context is logical only:
 
-* question text
-* settled answer
+- question text
+- settled answer
 
 Do not send raw HTML, DOM references, or unnecessary browser state.
 
@@ -94,9 +94,9 @@ Answer-to-question matching is deterministic.
 
 Do not use:
 
-* fuzzy matching
-* semantic matching
-* heuristic question matching
+- fuzzy matching
+- semantic matching
+- heuristic question matching
 
 Generation results are represented by a materialized, frozen `GenerationReport`.
 
@@ -128,8 +128,8 @@ Settlement requires:
 
 Until then:
 
-* the page remains editable
-* its answers are not added to accumulated context
+- the page remains editable
+- its answers are not added to accumulated context
 
 Required-field validation remains entirely controlled by Google Forms.
 
@@ -147,10 +147,10 @@ After settlement, the next active page is discovered and processed.
 
 If the user navigates back to a previously settled page:
 
-* recognize it as the same page/state
-* re-check/re-extract it
-* reuse existing state if unchanged
-* reprocess if changed
+- recognize it as the same page/state
+- re-check/re-extract it
+- reuse existing state if unchanged
+- reprocess if changed
 
 Changes to an earlier settled page do not automatically regenerate downstream settled pages.
 
@@ -170,45 +170,45 @@ A response belonging to an obsolete cycle must be rejected or ignored so stale g
 
 Responsible for:
 
-* extension runtime
-* Google Forms detection
-* page discovery
-* DOM extraction
-* DOM resolution/filling
-* page/form interaction lifecycle
-* generation coordination
-* response validation
-* user interaction and review flow
-* requesting provider work through the service worker
-* never receiving the raw provider credential
+- extension runtime
+- Google Forms detection
+- page discovery
+- DOM extraction
+- DOM resolution/filling
+- page/form interaction lifecycle
+- generation coordination
+- response validation
+- user interaction and review flow
+- requesting provider work through the service worker
+- never receiving the raw provider credential
 
 ### Service Worker Layer
 
 Responsible for:
 
-* provider credential access
-* provider transport
-* selecting and using the configured provider adapter
-* sending provider requests directly to Gemini
-* never exposing the raw credential through runtime messages
+- provider credential access
+- provider transport
+- selecting and using the configured provider adapter
+- sending provider requests directly to Gemini
+- never exposing the raw credential through runtime messages
 
 ### Provider Adapter Layer
 
 Responsible for:
 
-* Gemini-specific API interaction
-* normalizing provider behavior into the established provider interface
-* validating provider response structure before returning it
-* preserving the application-level `GenerationResponse` contract
+- Gemini-specific API interaction
+- normalizing provider behavior into the established provider interface
+- validating provider response structure before returning it
+- preserving the application-level `GenerationResponse` contract
 
 ### Backend Layer
 
 Responsible for:
 
-* developer/local `.env` configuration
-* local API/provider testing
-* request and response validation for backend tests
-* mock generation and deliberate smoke tests
+- developer/local `.env` configuration
+- local API/provider testing
+- request and response validation for backend tests
+- mock generation and deliberate smoke tests
 
 The backend is not part of the end-user BYOK runtime generation path.
 
@@ -216,10 +216,10 @@ The backend is not part of the end-user BYOK runtime generation path.
 
 Responsible for:
 
-* normalized models
-* logical page/context state
-* processing-cycle coordination
-* extension/backend data contracts
+- normalized models
+- logical page/context state
+- processing-cycle coordination
+- extension/backend data contracts
 
 ---
 
@@ -247,14 +247,14 @@ The logical model must remain independent of browser DOM objects.
 
 The current architecture does not include:
 
-* full-form upfront crawling
-* automatic future-page discovery
-* automatic submission
-* fuzzy/semantic matching
-* heuristic dependency detection
-* automatic downstream regeneration
-* automatic retries
-* multi-provider fallback/routing
-* persistent answer storage
-* analytics
-* UI frameworks
+- full-form upfront crawling
+- automatic future-page discovery
+- automatic submission
+- fuzzy/semantic matching
+- heuristic dependency detection
+- automatic downstream regeneration
+- automatic retries
+- multi-provider fallback/routing
+- persistent answer storage
+- analytics
+- UI frameworks

@@ -1,5 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
-import { GenerationRequestSchema, GenerationResponseSchema } from '../Models/Schemas.js';
+import {
+  GenerationRequestSchema,
+  GenerationResponseSchema,
+} from '../Models/Schemas.js';
 import type {
   GenerationInterface,
   GenerationRequest,
@@ -59,7 +62,11 @@ const responseJsonSchema: Record<string, unknown> = {
               answer: { type: 'null' },
               reason: {
                 type: 'string',
-                enum: ['LOW_CONFIDENCE', 'UNABLE_TO_DETERMINE', 'NOT_APPLICABLE'],
+                enum: [
+                  'LOW_CONFIDENCE',
+                  'UNABLE_TO_DETERMINE',
+                  'NOT_APPLICABLE',
+                ],
               },
             },
             required: ['questionId', 'status', 'answer', 'reason'],
@@ -111,7 +118,7 @@ function buildPrompt(request: GenerationRequest): string {
 function failureResponse(
   request: GenerationRequest,
   code: string,
-  message: string,
+  message: string
 ): GenerationResponse {
   return {
     cycleId: request.cycleId,
@@ -142,15 +149,22 @@ function isGeminiConnectionError(error: unknown): boolean {
   return 'cause' in error && isGeminiConnectionError(error.cause);
 }
 
-function classifyProviderError(error: unknown): { code: string; message: string } {
+function classifyProviderError(error: unknown): {
+  code: string;
+  message: string;
+} {
   const status = errorStatus(error);
   const name = error instanceof Error ? error.name.toLowerCase() : '';
-  const code = typeof error === 'object' && error !== null && 'code' in error
-    ? String((error as { code?: unknown }).code).toLowerCase()
-    : '';
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code).toLowerCase()
+      : '';
 
   if (status === 401 || status === 403) {
-    return { code: 'AUTHENTICATION_FAILED', message: 'Gemini authentication failed.' };
+    return {
+      code: 'AUTHENTICATION_FAILED',
+      message: 'Gemini authentication failed.',
+    };
   }
   if (status === 429) {
     return { code: 'RATE_LIMITED', message: 'Gemini rate limit was reached.' };
@@ -158,7 +172,12 @@ function classifyProviderError(error: unknown): { code: string; message: string 
   if (name.includes('timeout') || code === 'etimedout' || code === 'timeout') {
     return { code: 'TIMEOUT', message: 'Gemini generation timed out.' };
   }
-  if (isGeminiConnectionError(error) || error instanceof TypeError || code === 'econnreset' || code === 'enotfound') {
+  if (
+    isGeminiConnectionError(error) ||
+    error instanceof TypeError ||
+    code === 'econnreset' ||
+    code === 'enotfound'
+  ) {
     return { code: 'NETWORK_ERROR', message: 'Gemini network request failed.' };
   }
   return { code: 'PROVIDER_ERROR', message: 'Gemini generation failed.' };
@@ -166,14 +185,16 @@ function classifyProviderError(error: unknown): { code: string; message: string 
 
 function validateProviderResponse(
   request: GenerationRequest,
-  response: unknown,
+  response: unknown
 ): GenerationResponse {
   const parsed = GenerationResponseSchema.safeParse(response);
   if (!parsed.success || parsed.data.cycleId !== request.cycleId) {
     throw new Error('Invalid Gemini generation response.');
   }
 
-  const questionsById = new Map(request.questions.map((question) => [question.questionId, question]));
+  const questionsById = new Map(
+    request.questions.map((question) => [question.questionId, question])
+  );
   const resultIds = new Set<string>();
   if (parsed.data.results.length !== request.questions.length) {
     throw new Error('Invalid Gemini generation response.');
@@ -191,7 +212,11 @@ function validateProviderResponse(
     }
     const value = result.answer.value;
     if (question.type === 'multiple-choice') {
-      if (!Array.isArray(value) || new Set(value).size !== value.length || value.some((item) => !question.options.includes(item))) {
+      if (
+        !Array.isArray(value) ||
+        new Set(value).size !== value.length ||
+        value.some((item) => !question.options.includes(item))
+      ) {
         throw new Error('Invalid Gemini generation response.');
       }
     } else if (question.type === 'single-choice') {
@@ -216,7 +241,7 @@ function createSdkTransport(config: GeminiConfig): GeminiTransport {
 export class GeminiProvider implements GenerationInterface {
   constructor(
     private readonly config: GeminiConfig,
-    private readonly transport: GeminiTransport = createSdkTransport(config),
+    private readonly transport: GeminiTransport = createSdkTransport(config)
   ) {}
 
   async generate(request: GenerationRequest): Promise<GenerationResponse> {
@@ -236,20 +261,32 @@ export class GeminiProvider implements GenerationInterface {
         },
       });
       if (!response.text) {
-        return failureResponse(validRequest, 'MALFORMED_PROVIDER_OUTPUT', 'Gemini returned no structured output.');
+        return failureResponse(
+          validRequest,
+          'MALFORMED_PROVIDER_OUTPUT',
+          'Gemini returned no structured output.'
+        );
       }
 
       let parsedOutput: unknown;
       try {
         parsedOutput = JSON.parse(response.text);
       } catch {
-        return failureResponse(validRequest, 'MALFORMED_PROVIDER_OUTPUT', 'Gemini returned malformed JSON.');
+        return failureResponse(
+          validRequest,
+          'MALFORMED_PROVIDER_OUTPUT',
+          'Gemini returned malformed JSON.'
+        );
       }
 
       try {
         return validateProviderResponse(validRequest, parsedOutput);
       } catch {
-        return failureResponse(validRequest, 'INVALID_PROVIDER_OUTPUT', 'Gemini returned an invalid generation response.');
+        return failureResponse(
+          validRequest,
+          'INVALID_PROVIDER_OUTPUT',
+          'Gemini returned an invalid generation response.'
+        );
       }
     } catch (error) {
       const failure = classifyProviderError(error);
@@ -258,8 +295,15 @@ export class GeminiProvider implements GenerationInterface {
   }
 }
 
-export function createGeminiProvider(config: GeminiConfig): GenerationInterface {
+export function createGeminiProvider(
+  config: GeminiConfig
+): GenerationInterface {
   return new GeminiProvider(config);
 }
 
-export { buildPrompt, responseJsonSchema, systemInstruction, validateProviderResponse };
+export {
+  buildPrompt,
+  responseJsonSchema,
+  systemInstruction,
+  validateProviderResponse,
+};
