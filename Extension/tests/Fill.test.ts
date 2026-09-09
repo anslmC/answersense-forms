@@ -198,6 +198,107 @@ describe('P4 current DOM resolver', () => {
 });
 
 describe('P4 sequential filling and preservation', () => {
+  it('fills a paragraph multi-blank answer as a comma-separated value string in blank order', async () => {
+    const document = createDocument();
+    const report = reportFor([
+      { questionId: 'paragraph', value: 'Paris, Rome' },
+    ]);
+
+    const result = await fillReviewedAnswers(
+      document,
+      form,
+      report,
+      report.results.map((item) =>
+        acceptGeneratedAnswer(item.questionId as string, item.answer!)
+      )
+    );
+
+    expect(result.outcomes[0]).toMatchObject({
+      questionId: 'paragraph',
+      status: 'FILLED',
+      answer: { questionId: 'paragraph', value: 'Paris, Rome' },
+    });
+    expect(
+      (
+        document.querySelector(
+          '[data-question-id="paragraph"] textarea'
+        ) as HTMLTextAreaElement
+      ).value
+    ).toBe('Paris, Rome');
+    expect(('Paris, Rome').split(',').map((part) => part.trim())).toEqual([
+      'Paris',
+      'Rome',
+    ]);
+  });
+
+  it('fills a paragraph three-blank answer as one comma-separated value string in blank order', async () => {
+    const document = createDocument();
+    const report = reportFor([
+      {
+        questionId: 'paragraph',
+        value: 'Italy, Mona Lisa, Michelangelo',
+      },
+    ]);
+
+    const result = await fillReviewedAnswers(
+      document,
+      form,
+      report,
+      report.results.map((item) =>
+        acceptGeneratedAnswer(item.questionId as string, item.answer!)
+      )
+    );
+
+    expect(result.outcomes[0]).toMatchObject({
+      questionId: 'paragraph',
+      status: 'FILLED',
+      answer: {
+        questionId: 'paragraph',
+        value: 'Italy, Mona Lisa, Michelangelo',
+      },
+    });
+    expect(
+      (
+        document.querySelector(
+          '[data-question-id="paragraph"] textarea'
+        ) as HTMLTextAreaElement
+      ).value
+    ).toBe('Italy, Mona Lisa, Michelangelo');
+    expect(
+      'Italy, Mona Lisa, Michelangelo'.split(',').map((part) => part.trim())
+    ).toEqual(['Italy', 'Mona Lisa', 'Michelangelo']);
+  });
+
+  it('leaves a single-blank paragraph answer as a single plain value string without comma splitting', async () => {
+    const document = createDocument();
+    const report = reportFor([
+      { questionId: 'paragraph', value: 'Mona Lisa' },
+    ]);
+
+    const result = await fillReviewedAnswers(
+      document,
+      form,
+      report,
+      report.results.map((item) =>
+        acceptGeneratedAnswer(item.questionId as string, item.answer!)
+      )
+    );
+
+    expect(result.outcomes[0]).toMatchObject({
+      questionId: 'paragraph',
+      status: 'FILLED',
+      answer: { questionId: 'paragraph', value: 'Mona Lisa' },
+    });
+    expect(
+      (
+        document.querySelector(
+          '[data-question-id="paragraph"] textarea'
+        ) as HTMLTextAreaElement
+      ).value
+    ).toBe('Mona Lisa');
+    expect('Mona Lisa'.split(',')).toEqual(['Mona Lisa']);
+  });
+
   it('fills multiple choice, checkboxes, short answer, and paragraph in report order', async () => {
     const document = createDocument();
     const report = reportFor([

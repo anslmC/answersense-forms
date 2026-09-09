@@ -39,6 +39,68 @@ function transport(status: number, text?: string): GeminiTransport {
 }
 
 describe('direct Gemini provider', () => {
+  it('coaches paragraph multi-blank prompts to produce one comma-separated value per blank in order', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const provider = new GeminiProvider('test-key', {
+      generate: async ({ body }) => {
+        capturedBody = body as Record<string, unknown>;
+        return {
+          status: 200,
+          body: {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        cycleId: 'cycle-provider',
+                        results: [
+                          {
+                            questionId: 'blank-paragraph',
+                            status: 'GENERATED',
+                            answer: {
+                              questionId: 'blank-paragraph',
+                              value: 'Paris, Rome',
+                            },
+                          },
+                        ],
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        };
+      },
+    });
+
+    await provider.generate({
+      cycleId: 'cycle-provider',
+      pageId: 'page-1',
+      questions: [
+        {
+          questionId: 'blank-paragraph',
+          text: 'The capital of France is __________ and the capital of Italy is __________.',
+          type: 'paragraph',
+          required: false,
+          options: [],
+        },
+      ],
+      settledContext: [],
+    });
+
+    const contents = capturedBody?.contents as Array<{
+      parts: Array<{ text: string }>;
+    }>;
+    expect(contents[0].parts[0].text).toContain(
+      'Return only the blank values separated by commas in blank order'
+    );
+    expect(contents[0].parts[0].text).toContain(
+      'exactly one answer value per blank'
+    );
+  });
+
   it('uses the production Gemini 3.1 Flash-Lite model and GenerationResponse schema', async () => {
     let capturedBody: Record<string, unknown> | undefined;
     const provider = new GeminiProvider('test-key', {

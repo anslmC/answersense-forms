@@ -40,6 +40,23 @@ const baseState: PopupConfigurationState = {
 };
 
 describe('popup configuration state', () => {
+  it('keeps credential entry controls hidden until the user opens an API-key flow', () => {
+    const markup = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.html'),
+      'utf8'
+    );
+    expect(markup).toContain('<div class="credential-form" data-add-credential-form hidden>');
+    expect(markup).toContain('<div class="credential-form" data-replace-credential-form hidden>');
+    expect(markup).toContain('<label for="credential-label">Key Name</label>');
+    expect(markup).toContain('<label for="credential-secret">API key</label>');
+    expect(markup).toContain('<label for="replace-credential-select">Key to replace</label>');
+    expect(markup).toContain('<label for="replace-credential-secret">New API Key</label>');
+    expect(markup).toContain('<button type="button" data-save-add-credential>Save</button>');
+    expect(markup).toContain('<button type="button" class="secondary" data-cancel-add-credential>');
+    expect(markup).toContain('<button type="button" data-save-replace-credential>Replace</button>');
+    expect(markup).toContain('<button type="button" class="secondary" data-cancel-replace-credential>');
+  });
+
   it('uses API key terminology in visible popup text', () => {
     const markup = readFileSync(
       resolve(process.cwd(), 'src/Popup/Popup.html'),

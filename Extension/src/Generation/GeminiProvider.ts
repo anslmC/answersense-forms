@@ -34,6 +34,8 @@ const systemInstruction = [
   'Respect each supplied question type and required state.',
   'For choice questions, use only the supplied option values and never invent options.',
   'Use a string for single-value answers and a string array for multiple-choice answers.',
+  'For paragraph questions whose text contains multiple blank markers, return only the corresponding answer values as one comma-separated value string in blank order, with exactly one value per blank slot and no full-sentence prose.',
+  'For paragraph questions with exactly one blank marker, return the single answer field value normally without extra prose.',
   'Abstain when a valid answer cannot responsibly be determined.',
   'Use only LOW_CONFIDENCE, UNABLE_TO_DETERMINE, or NOT_APPLICABLE for abstention.',
 ].join(' ');
@@ -108,9 +110,28 @@ export const responseJsonSchema: Record<string, unknown> = {
   required: ['cycleId', 'results'],
 };
 
+function paragraphHasMultipleBlanks(text: string): boolean {
+  return (text.match(/_{2,}/g) ?? []).length >= 2;
+}
+
 function buildPrompt(request: GenerationRequest): string {
+  const requestedMultiBlankParagraghValues = request.questions
+    .filter(
+      (question) =>
+        question.type === 'paragraph' &&
+        paragraphHasMultipleBlanks(question.text)
+    )
+    .map(
+      (question) =>
+        `Question ${question.questionId} is a paragraph with multiple blank markers in its text. Return only the blank values separated by commas in blank order, with exactly one answer value per blank.`
+    );
+
   return JSON.stringify({
-    task: 'Generate answers for the supplied questions.',
+    task:
+      'Generate answers for the supplied questions.' +
+      (requestedMultiBlankParagraghValues.length > 0
+        ? ' ' + requestedMultiBlankParagraghValues.join(' ')
+        : ''),
     cycleId: request.cycleId,
     questions: request.questions,
     settledContext: request.settledContext,
