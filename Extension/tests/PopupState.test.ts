@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PopupController } from '../src/Popup/Controller';
-import { PopupStateMachine, type UiGenerationResult } from '../src/Popup/State';
+import {
+  PopupStateMachine,
+  type UiGenerationResult,
+  type WorkflowSnapshot,
+} from '../src/Popup/State';
 import type { PopupWorkflow } from '../src/Popup/Workflow';
 
 const page = { pageId: 'page-1', questionCount: 2 };
@@ -92,6 +96,12 @@ describe('P6 popup workflow boundary', () => {
     const workflow: PopupWorkflow = {
       discover: vi.fn(async () => page),
       generate: vi.fn(async () => result),
+      forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
+        uiState: 'READY',
+        page,
+        result: null,
+        error: null,
+      })),
     };
     const controller = new PopupController(workflow);
     await expect(controller.discover()).resolves.toMatchObject({
@@ -111,6 +121,12 @@ describe('P6 popup workflow boundary', () => {
         .fn()
         .mockRejectedValueOnce(new Error('Backend unavailable'))
         .mockResolvedValueOnce(result),
+      forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
+        uiState: 'READY',
+        page,
+        result: null,
+        error: null,
+      })),
     };
     const controller = new PopupController(workflow);
     await controller.discover();
@@ -127,6 +143,12 @@ describe('P6 popup workflow boundary', () => {
     const workflow: PopupWorkflow = {
       discover: vi.fn(async () => null),
       generate: vi.fn(async () => result),
+      forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
+        uiState: 'READY',
+        page: null,
+        result: null,
+        error: null,
+      })),
     };
     const controller = new PopupController(workflow);
     await controller.discover();
