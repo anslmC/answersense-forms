@@ -24,7 +24,6 @@ import type {
   GenerationResponse,
 } from '../Generation/Contract';
 import type { DiscoveredPage } from '../Forms/Discovery';
-import { observeNativeClear as observeNativeClearButton } from './NativeClear';
 
 log(`${EXTENSION_NAME} content script initialized.`);
 
@@ -135,12 +134,6 @@ function observeNextIntent(): void {
   if (document.documentElement) {
     observer.observe(document.documentElement, pageNavigationMutationOptions);
   }
-}
-
-function observeNativeClear(): void {
-  observeNativeClearButton(document, () => {
-    void forceClearAnswerSenseState().catch(recordLifecyclePublicationFailure);
-  });
 }
 
 function discoverPage() {
@@ -408,4 +401,3 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 });
 
 observeNextIntent();
-observeNativeClear();

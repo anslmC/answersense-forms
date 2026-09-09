@@ -87,10 +87,13 @@ function renderGeneration(state: UiState): void {
     const failedCount = outcomes.filter(
       ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
     ).length;
+    const skippedCount = outcomes.filter(
+      ({ status }) => status === 'SKIPPED'
+    ).length;
 
     const summary = document.createElement('p');
     summary.className = 'result-summary';
-    summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed`;
+    summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped`;
     results.append(summary);
     results.hidden = false;
   }
@@ -155,7 +158,7 @@ function renderConfiguration(): void {
   }
   if (active?.credentialId) credentialSelect.value = active.credentialId;
   credentialStatus.textContent = configurationState.credentials.length
-    ? `${configurationState.credentials.length} credential${configurationState.credentials.length === 1 ? '' : 's'} stored.`
+    ? `${configurationState.credentials.length} API key${configurationState.credentials.length === 1 ? '' : 's'} stored.`
     : 'Add an API key to configure a provider.';
   validationStatusElement.textContent = authorizationStatus(
     configurationState,

@@ -3,6 +3,7 @@ import type { Form, Question } from '../src/Models/Logical';
 import { createGenerationReport } from '../src/Generation/Report';
 import {
   acceptGeneratedAnswer,
+  createAcceptedReviewDecisions,
   editReviewedAnswer,
   skipReviewedAnswer,
 } from '../src/Review/Decisions';
@@ -360,6 +361,44 @@ describe('P4 sequential filling and preservation', () => {
         ) as HTMLTextAreaElement
       ).value
     ).toBe('');
+  });
+
+  it('keeps the generated-plus-skipped accounting row explicit in review decisions and fill outcomes', async () => {
+    const document = createDocument();
+    const report = createGenerationReport('cycle-p4', [
+      {
+        questionId: 'short',
+        status: 'GENERATED' as const,
+        answer: { questionId: 'short', value: 'Generated' },
+        reason: null,
+      },
+      {
+        questionId: 'paragraph',
+        status: 'ABSTAINED' as const,
+        answer: null,
+        reason: 'LOW_CONFIDENCE',
+      },
+      {
+        questionId: 'choice',
+        status: 'GENERATION_FAILED' as const,
+        answer: null,
+        failure: { code: 'GENERATOR', message: 'No answer' },
+      },
+    ]);
+
+    const decisions = createAcceptedReviewDecisions(report);
+    expect(decisions).toMatchObject([
+      { questionId: 'short', decision: 'accept', answer: { questionId: 'short', value: 'Generated' } },
+      { questionId: 'paragraph', decision: 'skip', answer: null },
+      { questionId: 'choice', decision: 'skip', answer: null },
+    ]);
+
+    const result = await fillReviewedAnswers(document, form, report, decisions);
+    expect(result.outcomes.map((outcome) => outcome.status)).toEqual([
+      'FILLED',
+      'SKIPPED',
+      'SKIPPED',
+    ]);
   });
 
   it('reports checkbox partial and total failures', async () => {
