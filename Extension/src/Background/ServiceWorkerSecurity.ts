@@ -38,3 +38,13 @@ export function isTrustedContentTabSender(
     (sender.tab as { id: number }).id === activeTabId
   );
 }
+
+export function isTrustedUiSender(
+  sender: MessageSenderLike,
+  extensionId: string
+): boolean {
+  return (
+    isTrustedPopupSender(sender, extensionId) ||
+    isTrustedContentSender(sender, extensionId)
+  );
+}

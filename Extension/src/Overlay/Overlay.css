@@ -1,0 +1,238 @@
+:host {
+  all: initial;
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483647;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.overlay-panel {
+  width: min(360px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: #f5f7fb;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #155e75;
+  color: #fff;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.overlay-header:active {
+  cursor: grabbing;
+}
+
+.overlay-header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.overlay-close {
+  margin-left: auto;
+  border: 0;
+  border-radius: 4px;
+  min-width: 28px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.overlay-body {
+  padding: 10px 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.popup-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.status-panel,
+.configuration-panel,
+.credential-panel,
+.validation-panel,
+.results {
+  padding: 10px 0;
+  border-top: 1px solid #dbe2ea;
+}
+
+.generation-panel {
+  padding: 10px 0;
+  border-top: 1px solid #dbe2ea;
+}
+
+.workflow-progress {
+  margin: 8px 0 10px;
+}
+
+.workflow-progress-track {
+  height: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.workflow-progress-bar {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.workflow-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: #155e75;
+  transition: width 180ms ease, background-color 180ms ease;
+}
+
+.workflow-progress-text {
+  margin: 6px 0 0;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.workflow-progress.is-processing .workflow-progress-track {
+  background: #e5e7eb;
+}
+
+.workflow-progress.is-processing .workflow-progress-fill {
+  width: 30%;
+  border-radius: 999px;
+  background: repeating-linear-gradient(
+    135deg,
+    #155e75 0,
+    #155e75 8px,
+    #7dd3fc 8px,
+    #7dd3fc 16px
+  );
+  background-size: 32px 8px;
+  animation: workflow-scrub 900ms linear infinite;
+}
+
+.workflow-progress.is-complete .workflow-progress-fill {
+  width: 100%;
+  background: #16a34a;
+}
+
+.workflow-progress.is-partial .workflow-progress-fill {
+  width: 100%;
+  background: #d97706;
+}
+
+.workflow-progress.is-error .workflow-progress-fill {
+  width: 100%;
+  background: #b91c1c;
+}
+
+@keyframes workflow-scrub {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 32px 0;
+  }
+}
+
+.status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.detail {
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+label {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+input,
+select {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2937;
+  font: inherit;
+}
+
+.message,
+.result {
+  margin: 6px 0 0;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.result-summary {
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+button {
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: #155e75;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+button.secondary {
+  background: #e2e8f0;
+  color: #1f2937;
+}

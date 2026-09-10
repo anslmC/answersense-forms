@@ -22,6 +22,7 @@ import {
   LifecyclePublicationQueue,
   type LifecyclePublicationMessage,
 } from './LifecyclePublication';
+import { mountOverlay, type OverlayHandle } from '../Overlay/Overlay';
 import type {
   GenerationRequest,
   GenerationResponse,
@@ -32,12 +33,36 @@ log(`${EXTENSION_NAME} content script initialized.`);
 
 const supportedPage = isSupportedGoogleFormsPage(window.location);
 const generation = new GenerationCoordinator(() => crypto.randomUUID());
+const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
+
 let lifecycle: PageLifecycle | null = null;
 let lifecycleInitialization: Promise<void> | null = null;
 let lifecyclePublicationError: string | null = null;
+let overlayHandle: OverlayHandle | null = null;
 const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
+
+async function setOverlayPreference(open: boolean): Promise<void> {
+  await chrome.storage.local.set({ [OVERLAY_UI_STORAGE_KEY]: open });
+}
+
+async function readOverlayPreference(): Promise<boolean> {
+  const stored = await chrome.storage.local.get(OVERLAY_UI_STORAGE_KEY);
+  return stored[OVERLAY_UI_STORAGE_KEY] === true;
+}
+
+function ensureOverlay(): OverlayHandle | null {
+  if (!supportedPage || !document.body || overlayHandle) {
+    return overlayHandle;
+  }
+  overlayHandle = mountOverlay({
+    onClose: () => {
+      overlayHandle = null;
+    },
+  });
+  return overlayHandle;
+}
 
 function publishLifecycleSnapshot(): Promise<void> {
   if (!lifecycle) {
@@ -86,6 +111,7 @@ function publishTransition(
   } satisfies LifecyclePublicationMessage);
   return publication.then(() => {
     lifecyclePublicationError = null;
+    overlayHandle?.refresh();
   });
 }
 
@@ -232,6 +258,11 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
 const hydration = waitForInitialDiscovery(document, discoverPage)
   .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined));
 void hydration.catch(recordLifecyclePublicationFailure);
+void hydration.then(async () => {
+  if (await readOverlayPreference()) {
+    ensureOverlay()?.refresh();
+  }
+});
 
 function createGeminiGenerator(
   configurationDigest: string,
@@ -259,6 +290,21 @@ async function handleRequest(request: {
   configurationDigest?: string;
   configurationRevision?: number;
 }): Promise<unknown> {
+  if (request.type === 'toggle-overlay') {
+    if (!supportedPage || !document.body) {
+      return { status: 'unsupported-page', supported: false };
+    }
+    if (overlayHandle) {
+      overlayHandle.close();
+      overlayHandle = null;
+      await setOverlayPreference(false);
+      return { status: 'closed', supported: true };
+    }
+    ensureOverlay();
+    await setOverlayPreference(true);
+    return { status: 'opened', supported: true };
+  }
+
   if (request.type === 'discover-active-page') {
     if (!supportedPage) {
       return { status: 'unsupported-page', supported: false };
@@ -346,6 +392,7 @@ async function handleRequest(request: {
       }).__answersenseSkipDiagnostics = skipDiagnostics;
     }
     await publishLifecycleSnapshot();
+    overlayHandle?.refresh();
     return { report, fillReport };
   }
 

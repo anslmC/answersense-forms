@@ -20,7 +20,6 @@
     }
   ],
   "action": {
-    "default_popup": "src/Popup/Popup.html",
     "default_title": "AnswerSense: Forms"
   },
   "icons": {}

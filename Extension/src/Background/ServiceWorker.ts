@@ -31,6 +31,7 @@ import {
   isTrustedContentSender,
   isTrustedContentTabSender,
   isTrustedPopupSender,
+  isTrustedUiSender,
 } from './ServiceWorkerSecurity';
 import {
   SafeServiceWorkerError,
@@ -77,6 +78,24 @@ async function activeTabId(): Promise<number> {
 
 async function sendToActiveContent(message: WorkerMessage): Promise<unknown> {
   return chrome.tabs.sendMessage(await activeTabId(), message);
+}
+
+const actionApi = (chrome as unknown as {
+  action?: {
+    onClicked?: {
+      addListener?: (listener: (tab: chrome.tabs.Tab) => void) => void;
+    };
+  };
+}).action;
+if (actionApi?.onClicked?.addListener) {
+  actionApi.onClicked.addListener((tab) => {
+    if (!tab.id) {
+      return;
+    }
+    void chrome.tabs.sendMessage(tab.id, { type: 'toggle-overlay' }).catch(() => {
+      // The page may not be a supported AnswerSense form page; close silently.
+    });
+  });
 }
 
 function isMissingMessageReceiver(error: unknown): boolean {
@@ -278,7 +297,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'configuration-state') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Configuration is only available to the extension UI.');
     }
     return configurationState();
@@ -455,7 +474,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'p7-discover') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Discovery is only available to the extension UI.');
     }
     const tabId = await activeTabId();
@@ -485,7 +504,7 @@ export async function handleMessage(
       : { supported: false, page: null };
   }
   if (message.type === 'p7-generate') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Generation is only available to the extension UI.');
     }
     let resolved;
@@ -525,7 +544,7 @@ export async function handleMessage(
     }
   }
   if (message.type === 'p7-review-complete') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Review control is only available to the extension UI.');
     }
     const snapshot = await stateStore.update(await activeTabId(), {
@@ -535,7 +554,7 @@ export async function handleMessage(
     return snapshot;
   }
   if (message.type === 'p7-begin-next') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Navigation control is only available to the extension UI.'
       );
@@ -543,13 +562,13 @@ export async function handleMessage(
     return sendToActiveContent({ type: 'begin-next' });
   }
   if (message.type === 'p7-force-clear') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Lifecycle control is only available to the extension UI.');
     }
     return sendToActiveContent({ type: 'force-clear' });
   }
   if (message.type === 'p7-confirm-transition') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Navigation control is only available to the extension UI.'
       );
@@ -557,7 +576,7 @@ export async function handleMessage(
     return sendToActiveContent({ type: 'confirm-transition' });
   }
   if (message.type === 'p7-abandon') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Navigation control is only available to the extension UI.'
       );
@@ -565,7 +584,7 @@ export async function handleMessage(
     return sendToActiveContent({ type: 'abandon' });
   }
   if (message.type === 'p7-restart') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Navigation control is only available to the extension UI.'
       );

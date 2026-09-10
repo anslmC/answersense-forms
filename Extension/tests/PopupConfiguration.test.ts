@@ -40,6 +40,49 @@ const baseState: PopupConfigurationState = {
 };
 
 describe('popup configuration state', () => {
+  it('adds the shared WorkflowApp selector contract to the overlay scaffold source', () => {
+    const overlaySource = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.ts'),
+      'utf8'
+    );
+    for (const token of [
+      'data-status',
+      'data-detail',
+      'data-message',
+      'data-results',
+      'data-primary-action',
+      'data-review-action',
+      'data-force-clear',
+      'data-provider-select',
+      'data-model-select',
+      'data-credential-select',
+      'data-credential-label',
+      'data-credential-secret',
+      'data-save-configuration',
+      'data-delete-credential',
+      'data-validate-configuration',
+      'data-validation-status',
+      'data-unsaved-configuration',
+      'data-validation-message',
+      'data-workflow-progress',
+      'data-workflow-progress-bar',
+      'data-workflow-progress-text',
+      'data-workflow-progress-fill',
+      'data-add-credential',
+      'data-replace-credential',
+      'data-add-credential-form',
+      'data-replace-credential-form',
+      'data-save-add-credential',
+      'data-cancel-add-credential',
+      'data-save-replace-credential',
+      'data-cancel-replace-credential',
+      'data-credential-message',
+      'data-save-add-credential',
+    ]) {
+      expect(overlaySource).toContain(token);
+    }
+  });
+
   it('keeps credential entry controls hidden until the user opens an API-key flow', () => {
     const markup = readFileSync(
       resolve(process.cwd(), 'src/Popup/Popup.html'),
@@ -99,7 +142,7 @@ describe('popup configuration state', () => {
       'utf8'
     );
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.ts'),
+      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
       'utf8'
     );
     expect(markup).toMatch(
@@ -119,7 +162,7 @@ describe('popup configuration state', () => {
       'utf8'
     );
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.ts'),
+      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
       'utf8'
     );
     expect(markup).toContain('data-unsaved-configuration hidden>');
@@ -136,7 +179,7 @@ describe('popup configuration state', () => {
 
   it('clears stale terminal progress state when entering the GENERATING branch', () => {
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.ts'),
+      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
       'utf8'
     );
 

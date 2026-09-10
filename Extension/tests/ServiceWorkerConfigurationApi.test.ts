@@ -81,12 +81,11 @@ describe('Service Worker configuration API boundary', () => {
     validationMock.validate.mockResolvedValue(undefined);
   });
 
-  it('rejects untrusted configuration, credential, and validation messages without mutation', async () => {
+  it('rejects untrusted configuration mutation, credential, and validation messages from a content sender without mutation', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);
     const handleMessage = await loadHandler();
     const messages = [
-      { type: 'configuration-state' },
       {
         type: 'credential-create',
         providerId: GEMINI_PROVIDER_ID,
@@ -114,6 +113,20 @@ describe('Service Worker configuration API boundary', () => {
     for (const message of messages) {
       await expect(handleMessage(message, untrustedSender())).rejects.toThrow();
     }
+    expect(state.values[CONFIGURATION_STATE_STORAGE_KEY]).toBeUndefined();
+  });
+
+  it('allows a trusted content sender to read configuration state without mutating', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+
+    const response = (await handleMessage(
+      { type: 'configuration-state' },
+      untrustedSender()
+    )) as { providers: unknown[]; validation: unknown };
+
+    expect(Array.isArray(response.providers)).toBe(true);
     expect(state.values[CONFIGURATION_STATE_STORAGE_KEY]).toBeUndefined();
   });
 
