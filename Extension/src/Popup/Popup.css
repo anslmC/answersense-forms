@@ -33,17 +33,83 @@ body {
   gap: 10px;
 }
 
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
-}
-
 h1 {
   margin: 0;
   font-size: 18px;
+}
+
+.workflow-progress {
+  margin: 8px 0 10px;
+}
+
+.workflow-progress-track {
+  height: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.workflow-progress-bar {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.workflow-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: #155e75;
+  transition: width 180ms ease, background-color 180ms ease;
+}
+
+.workflow-progress-text {
+  margin: 6px 0 0;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.workflow-progress.is-processing .workflow-progress-track {
+  background: #e5e7eb;
+}
+
+.workflow-progress.is-processing .workflow-progress-fill {
+  width: 30%;
+  border-radius: 999px;
+  background: repeating-linear-gradient(
+    135deg,
+    #155e75 0,
+    #155e75 8px,
+    #7dd3fc 8px,
+    #7dd3fc 16px
+  );
+  background-size: 32px 8px;
+  animation: workflow-scrub 900ms linear infinite;
+}
+
+.workflow-progress.is-complete .workflow-progress-fill {
+  width: 100%;
+  background: #16a34a;
+}
+
+.workflow-progress.is-partial .workflow-progress-fill {
+  width: 100%;
+  background: #d97706;
+}
+
+.workflow-progress.is-error .workflow-progress-fill {
+  width: 100%;
+  background: #b91c1c;
+}
+
+@keyframes workflow-scrub {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 32px 0;
+  }
 }
 
 .status {

@@ -32,30 +32,64 @@ function renderGeneration(state: UiState): void {
   const results = element<HTMLElement>('[data-results]');
   const primary = element<HTMLButtonElement>('[data-primary-action]');
   const review = element<HTMLButtonElement>('[data-review-action]');
-  if (!status || !detail || !message || !results || !primary || !review) return;
+  const progress = element<HTMLElement>('[data-workflow-progress]');
+  const progressBar = element<HTMLElement>('[data-workflow-progress-bar]');
+  const progressText = element<HTMLElement>('[data-workflow-progress-text]');
+  const progressFill = element<HTMLElement>('[data-workflow-progress-fill]');
+  if (
+    !status ||
+    !detail ||
+    !message ||
+    !results ||
+    !primary ||
+    !review ||
+    !progress ||
+    !progressBar ||
+    !progressText ||
+    !progressFill
+  )
+    return;
 
   results.replaceChildren();
   results.hidden = true;
   message.hidden = true;
   primary.hidden = false;
   review.hidden = true;
+  progress.hidden = true;
+  progress.classList.remove('is-processing', 'is-complete', 'is-partial', 'is-error');
+  progressText.textContent = '';
   primary.disabled = !isCurrentValidationValid(configurationState);
   if (state.name === 'UNSUPPORTED') {
     status.textContent = 'This page is not supported.';
     detail.textContent = state.message;
     primary.hidden = true;
   } else if (state.name === 'READY') {
+    if (state.page.questionCount === 0) {
+      progress.hidden = true;
+    }
     status.textContent = primary.disabled
       ? 'Ready to configure'
       : 'Ready to generate';
     detail.textContent = `${state.page.questionCount} question${state.page.questionCount === 1 ? '' : 's'} on page ${state.page.pageId}.`;
     primary.textContent = 'Generate & Auto-Fill';
   } else if (state.name === 'GENERATING') {
+    progress.hidden = false;
+    progress.classList.remove('is-complete', 'is-partial', 'is-error');
+    progress.classList.add('is-processing');
+    progressFill.style.width = '';
+    progressBar.removeAttribute('aria-valuetext');
+    progressText.textContent = 'Processing page…';
+    progressBar.setAttribute('aria-label', 'Generate and Auto-Fill progress');
     status.textContent = 'Generating answers...';
     detail.textContent = 'Working with the current page.';
     primary.textContent = 'Generating...';
     primary.disabled = true;
   } else if (state.name === 'ERROR') {
+    progress.hidden = false;
+    progress.classList.add('is-error');
+    progressBar.setAttribute('aria-valuetext', 'Failed');
+    progressText.textContent = 'Failed';
+    progressFill.style.width = '100%';
     status.textContent = "Couldn't generate answers.";
     detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
     message.textContent = state.message;
@@ -69,6 +103,11 @@ function renderGeneration(state: UiState): void {
       primary.disabled = true;
       return;
     }
+    progress.hidden = false;
+    progress.classList.add('is-complete');
+    progressBar.setAttribute('aria-valuetext', 'Completed');
+    progressText.textContent = 'Completed';
+    progressFill.style.width = '100%';
     status.textContent =
       state.name === 'REVIEW' ? 'Review answers' : 'Answers filled';
     detail.textContent =
@@ -511,9 +550,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   );
-  primary.addEventListener('click', async () => {
+  primary.addEventListener('click', () => {
     if (!isCurrentValidationValid(configurationState)) return;
-    renderAll(await controller.generate());
+    renderAll(controller.stateMachine.beginGeneration());
+    void controller.generate().then((state) => renderAll(state));
   });
   review.addEventListener('click', () => renderAll(controller.finishReview()));
   forceClear.addEventListener('click', async () => {

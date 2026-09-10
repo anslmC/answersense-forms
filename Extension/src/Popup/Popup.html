@@ -9,7 +9,6 @@
   <body>
     <main class="popup-shell" data-app-root>
       <header class="status-row">
-        <span class="status-dot" aria-hidden="true"></span>
         <h1>AnswerSense: Forms</h1>
       </header>
       <section class="status-panel" aria-live="polite">
@@ -107,6 +106,21 @@
       </section>
       <section class="generation-panel" aria-labelledby="generation-heading">
         <h2 id="generation-heading">Generate &amp; Auto-Fill</h2>
+        <section class="workflow-progress" data-workflow-progress hidden>
+          <div class="workflow-progress-track">
+            <div
+              class="workflow-progress-bar"
+              data-workflow-progress-bar
+              role="progressbar"
+              aria-label="Generate and Auto-Fill progress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div class="workflow-progress-fill" data-workflow-progress-fill></div>
+            </div>
+          </div>
+          <p class="workflow-progress-text" data-workflow-progress-text></p>
+        </section>
         <section class="results" data-results hidden></section>
         <p class="message" data-message hidden></p>
         <div class="actions">

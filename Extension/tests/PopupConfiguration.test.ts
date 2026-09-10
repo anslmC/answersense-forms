@@ -122,15 +122,28 @@ describe('popup configuration state', () => {
       resolve(process.cwd(), 'src/Popup/Popup.ts'),
       'utf8'
     );
-    expect(markup).toContain(
-      'data-unsaved-configuration hidden>\n          Save the configuration before validating'
-    );
+    expect(markup).toContain('data-unsaved-configuration hidden>');
+    expect(markup).toContain('Save the configuration before validating');
     expect(popupSource).toContain(
       'unsavedConfiguration.hidden = !configurationDirty;'
     );
     expect(popupSource).toContain('configurationDirty = false;');
+    expect(popupSource).toContain('validateButton.disabled =');
     expect(popupSource).toContain(
-      'validateButton.disabled =\n    validating || !configurationState.activeConfiguration || configurationDirty;'
+      'validating || !configurationState.activeConfiguration || configurationDirty;'
+    );
+  });
+
+  it('clears stale terminal progress state when entering the GENERATING branch', () => {
+    const popupSource = readFileSync(
+      resolve(process.cwd(), 'src/Popup/Popup.ts'),
+      'utf8'
+    );
+
+    expect(popupSource).toContain("progressFill.style.width = '';");
+    expect(popupSource).toContain("progressBar.removeAttribute('aria-valuetext');");
+    expect(popupSource).toContain(
+      "progress.classList.remove('is-complete', 'is-partial', 'is-error')"
     );
   });
 
