@@ -4,7 +4,10 @@ import { isSupportedGoogleFormsPage } from '../Forms/Detection';
 import { normalizeDiscoveredActivePage } from '../Forms/Normalization';
 import { GenerationCoordinator } from '../Generation/Pipeline';
 import { createAcceptedReviewDecisions } from '../Review/Decisions';
-import { fillReviewedAnswers } from '../Fill/Filler';
+import {
+  createSkipDiagnostics,
+  fillReviewedAnswers,
+} from '../Fill/Filler';
 import { createFinalizedPageHandoff } from '../Fill/Handoff';
 import { PageLifecycle } from '../Lifecycle/PageLifecycle';
 import {
@@ -336,6 +339,12 @@ async function handleRequest(request: {
       fillReport
     );
     pageLifecycle.acceptFinalizedHandoff(handoff);
+    if (typeof globalThis !== 'undefined') {
+      const skipDiagnostics = createSkipDiagnostics(report, fillReport);
+      (globalThis as typeof globalThis & {
+        __answersenseSkipDiagnostics?: readonly object[];
+      }).__answersenseSkipDiagnostics = skipDiagnostics;
+    }
     await publishLifecycleSnapshot();
     return { report, fillReport };
   }

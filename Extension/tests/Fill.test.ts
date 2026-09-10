@@ -7,7 +7,10 @@ import {
   editReviewedAnswer,
   skipReviewedAnswer,
 } from '../src/Review/Decisions';
-import { fillReviewedAnswers } from '../src/Fill/Filler';
+import {
+  createSkipDiagnostics,
+  fillReviewedAnswers,
+} from '../src/Fill/Filler';
 import { resolveCurrentQuestionTarget } from '../src/Fill/Resolver';
 
 function question(
@@ -37,6 +40,55 @@ const form: Form = {
     question('paragraph', 'paragraph'),
   ],
 };
+
+it('exposes a concise development diagnostic for questions that end as SKIPPED', () => {
+  const report = createGenerationReport('cycle-1', [
+    {
+      questionId: 'name',
+      status: 'GENERATED',
+      answer: { questionId: 'name', value: 'Ada' },
+      reason: null,
+    },
+    {
+      questionId: 'language',
+      status: 'ABSTAINED',
+      answer: null,
+      reason: 'LOW_CONFIDENCE',
+    },
+  ]);
+
+  const fillReport = {
+    cycleId: 'cycle-1',
+    outcomes: [
+      {
+        questionId: 'name',
+        status: 'SKIPPED',
+        answer: null,
+        reason: 'The reviewed answer was skipped.',
+        code: null,
+      },
+    ],
+  } satisfies {
+    cycleId: string;
+    outcomes: Array<{
+      questionId: string;
+      status: 'SKIPPED';
+      answer: null;
+      reason: string;
+      code: null;
+    }>;
+  };
+
+  expect(createSkipDiagnostics(report, fillReport)).toEqual([
+    {
+      questionId: 'name',
+      generationStatus: 'GENERATED',
+      generationReason: null,
+      fillStatus: 'SKIPPED',
+      fillReason: 'The reviewed answer was skipped.',
+    },
+  ]);
+});
 
 function createDocument(options = ''): Document {
   const document = new DOMParser().parseFromString(

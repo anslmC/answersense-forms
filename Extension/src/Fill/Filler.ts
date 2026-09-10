@@ -1,4 +1,9 @@
-import type { Answer, Form, Question } from '../Models/Logical';
+import type {
+  Answer,
+  Form,
+  Question,
+  QuestionResultStatus,
+} from '../Models/Logical';
 import type { GenerationReport } from '../Generation/Report';
 import type { ReviewDecision } from '../Review/Decisions';
 import {
@@ -31,6 +36,39 @@ export interface FillOutcome {
 export interface FillReport {
   readonly cycleId: string;
   readonly outcomes: readonly FillOutcome[];
+}
+
+export interface SkipDiagnostic {
+  readonly questionId: string;
+  readonly generationStatus: QuestionResultStatus | 'unknown';
+  readonly generationReason: string | null;
+  readonly fillStatus: FillStatus;
+  readonly fillReason: string | null;
+}
+
+export function createSkipDiagnostics(
+  report: GenerationReport,
+  fillReport: FillReport
+): readonly SkipDiagnostic[] {
+  const resultsByQuestionId = new Map(
+    report.results.map((result) => [result.questionId, result])
+  );
+
+  return fillReport.outcomes
+    .filter(
+      (outcome): outcome is FillOutcome & { questionId: string } =>
+        outcome.status === 'SKIPPED' && typeof outcome.questionId === 'string'
+    )
+    .map((outcome) => {
+      const generation = resultsByQuestionId.get(outcome.questionId);
+      return {
+        questionId: outcome.questionId,
+        generationStatus: generation?.status ?? 'unknown',
+        generationReason: generation?.reason ?? null,
+        fillStatus: outcome.status,
+        fillReason: outcome.reason,
+      } satisfies SkipDiagnostic;
+    });
 }
 
 const CHOICE_VERIFICATION_ATTEMPTS = 3;
