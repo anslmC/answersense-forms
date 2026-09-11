@@ -211,6 +211,21 @@ describe('popup configuration state', () => {
     );
   });
 
+  it('toggles a generating-only overlay border state and defines the 0.7s animated glint', () => {
+    const popupSource = readFileSync(
+      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      'utf8'
+    );
+    const overlayStyles = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      'utf8'
+    );
+
+    expect(popupSource).toContain("overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');");
+    expect(overlayStyles).toContain('.overlay-panel.is-generating');
+    expect(overlayStyles).toContain('animation: overlay-border-gradient 0.7s');
+  });
+
   it('restricts models to the selected compiled provider', () => {
     expect(modelsForProvider(baseState, 'gemini')).toEqual([
       { modelId: 'gemini-model', displayName: 'Gemini model' },

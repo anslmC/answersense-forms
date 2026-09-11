@@ -54,6 +54,7 @@ export function mountAnswerSenseApp(
     const progressBar = element<HTMLElement>('[data-workflow-progress-bar]');
     const progressText = element<HTMLElement>('[data-workflow-progress-text]');
     const progressFill = element<HTMLElement>('[data-workflow-progress-fill]');
+    const overlayPanel = scope instanceof HTMLElement ? scope.parentElement : null;
     if (
       !status ||
       !detail ||
@@ -66,6 +67,10 @@ export function mountAnswerSenseApp(
       !progressFill
     )
       return;
+
+    if (overlayPanel) {
+      overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');
+    }
 
     results.replaceChildren();
     results.hidden = true;

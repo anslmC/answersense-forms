@@ -4,7 +4,7 @@
   top: 16px;
   right: 16px;
   z-index: 2147483647;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   color: #1f2937;
   font-size: 14px;
   line-height: 1.4;
@@ -17,9 +17,31 @@
   display: flex;
   flex-direction: column;
   background: #f5f7fb;
-  border: 1px solid #dbe2ea;
+  border: 2px solid #000;
   border-radius: 10px;
   overflow: hidden;
+  background-image: linear-gradient(#f5f7fb, #f5f7fb);
+  background-origin: padding-box;
+  background-clip: padding-box;
+  background-size: auto;
+  background-position: 0 0;
+}
+
+.overlay-panel.is-generating {
+  position: relative;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#f5f7fb, #f5f7fb) padding-box,
+    conic-gradient(
+      from var(--glint-angle, 0deg),
+      #f5f7fb 0deg 16deg,
+      #1d1d1d 16deg 30deg,
+      #f5f7fb 30deg 360deg
+    ) border-box;
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  background-repeat: no-repeat;
+  animation: overlay-border-gradient 0.7s linear infinite;
 }
 
 .overlay-header {
@@ -194,6 +216,54 @@
   }
   to {
     background-position: 32px 0;
+  }
+}
+
+@property --glint-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes overlay-border-gradient {
+  0% {
+    --glint-angle: 315deg;
+  }
+  8% {
+    --glint-angle: 315deg;
+  }
+  16% {
+    --glint-angle: 340deg;
+  }
+  24% {
+    --glint-angle: 360deg;
+  }
+  32% {
+    --glint-angle: 405deg;
+  }
+  40% {
+    --glint-angle: 450deg;
+  }
+  48% {
+    --glint-angle: 480deg;
+  }
+  56% {
+    --glint-angle: 495deg;
+  }
+  64% {
+    --glint-angle: 515deg;
+  }
+  72% {
+    --glint-angle: 540deg;
+  }
+  80% {
+    --glint-angle: 585deg;
+  }
+  88% {
+    --glint-angle: 630deg;
+  }
+  100% {
+    --glint-angle: 675deg;
   }
 }
 
