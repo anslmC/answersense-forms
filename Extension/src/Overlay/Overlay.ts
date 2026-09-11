@@ -11,6 +11,7 @@ export interface OverlayHandle {
 
 export interface OverlayOptions {
   onClose?: () => void;
+  onRefresh?: () => void | Promise<void>;
 }
 
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
@@ -26,6 +27,7 @@ function buildShell(): {
   header: HTMLElement;
   body: HTMLElement;
   shell: HTMLDivElement;
+  refresh: HTMLButtonElement;
   close: HTMLButtonElement;
 } {
   const shell = document.createElement('div');
@@ -42,6 +44,12 @@ function buildShell(): {
   const title = document.createElement('h1');
   title.textContent = EXTENSION_NAME;
 
+  const refresh = document.createElement('button');
+  refresh.type = 'button';
+  refresh.className = 'overlay-refresh';
+  refresh.textContent = 'Refresh';
+  refresh.setAttribute('aria-label', 'Refresh the current workflow state');
+
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'overlay-close';
@@ -51,10 +59,10 @@ function buildShell(): {
   const body = document.createElement('div');
   body.className = 'overlay-body';
 
-  header.append(title, close);
+  header.append(title, refresh, close);
   panel.append(header, body);
   shell.append(panel);
-  return { panel, header, body, shell, close };
+  return { panel, header, body, shell, refresh, close };
 }
 
 function applyDragPosition(host: HTMLElement, x: number, y: number): void {
@@ -201,8 +209,31 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
   `;
 }
 
-export function mountOverlay(options: OverlayOptions = {}): OverlayHandle {
+async function readStoredOverlayPosition(): Promise<
+  { left: number; top: number } | null
+> {
+  const items = await chrome.storage.local.get('answersense-overlay-position');
+  const stored = items['answersense-overlay-position'] as
+    | { left?: number; top?: number }
+    | undefined;
+
+  if (
+    !stored ||
+    !Number.isFinite(stored.left ?? Number.NaN) ||
+    !Number.isFinite(stored.top ?? Number.NaN)
+  ) {
+    return null;
+  }
+
+  return { left: stored.left ?? 16, top: stored.top ?? 16 };
+}
+
+export async function mountOverlay(
+  options: OverlayOptions = {}
+): Promise<OverlayHandle> {
   log(`${EXTENSION_NAME} overlay initializing.`);
+
+  const storedPosition = await readStoredOverlayPosition();
 
   const host = document.createElement('div');
   host.id = OVERLAY_HOST_ID;
@@ -218,34 +249,24 @@ export function mountOverlay(options: OverlayOptions = {}): OverlayHandle {
   const root = host.attachShadow({ mode: 'open' });
 
   root.append(createStylesheet());
-  const { header, body, shell, close } = buildShell();
+  const { header, body, shell, refresh, close } = buildShell();
   root.append(shell);
 
-  void chrome.storage.local.get('answersense-overlay-position').then((items) => {
-    const stored = items['answersense-overlay-position'] as
-      | { left?: number; top?: number }
-      | undefined;
-    if (
-      !stored ||
-      !Number.isFinite(stored.left ?? Number.NaN) ||
-      !Number.isFinite(stored.top ?? Number.NaN)
-    ) {
-      return;
-    }
+  if (storedPosition) {
     const hostWidth = host.getBoundingClientRect().width || 360;
     const hostHeight = host.getBoundingClientRect().height || 420;
     const safeLeft = clamp(
-      stored.left ?? 16,
+      storedPosition.left,
       8,
       Math.max(8, window.innerWidth - hostWidth - 8)
     );
     const safeTop = clamp(
-      stored.top ?? 16,
+      storedPosition.top,
       8,
       Math.max(8, window.innerHeight - hostHeight - 8)
     );
     applyDragPosition(host, safeLeft, safeTop);
-  });
+  }
 
   const onPointerDown = (event: PointerEvent) => {
     if (event.button !== 0) {
@@ -299,6 +320,12 @@ export function mountOverlay(options: OverlayOptions = {}): OverlayHandle {
     header.addEventListener('pointercancel', onPointerUp);
   };
 
+  refresh.addEventListener('click', () => {
+    void Promise.resolve(options.onRefresh?.()).catch((error) => {
+      console.error('AnswerSense refresh failed.', error);
+    });
+  });
+
   close.addEventListener('click', (event) => {
     event.stopPropagation();
     host.remove();
@@ -310,7 +337,7 @@ export function mountOverlay(options: OverlayOptions = {}): OverlayHandle {
 
   buildWorkflowAppScaffold(body);
 
-  const handle = mountAnswerSenseApp({ root: body });
+  const handle = mountAnswerSenseApp({ root: body, surface: 'overlay' });
 
   return {
     refresh: () => void handle.refresh(),

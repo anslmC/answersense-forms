@@ -142,6 +142,30 @@ describe('Active Google Forms page discovery', () => {
     ]);
   });
 
+  it('falls back to existing respondent-form question IDs when data-params is absent', () => {
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div role="list">
+          <div role="listitem" data-question-id="301" data-question-text="What is your name?">
+            <h3 role="heading">What is your name?</h3>
+            <input type="text" value="Ada Lovelace">
+          </div>
+        </div>
+      </form>
+    </main>`,
+      'text/html'
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)).toEqual({
+      pageId: 'questions:301',
+      formId: 'example',
+      questions: [
+        expect.objectContaining({ id: '301', kind: 'supported', text: 'What is your name?' }),
+      ],
+    });
+  });
+
   it('fails closed when respondent question identity metadata is missing or malformed', () => {
     const document = new DOMParser().parseFromString(
       `<!doctype html><main>

@@ -52,7 +52,7 @@ function parsePayload(raw: string): unknown[] | null {
 
 export function extractQuestionId(
   question: HTMLElement,
-  options: QuestionIdentityOptions = {}
+  _options: QuestionIdentityOptions = {}
 ): string | null {
   const metadata = Array.from(
     question.querySelectorAll<HTMLElement>('[data-params]')
@@ -65,17 +65,12 @@ export function extractQuestionId(
     const payload = parsePayload(metadata[0].getAttribute('data-params') ?? '');
     const value = payload?.[0];
     if (
-      typeof value !== 'number' ||
-      !Number.isSafeInteger(value) ||
-      value <= 0
+      typeof value === 'number' &&
+      Number.isSafeInteger(value) &&
+      value > 0
     ) {
-      return null;
+      return String(value);
     }
-    return String(value);
-  }
-
-  if (options.requireDataParams) {
-    return null;
   }
 
   const legacyId =

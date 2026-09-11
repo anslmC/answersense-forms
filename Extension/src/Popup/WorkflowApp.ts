@@ -13,6 +13,7 @@ import type { UiState, WorkflowSnapshot } from './State';
 export interface WorkflowAppOptions {
   root?: ParentNode;
   onState?: (state: UiState) => void;
+  surface?: 'popup' | 'overlay';
 }
 
 export interface WorkflowAppHandle {
@@ -277,7 +278,7 @@ export function mountAnswerSenseApp(
     configurationState = (await send({
       type: 'configuration-state',
     })) as unknown as PopupConfigurationState;
-    renderConfiguration();
+    renderAll(controller.state);
   }
 
   function showMessage(selector: string, text: string): void {
@@ -314,248 +315,252 @@ export function mountAnswerSenseApp(
   const replaceCredentialButton = element<HTMLButtonElement>(
     '[data-replace-credential]'
   );
+  if (!primary || !review || !forceClear) return { refresh: () => undefined };
+
   if (
-    !primary ||
-    !review ||
-    !forceClear ||
-    !providerSelect ||
-    !modelSelect ||
-    !credentialSelect ||
-    !credentialLabel ||
-    !credentialSecret ||
-    !replaceCredentialSecret ||
-    !replaceCredentialSelect ||
-    !addCredentialForm ||
-    !replaceCredentialForm ||
-    !addCredentialButton ||
-    !replaceCredentialButton
-  )
-    return { refresh: () => undefined };
+    providerSelect &&
+    modelSelect &&
+    credentialSelect &&
+    credentialLabel &&
+    credentialSecret &&
+    replaceCredentialSecret &&
+    replaceCredentialSelect &&
+    addCredentialForm &&
+    replaceCredentialForm &&
+    addCredentialButton &&
+    replaceCredentialButton
+  ) {
 
-  const addCredentialFormElement = addCredentialForm;
-  const replaceCredentialFormElement = replaceCredentialForm;
-  const credentialLabelElement = credentialLabel;
-  const credentialSecretElement = credentialSecret;
-  const replaceCredentialSecretElement = replaceCredentialSecret;
-  const replaceCredentialSelectElement = replaceCredentialSelect;
-  const providerSelectElement = providerSelect;
+    const addCredentialFormElement = addCredentialForm;
+    const replaceCredentialFormElement = replaceCredentialForm;
+    const credentialLabelElement = credentialLabel;
+    const credentialSecretElement = credentialSecret;
+    const replaceCredentialSecretElement = replaceCredentialSecret;
+    const replaceCredentialSelectElement = replaceCredentialSelect;
+    const providerSelectElement = providerSelect;
 
-  function hideCredentialForms(): void {
-    addCredentialFormElement.hidden = true;
-    replaceCredentialFormElement.hidden = true;
-    credentialLabelElement.value = '';
-    credentialSecretElement.value = '';
-    replaceCredentialSecretElement.value = '';
-    replaceCredentialSelectElement.replaceChildren();
-    replaceCredentialSelectElement.disabled = false;
-    replaceCredentialSelectElement.value = '';
-  }
-
-  function openAddCredentialForm(): void {
-    hideCredentialForms();
-    addCredentialFormElement.hidden = false;
-  }
-
-  function openReplaceCredentialForm(): void {
-    hideCredentialForms();
-    replaceCredentialFormElement.hidden = false;
-    replaceCredentialSelectElement.replaceChildren();
-    const providerCredentials = configurationState.credentials.filter(
-      (item) => item.providerId === providerSelectElement.value
-    );
-    if (!providerCredentials.length) {
-      replaceCredentialSelectElement.add(new Option('No API keys added yet', ''));
-      replaceCredentialSelectElement.disabled = true;
-    } else {
+    function hideCredentialForms(): void {
+      addCredentialFormElement.hidden = true;
+      replaceCredentialFormElement.hidden = true;
+      credentialLabelElement.value = '';
+      credentialSecretElement.value = '';
+      replaceCredentialSecretElement.value = '';
+      replaceCredentialSelectElement.replaceChildren();
       replaceCredentialSelectElement.disabled = false;
-      for (const credential of providerCredentials) {
-        replaceCredentialSelectElement.add(
-          new Option(credential.label || 'Unnamed API key', credential.credentialId)
-        );
-      }
+      replaceCredentialSelectElement.value = '';
     }
-  }
 
-  providerSelect.addEventListener('change', () => {
-    configurationDirty = true;
-    modelSelect.replaceChildren(
-      ...modelsForProvider(configurationState, providerSelect.value).map(
-        (model) => new Option(model.displayName, model.modelId)
-      )
-    );
-    const credentials = configurationState.credentials.filter(
-      (item) => item.providerId === providerSelect.value
-    );
-    credentialSelect.replaceChildren(
-      ...(credentials.length
-        ? credentials.map(
-            (credential) =>
-              new Option(
-                credential.label || 'Unnamed API key',
-                credential.credentialId
-              )
-          )
-        : [new Option('No API keys added yet', '')])
-    );
-    renderValidationAvailability();
-  });
-  modelSelect.addEventListener('change', () => {
-    configurationDirty = true;
-    renderValidationAvailability();
-  });
-  credentialSelect.addEventListener('change', () => {
-    configurationDirty = true;
-    renderValidationAvailability();
-  });
-
-  addCredentialButton.addEventListener('click', () => {
-    openAddCredentialForm();
-  });
-  replaceCredentialButton.addEventListener('click', () => {
-    openReplaceCredentialForm();
-  });
-
-  element<HTMLButtonElement>('[data-save-add-credential]')?.addEventListener(
-    'click',
-    async () => {
-      try {
-        await send({
-          type: 'credential-create',
-          providerId: providerSelect.value,
-          label: credentialLabel.value,
-          secret: credentialSecret.value,
-        });
-        credentialSecret.value = '';
-        credentialLabel.value = '';
-        hideCredentialForms();
-        await reloadConfiguration();
-        showMessage('[data-credential-message]', 'API key added.');
-      } catch (error) {
-        showMessage(
-          '[data-credential-message]',
-          error instanceof Error ? error.message : 'API key could not be added.'
-        );
-      }
-    }
-  );
-  element<HTMLButtonElement>('[data-cancel-add-credential]')?.addEventListener(
-    'click',
-    () => {
+    function openAddCredentialForm(): void {
       hideCredentialForms();
+      addCredentialFormElement.hidden = false;
     }
-  );
-  element<HTMLButtonElement>('[data-save-replace-credential]')?.addEventListener(
-    'click',
-    async () => {
-      try {
-        const selectedCredentialId = replaceCredentialSelect.value;
-        if (!selectedCredentialId) {
+
+    function openReplaceCredentialForm(): void {
+      hideCredentialForms();
+      replaceCredentialFormElement.hidden = false;
+      replaceCredentialSelectElement.replaceChildren();
+      const providerCredentials = configurationState.credentials.filter(
+        (item) => item.providerId === providerSelectElement.value
+      );
+      if (!providerCredentials.length) {
+        replaceCredentialSelectElement.add(
+          new Option('No API keys added yet', '')
+        );
+        replaceCredentialSelectElement.disabled = true;
+      } else {
+        replaceCredentialSelectElement.disabled = false;
+        for (const credential of providerCredentials) {
+          replaceCredentialSelectElement.add(
+            new Option(
+              credential.label || 'Unnamed API key',
+              credential.credentialId
+            )
+          );
+        }
+      }
+    }
+
+    providerSelect.addEventListener('change', () => {
+      configurationDirty = true;
+      modelSelect.replaceChildren(
+        ...modelsForProvider(configurationState, providerSelect.value).map(
+          (model) => new Option(model.displayName, model.modelId)
+        )
+      );
+      const credentials = configurationState.credentials.filter(
+        (item) => item.providerId === providerSelect.value
+      );
+      credentialSelect.replaceChildren(
+        ...(credentials.length
+          ? credentials.map(
+              (credential) =>
+                new Option(
+                  credential.label || 'Unnamed API key',
+                  credential.credentialId
+                )
+            )
+          : [new Option('No API keys added yet', '')])
+      );
+      renderValidationAvailability();
+    });
+    modelSelect.addEventListener('change', () => {
+      configurationDirty = true;
+      renderValidationAvailability();
+    });
+    credentialSelect.addEventListener('change', () => {
+      configurationDirty = true;
+      renderValidationAvailability();
+    });
+
+    addCredentialButton.addEventListener('click', () => {
+      openAddCredentialForm();
+    });
+    replaceCredentialButton.addEventListener('click', () => {
+      openReplaceCredentialForm();
+    });
+
+    element<HTMLButtonElement>('[data-save-add-credential]')?.addEventListener(
+      'click',
+      async () => {
+        try {
+          await send({
+            type: 'credential-create',
+            providerId: providerSelect.value,
+            label: credentialLabel.value,
+            secret: credentialSecret.value,
+          });
+          credentialSecret.value = '';
+          credentialLabel.value = '';
+          hideCredentialForms();
+          await reloadConfiguration();
+          showMessage('[data-credential-message]', 'API key added.');
+        } catch (error) {
           showMessage(
             '[data-credential-message]',
-            'Select an existing API key to replace.'
+            error instanceof Error ? error.message : 'API key could not be added.'
           );
-          return;
         }
-        const selectedCredential = configurationState.credentials.find(
-          (credential) => credential.credentialId === selectedCredentialId
-        );
-        await send({
-          type: 'credential-replace',
-          credentialId: selectedCredentialId,
-          providerId: providerSelect.value,
-          label: selectedCredential?.label || 'Unnamed API key',
-          secret: replaceCredentialSecret.value,
-        });
-        replaceCredentialSecret.value = '';
-        credentialLabel.value = '';
+      }
+    );
+    element<HTMLButtonElement>('[data-cancel-add-credential]')?.addEventListener(
+      'click',
+      () => {
         hideCredentialForms();
-        await reloadConfiguration();
-        showMessage(
-          '[data-credential-message]',
-          'API key replaced. Validate the configuration again.'
-        );
-      } catch (error) {
-        showMessage(
-          '[data-credential-message]',
-          error instanceof Error ? error.message : 'API key could not be replaced.'
-        );
       }
-    }
-  );
-  element<HTMLButtonElement>('[data-cancel-replace-credential]')?.addEventListener(
-    'click',
-    () => {
-      hideCredentialForms();
-    }
-  );
-  element<HTMLButtonElement>('[data-save-configuration]')?.addEventListener(
-    'click',
-    async () => {
-      try {
-        configurationState = (await send({
-          type: 'configuration-set',
-          providerId: providerSelect.value,
-          modelId: modelSelect.value,
-          credentialId: credentialSelect.value,
-        })) as unknown as PopupConfigurationState;
-        configurationDirty = false;
-        showMessage(
-          '[data-validation-message]',
-          'Configuration saved. Validate it before generating.'
-        );
-        renderAll(controller.state);
-      } catch (error) {
-        showMessage(
-          '[data-validation-message]',
-          error instanceof Error ? error.message : 'Configuration could not be saved.'
-        );
-      }
-    }
-  );
-  element<HTMLButtonElement>('[data-delete-credential]')?.addEventListener(
-    'click',
-    async () => {
-      try {
-        for (const credential of configurationState.credentials) {
+    );
+    element<HTMLButtonElement>('[data-save-replace-credential]')?.addEventListener(
+      'click',
+      async () => {
+        try {
+          const selectedCredentialId = replaceCredentialSelect.value;
+          if (!selectedCredentialId) {
+            showMessage(
+              '[data-credential-message]',
+              'Select an existing API key to replace.'
+            );
+            return;
+          }
+          const selectedCredential = configurationState.credentials.find(
+            (credential) => credential.credentialId === selectedCredentialId
+          );
           await send({
-            type: 'credential-delete-selected',
-            credentialId: credential.credentialId,
+            type: 'credential-replace',
+            credentialId: selectedCredentialId,
+            providerId: providerSelect.value,
+            label: selectedCredential?.label || 'Unnamed API key',
+            secret: replaceCredentialSecret.value,
           });
+          replaceCredentialSecret.value = '';
+          credentialLabel.value = '';
+          hideCredentialForms();
+          await reloadConfiguration();
+          showMessage(
+            '[data-credential-message]',
+            'API key replaced. Validate the configuration again.'
+          );
+        } catch (error) {
+          showMessage(
+            '[data-credential-message]',
+            error instanceof Error ? error.message : 'API key could not be replaced.'
+          );
         }
-        await reloadConfiguration();
-        configurationDirty = false;
-        renderAll(controller.state);
-        showMessage('[data-credential-message]', 'API key deleted.');
-      } catch (error) {
-        showMessage(
-          '[data-credential-message]',
-          error instanceof Error ? error.message : 'API key could not be deleted.'
-        );
       }
-    }
-  );
-  element<HTMLButtonElement>('[data-validate-configuration]')?.addEventListener(
-    'click',
-    async () => {
-      if (validating) return;
-      validating = true;
-      renderConfiguration();
-      try {
-        await send({ type: 'configuration-validate' });
-        await reloadConfiguration();
-      } catch (error) {
-        await reloadConfiguration().catch(() => undefined);
-        showMessage(
-          '[data-validation-message]',
-          error instanceof Error ? error.message : 'Configuration validation failed.'
-        );
-      } finally {
-        validating = false;
+    );
+    element<HTMLButtonElement>('[data-cancel-replace-credential]')?.addEventListener(
+      'click',
+      () => {
+        hideCredentialForms();
+      }
+    );
+    element<HTMLButtonElement>('[data-save-configuration]')?.addEventListener(
+      'click',
+      async () => {
+        try {
+          configurationState = (await send({
+            type: 'configuration-set',
+            providerId: providerSelect.value,
+            modelId: modelSelect.value,
+            credentialId: credentialSelect.value,
+          })) as unknown as PopupConfigurationState;
+          configurationDirty = false;
+          showMessage(
+            '[data-validation-message]',
+            'Configuration saved. Validate it before generating.'
+          );
+          renderAll(controller.state);
+        } catch (error) {
+          showMessage(
+            '[data-validation-message]',
+            error instanceof Error ? error.message : 'Configuration could not be saved.'
+          );
+        }
+      }
+    );
+    element<HTMLButtonElement>('[data-delete-credential]')?.addEventListener(
+      'click',
+      async () => {
+        try {
+          for (const credential of configurationState.credentials) {
+            await send({
+              type: 'credential-delete-selected',
+              credentialId: credential.credentialId,
+            });
+          }
+          await reloadConfiguration();
+          configurationDirty = false;
+          renderAll(controller.state);
+          showMessage('[data-credential-message]', 'API key deleted.');
+        } catch (error) {
+          showMessage(
+            '[data-credential-message]',
+            error instanceof Error ? error.message : 'API key could not be deleted.'
+          );
+        }
+      }
+    );
+    element<HTMLButtonElement>('[data-validate-configuration]')?.addEventListener(
+      'click',
+      async () => {
+        if (validating) return;
+        validating = true;
         renderConfiguration();
-        renderGeneration(controller.state);
+        try {
+          await send({ type: 'configuration-validate' });
+          await reloadConfiguration();
+        } catch (error) {
+          await reloadConfiguration().catch(() => undefined);
+          showMessage(
+            '[data-validation-message]',
+            error instanceof Error ? error.message : 'Configuration validation failed.'
+          );
+        } finally {
+          validating = false;
+          renderConfiguration();
+          renderGeneration(controller.state);
+        }
       }
-    }
-  );
+    );
+  }
   primary.addEventListener('click', () => {
     if (!isCurrentValidationValid(configurationState)) return;
     renderAll(controller.stateMachine.beginGeneration());

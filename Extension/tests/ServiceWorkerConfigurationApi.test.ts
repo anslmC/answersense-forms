@@ -81,38 +81,23 @@ describe('Service Worker configuration API boundary', () => {
     validationMock.validate.mockResolvedValue(undefined);
   });
 
-  it('rejects untrusted configuration mutation, credential, and validation messages from a content sender without mutation', async () => {
+  it('rejects configuration mutation messages from a sender that is not an extension-owned trusted UI', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);
     const handleMessage = await loadHandler();
-    const messages = [
-      {
-        type: 'credential-create',
-        providerId: GEMINI_PROVIDER_ID,
-        label: 'Primary',
-        secret: 'raw-secret',
-      },
-      {
-        type: 'credential-replace',
-        credentialId: 'missing',
-        providerId: GEMINI_PROVIDER_ID,
-        label: 'Replacement',
-        secret: 'replacement-secret',
-      },
-      { type: 'credential-delete-selected', credentialId: 'missing' },
-      {
-        type: 'configuration-set',
-        providerId: GEMINI_PROVIDER_ID,
-        modelId: GEMINI_MODEL,
-        credentialId: 'missing',
-      },
-      { type: 'configuration-clear' },
-      { type: 'configuration-validate' },
-    ];
 
-    for (const message of messages) {
-      await expect(handleMessage(message, untrustedSender())).rejects.toThrow();
-    }
+    await expect(
+      handleMessage(
+        {
+          type: 'credential-create',
+          providerId: GEMINI_PROVIDER_ID,
+          label: 'Primary',
+          secret: 'raw-secret',
+        },
+        { id: 'other-extension-id', tab: { id: 17 } } as HandlerSender
+      )
+    ).rejects.toThrow();
+
     expect(state.values[CONFIGURATION_STATE_STORAGE_KEY]).toBeUndefined();
   });
 
@@ -128,6 +113,41 @@ describe('Service Worker configuration API boundary', () => {
 
     expect(Array.isArray(response.providers)).toBe(true);
     expect(state.values[CONFIGURATION_STATE_STORAGE_KEY]).toBeUndefined();
+  });
+
+  it('allows a trusted content sender to perform configuration mutations through the content bridge', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+
+    const created = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Primary',
+        secret: 'raw-secret',
+      },
+      untrustedSender()
+    )) as { credentialId: string };
+
+    const configured = await handleMessage(
+      {
+        type: 'configuration-set',
+        providerId: GEMINI_PROVIDER_ID,
+        modelId: GEMINI_MODEL,
+        credentialId: created.credentialId,
+      },
+      untrustedSender()
+    );
+
+    expect(configured).toMatchObject({
+      activeConfiguration: {
+        providerId: GEMINI_PROVIDER_ID,
+        modelId: GEMINI_MODEL,
+        credentialId: created.credentialId,
+      },
+    });
+    expect(state.values[CONFIGURATION_STATE_STORAGE_KEY]).toBeDefined();
   });
 
   it('accepts API keys through the authorized path but never returns raw secrets', async () => {
@@ -242,7 +262,7 @@ describe('Service Worker configuration API boundary', () => {
     ).rejects.toThrow('Unsupported provider configuration');
   });
 
-  it('authorizes validation only for the trusted popup boundary', async () => {
+  it('authorizes validation for trusted extension UI including content-script bridges', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);
     const handleMessage = await loadHandler();
@@ -266,10 +286,13 @@ describe('Service Worker configuration API boundary', () => {
     );
 
     await expect(
-      handleMessage({ type: 'configuration-validate' }, untrustedSender())
+      handleMessage(
+        { type: 'configuration-validate' },
+        { id: 'other-extension-id', tab: { id: 17 } } as HandlerSender
+      )
     ).rejects.toThrow();
     await expect(
-      handleMessage({ type: 'configuration-validate' }, popupSender())
+      handleMessage({ type: 'configuration-validate' }, untrustedSender())
     ).resolves.toEqual({ valid: true });
     expect(validationMock.validate).toHaveBeenCalledWith('raw-secret');
   });

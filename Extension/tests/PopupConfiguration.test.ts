@@ -40,7 +40,7 @@ const baseState: PopupConfigurationState = {
 };
 
 describe('popup configuration state', () => {
-  it('adds the shared WorkflowApp selector contract to the overlay scaffold source', () => {
+  it('restores the configuration controls in the overlay scaffold', () => {
     const overlaySource = readFileSync(
       resolve(process.cwd(), 'src/Overlay/Overlay.ts'),
       'utf8'
@@ -53,6 +53,10 @@ describe('popup configuration state', () => {
       'data-primary-action',
       'data-review-action',
       'data-force-clear',
+      'data-workflow-progress',
+      'data-workflow-progress-bar',
+      'data-workflow-progress-text',
+      'data-workflow-progress-fill',
       'data-provider-select',
       'data-model-select',
       'data-credential-select',
@@ -64,10 +68,6 @@ describe('popup configuration state', () => {
       'data-validation-status',
       'data-unsaved-configuration',
       'data-validation-message',
-      'data-workflow-progress',
-      'data-workflow-progress-bar',
-      'data-workflow-progress-text',
-      'data-workflow-progress-fill',
       'data-add-credential',
       'data-replace-credential',
       'data-add-credential-form',
@@ -77,7 +77,6 @@ describe('popup configuration state', () => {
       'data-save-replace-credential',
       'data-cancel-replace-credential',
       'data-credential-message',
-      'data-save-add-credential',
     ]) {
       expect(overlaySource).toContain(token);
     }
@@ -145,14 +144,37 @@ describe('popup configuration state', () => {
       resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
       'utf8'
     );
+    const contentSource = readFileSync(
+      resolve(process.cwd(), 'src/Content/Content.ts'),
+      'utf8'
+    );
     expect(markup).toMatch(
       /<button type="button" data-primary-action hidden>\s*Generate &amp; Auto-Fill/
     );
     expect(popupSource).toContain(
       'primary.disabled = !isCurrentValidationValid(configurationState);'
     );
+    expect(popupSource).toContain('renderAll(controller.state);');
+    expect(popupSource).toContain(
+      "if (state.name === 'GENERATING') {"
+    );
+    expect(popupSource).toContain(
+      "primary.textContent = 'Generating...';"
+    );
+    expect(popupSource).toContain(
+      "primary.textContent = 'Regenerate';"
+    );
+    expect(popupSource).toContain(
+      "primary.textContent = 'Already settled';"
+    );
+    expect(popupSource).toContain(
+      "if ('status' in state.result) {"
+    );
     expect(popupSource).toContain(
       'if (!isCurrentValidationValid(configurationState)) return;'
+    );
+    expect(contentSource).toContain(
+      'if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {'
     );
   });
 

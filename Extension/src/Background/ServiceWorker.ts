@@ -30,7 +30,6 @@ import { sanitizeProviderError } from './ProviderErrorSanitizer';
 import {
   isTrustedContentSender,
   isTrustedContentTabSender,
-  isTrustedPopupSender,
   isTrustedUiSender,
 } from './ServiceWorkerSecurity';
 import {
@@ -288,7 +287,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'credential-status') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Credential configuration is only available to the extension UI.'
       );
@@ -305,7 +304,7 @@ export async function handleMessage(
 
   if (message.type === 'credential-create') {
     if (
-      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      !isTrustedUiSender(sender, chrome.runtime.id) ||
       typeof message.providerId !== 'string' ||
       typeof message.label !== 'string' ||
       typeof message.secret !== 'string'
@@ -326,7 +325,7 @@ export async function handleMessage(
 
   if (message.type === 'credential-replace') {
     if (
-      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      !isTrustedUiSender(sender, chrome.runtime.id) ||
       typeof message.credentialId !== 'string' ||
       typeof message.providerId !== 'string' ||
       typeof message.label !== 'string' ||
@@ -348,7 +347,7 @@ export async function handleMessage(
 
   if (message.type === 'credential-delete-selected') {
     if (
-      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      !isTrustedUiSender(sender, chrome.runtime.id) ||
       typeof message.credentialId !== 'string'
     ) {
       throw new Error(
@@ -361,7 +360,7 @@ export async function handleMessage(
 
   if (message.type === 'configuration-set') {
     if (
-      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      !isTrustedUiSender(sender, chrome.runtime.id) ||
       typeof message.providerId !== 'string' ||
       typeof message.modelId !== 'string' ||
       typeof message.credentialId !== 'string'
@@ -386,7 +385,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'configuration-clear') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Configuration is only available to the extension UI.');
     }
     await clearActiveConfiguration();
@@ -394,7 +393,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'configuration-validate') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Validation is only available to the extension UI.');
     }
     return validateActiveConfiguration();
@@ -402,7 +401,7 @@ export async function handleMessage(
 
   if (message.type === 'credential-save') {
     if (
-      !isTrustedPopupSender(sender, chrome.runtime.id) ||
+      !isTrustedUiSender(sender, chrome.runtime.id) ||
       typeof message.apiKey !== 'string'
     ) {
       throw new Error(
@@ -414,7 +413,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'credential-delete') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Credential configuration is only available to the extension UI.'
       );
@@ -424,7 +423,7 @@ export async function handleMessage(
   }
 
   if (message.type === 'credential-test') {
-    if (!isTrustedPopupSender(sender, chrome.runtime.id)) {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(
         'Credential configuration is only available to the extension UI.'
       );
@@ -483,6 +482,19 @@ export async function handleMessage(
       const response = await chrome.tabs.sendMessage(tabId, {
         type: 'get-current-state',
       });
+      if (response?.supported === false) {
+        return { supported: false };
+      }
+      if (response?.status === 'no-active-page') {
+        return {
+          supported: true,
+          page: null,
+          lifecycle: null,
+          uiState: 'UNSUPPORTED',
+          result: null,
+          error: null,
+        };
+      }
       if (response?.lifecycle && response?.page) {
         const reconciled = reconcileContentState(snapshot, {
           lifecycle: response.lifecycle,
@@ -492,9 +504,6 @@ export async function handleMessage(
           ? snapshot
           : await stateStore.set(tabId, reconciled);
         return { supported: true, ...stored };
-      }
-      if (response?.supported === false) {
-        return { supported: false };
       }
     } catch {
       // Fall back to the worker projection when the tab has no content script.

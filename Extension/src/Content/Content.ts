@@ -52,13 +52,17 @@ async function readOverlayPreference(): Promise<boolean> {
   return stored[OVERLAY_UI_STORAGE_KEY] === true;
 }
 
-function ensureOverlay(): OverlayHandle | null {
+async function ensureOverlay(): Promise<OverlayHandle | null> {
   if (!supportedPage || !document.body || overlayHandle) {
     return overlayHandle;
   }
-  overlayHandle = mountOverlay({
+  overlayHandle = await mountOverlay({
     onClose: () => {
       overlayHandle = null;
+    },
+    onRefresh: async () => {
+      await forceClearAnswerSenseState();
+      overlayHandle?.refresh();
     },
   });
   return overlayHandle;
@@ -260,7 +264,8 @@ const hydration = waitForInitialDiscovery(document, discoverPage)
 void hydration.catch(recordLifecyclePublicationFailure);
 void hydration.then(async () => {
   if (await readOverlayPreference()) {
-    ensureOverlay()?.refresh();
+    const mountedOverlay = await ensureOverlay();
+    mountedOverlay?.refresh();
   }
 });
 
@@ -300,7 +305,7 @@ async function handleRequest(request: {
       await setOverlayPreference(false);
       return { status: 'closed', supported: true };
     }
-    ensureOverlay();
+    await ensureOverlay();
     await setOverlayPreference(true);
     return { status: 'opened', supported: true };
   }
