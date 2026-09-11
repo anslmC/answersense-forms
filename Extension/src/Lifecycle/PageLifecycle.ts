@@ -242,6 +242,30 @@ export class PageLifecycle {
     return this.activeCycle;
   }
 
+  resynchronizeCurrentPage(discovered: DiscoveredPage): NormalizedActivePage {
+    const normalizedPage = normalizeDiscoveredActivePage(discovered);
+    this.pending = null;
+    this.navigation = null;
+    this.oldPageDocument = null;
+    this.generation.invalidate();
+    this.activeCycle = this.generation.beginCycle();
+    this.activePage = {
+      ...normalizedPage,
+      processingCycle: this.activeCycle,
+    };
+    this.revisitStatus = this.classifyPageRevisit(this.activePage);
+    const activeVisit = this.visits[this.visits.length - 1];
+    if (activeVisit) {
+      activeVisit.status = 'abandoned';
+    }
+    this.visits.push({
+      pageId: discovered.pageId,
+      cycleId: this.activeCycle.cycleId,
+      status: 'active',
+    });
+    return this.activePage;
+  }
+
   handlePreviousOrBack(document: Document): NormalizedActivePage | null {
     const activePage = confirmPageTransition(document, {
       oldPageId: this.activePage.form.activePageId,

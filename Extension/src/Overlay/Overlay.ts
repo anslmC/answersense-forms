@@ -5,7 +5,7 @@ import overlayCss from './Overlay.css?inline';
 const OVERLAY_HOST_ID = 'answersense-overlay-host';
 
 export interface OverlayHandle {
-  refresh: () => void;
+  refresh: () => Promise<void>;
   close: () => void;
 }
 
@@ -13,6 +13,8 @@ export interface OverlayOptions {
   onClose?: () => void;
   onRefresh?: () => void | Promise<void>;
 }
+
+const MIN_REFRESH_DURATION_MS = 1000;
 
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
 
@@ -267,7 +269,10 @@ export async function mountOverlay(
     if (event.button !== 0) {
       return;
     }
-    if (event.target instanceof HTMLElement && event.target.closest('button.overlay-close')) {
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest('button.overlay-close, button.overlay-refresh')
+    ) {
       return;
     }
     const headerRect = header.getBoundingClientRect();
@@ -319,7 +324,9 @@ export async function mountOverlay(
 
   const setRefreshState = (isRefreshing: boolean): void => {
     refresh.disabled = isRefreshing;
-    refresh.textContent = isRefreshing ? 'Refreshing…' : 'Refresh';
+    refresh.classList.toggle('is-refreshing', isRefreshing);
+    refresh.setAttribute('aria-busy', String(isRefreshing));
+    refresh.textContent = isRefreshing ? 'Refreshing...' : 'Refresh';
   };
 
   refresh.addEventListener('click', async () => {
@@ -328,16 +335,37 @@ export async function mountOverlay(
     }
 
     refreshing = true;
+    const startedAt = Date.now();
     setRefreshState(true);
 
+    let refreshError: unknown;
     try {
       await Promise.resolve(options.onRefresh?.());
     } catch (error) {
+      refreshError = error;
       console.error('AnswerSense refresh failed.', error);
-    } finally {
-      refreshing = false;
-      setRefreshState(false);
     }
+    await new Promise<void>((resolve) => {
+      setTimeout(
+        resolve,
+        Math.max(0, MIN_REFRESH_DURATION_MS - (Date.now() - startedAt))
+      );
+    });
+    if (refreshError !== undefined) {
+      const status = body.querySelector<HTMLElement>('[data-status]');
+      const detail = body.querySelector<HTMLElement>('[data-detail]');
+      if (status) {
+        status.textContent = 'Refresh failed.';
+      }
+      if (detail) {
+        detail.textContent =
+          refreshError instanceof Error
+            ? refreshError.message
+            : 'Could not refresh this page.';
+      }
+    }
+    refreshing = false;
+    setRefreshState(false);
   });
 
   close.addEventListener('click', (event) => {
@@ -354,7 +382,7 @@ export async function mountOverlay(
   const handle = mountAnswerSenseApp({ root: body, surface: 'overlay' });
 
   return {
-    refresh: () => void handle.refresh(),
+    refresh: () => handle.refresh(),
     close: () => {
       host.remove();
       options.onClose?.();

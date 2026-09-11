@@ -17,7 +17,7 @@ export interface WorkflowAppOptions {
 }
 
 export interface WorkflowAppHandle {
-  refresh: () => void;
+  refresh: () => Promise<void>;
 }
 
 export function mountAnswerSenseApp(
@@ -315,7 +315,7 @@ export function mountAnswerSenseApp(
   const replaceCredentialButton = element<HTMLButtonElement>(
     '[data-replace-credential]'
   );
-  if (!primary || !forceClear) return { refresh: () => undefined };
+  if (!primary || !forceClear) return { refresh: async () => undefined };
 
   if (
     providerSelect &&
@@ -579,12 +579,14 @@ export function mountAnswerSenseApp(
     }
   });
 
-  function refresh(): void {
-    void reloadConfiguration();
-    void controller.discover().then((state) => {
+  async function refresh(): Promise<void> {
+    await Promise.all([
+      reloadConfiguration(),
+      controller.discover().then((state) => {
       options.onState?.(state);
       renderAll(state);
-    });
+      }),
+    ]);
   }
 
   void refresh();

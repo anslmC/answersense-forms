@@ -96,6 +96,11 @@
   font-weight: 600;
 }
 
+.overlay-refresh.is-refreshing {
+  background: rgba(255, 255, 255, 0.35);
+  cursor: wait;
+}
+
 .overlay-body {
   padding: 6px 10px;
   overflow-y: auto;

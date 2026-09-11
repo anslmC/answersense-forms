@@ -176,6 +176,55 @@ describe('P5 finalized handoff and transition boundary', () => {
 });
 
 describe('P5 page lifecycle', () => {
+  it('resynchronizes the active page IDs while preserving settled context', () => {
+    const lifecycle = createLifecycle();
+    const document = createDocument();
+    (document.querySelector('input') as HTMLInputElement).value = 'Ada';
+    lifecycle.acceptFinalizedHandoff(
+      createHandoff(document, 'Ada', lifecycle.currentCycle.cycleId)
+    );
+    lifecycle.beginNext(document);
+    lifecycle.confirmTransition(createDocument('page-2'));
+
+    const refreshed = lifecycle.resynchronizeCurrentPage(
+      discoveredPage('page-2', 3, 6, 'current')
+    );
+
+    expect(refreshed.form.activePageId).toBe('page-2');
+    expect(refreshed.form.questions.map((candidate) => candidate.id)).toEqual([
+      'current',
+    ]);
+    expect(lifecycle.context).toEqual([
+      { questionId: 'name', questionText: 'name', answer: 'Ada' },
+    ]);
+    expect(lifecycle.pendingPage).toBeNull();
+    expect(lifecycle.currentCycle.cycleId).not.toBe('cycle-1');
+  });
+
+  it('replaces stale page identity and question IDs from current discovery', () => {
+    const lifecycle = createLifecycle();
+
+    lifecycle.resynchronizeCurrentPage(
+      discoveredPage('page-2-current', 3, 6, 'current')
+    );
+
+    expect(lifecycle.currentPage.form).toMatchObject({
+      activePageId: 'page-2-current',
+      formId: 'form-1',
+    });
+    expect(lifecycle.currentPage.form.questions.map((candidate) => candidate.id)).toEqual([
+      'current',
+    ]);
+  });
+
+  it('leaves the current page unchanged when synchronization cannot normalize input', () => {
+    const lifecycle = createLifecycle();
+    const before = lifecycle.currentPage;
+
+    expect(() => lifecycle.resynchronizeCurrentPage(null as never)).toThrow();
+    expect(lifecycle.currentPage).toBe(before);
+  });
+
   it('force clears every settled page and cycle, including a revisited Page 3', () => {
     const generation = new GenerationCoordinator(() => 'cycle-reset');
     const pageThree = {
@@ -199,17 +248,17 @@ describe('P5 page lifecycle', () => {
         {
           pageId: 'page-1',
           pageFingerprint: 'page-1-fingerprint',
-          entries: [],
+          answers: [],
         },
         {
           pageId: 'page-2',
           pageFingerprint: 'page-2-fingerprint',
-          entries: [],
+          answers: [],
         },
         {
           pageId: 'page-3',
           pageFingerprint: 'page-3-fingerprint',
-          entries: [],
+          answers: [],
         },
       ],
       visits: [
@@ -722,9 +771,9 @@ describe('P5 page lifecycle', () => {
     const firstCycle = lifecycle.currentCycle;
     const resolvers: Array<(response: GenerationResponse) => void> = [];
     const generator: GenerationInterface = {
-      generate: vi.fn(
+      generate: vi.fn<(request: GenerationRequest) => Promise<GenerationResponse>>(
         (request) =>
-          new Promise((resolve) => {
+          new Promise<GenerationResponse>((resolve) => {
             void request;
             resolvers.push(resolve);
           })

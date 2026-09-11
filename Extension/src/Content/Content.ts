@@ -61,8 +61,8 @@ async function ensureOverlay(): Promise<OverlayHandle | null> {
       overlayHandle = null;
     },
     onRefresh: async () => {
-      await forceClearAnswerSenseState();
-      overlayHandle?.refresh();
+      await resynchronizeCurrentPage();
+      await overlayHandle?.refresh();
     },
   });
   return overlayHandle;
@@ -101,6 +101,16 @@ async function forceClearAnswerSenseState(): Promise<void> {
 
   lifecycle = null;
   lifecycleInitialization = null;
+}
+
+async function resynchronizeCurrentPage(): Promise<void> {
+  await hydration;
+  const discovered = discoverPage();
+  if (!discovered) {
+    throw new Error('Active page could not be discovered for refresh.');
+  }
+  ensureLifecycle(discovered).resynchronizeCurrentPage(discovered);
+  await publishLifecycleSnapshot();
 }
 
 function publishTransition(
