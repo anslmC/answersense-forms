@@ -117,6 +117,15 @@ async function notifyPopup(message: Record<string, unknown>): Promise<void> {
   }
 }
 
+function notifyGenerationTerminalState(
+  snapshot: Awaited<ReturnType<IntegrationStateStore['updateIfGenerationCurrent']>>
+): void {
+  if (!snapshot) {
+    return;
+  }
+  void notifyPopup({ type: 'p7-state-updated', snapshot }).catch(() => undefined);
+}
+
 async function configurationState(): Promise<Record<string, unknown>> {
   const activeConfiguration = await getActiveConfiguration();
   const identity = activeConfiguration
@@ -554,8 +563,8 @@ export async function handleMessage(
         throw new Error('Generation returned an invalid result.');
       }
       if ('status' in result && result.status === 'reused') {
-        if (
-          !(await stateStore.updateIfGenerationCurrent(
+        const terminalSnapshot =
+          await stateStore.updateIfGenerationCurrent(
             tabId,
             generationOperationId,
             {
@@ -564,14 +573,14 @@ export async function handleMessage(
               error: null,
               generationOperationId: null,
             }
-          ))
-        ) {
+          );
+        if (!terminalSnapshot) {
           throw new Error('Generation operation was superseded.');
         }
+        notifyGenerationTerminalState(terminalSnapshot);
         return result;
       }
-      if (
-        !(await stateStore.updateIfGenerationCurrent(
+      const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
           tabId,
           generationOperationId,
           {
@@ -580,18 +589,24 @@ export async function handleMessage(
             error: null,
             generationOperationId: null,
           }
-        ))
-      ) {
+        );
+      if (!terminalSnapshot) {
         throw new Error('Generation operation was superseded.');
       }
+      notifyGenerationTerminalState(terminalSnapshot);
       return result;
     } catch (error) {
-      await stateStore.updateIfGenerationCurrent(tabId, generationOperationId, {
-        uiState: 'ERROR',
-        error: error instanceof Error ? error.message : 'Generation failed.',
-        result: null,
-        generationOperationId: null,
-      });
+      const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
+        tabId,
+        generationOperationId,
+        {
+          uiState: 'ERROR',
+          error: error instanceof Error ? error.message : 'Generation failed.',
+          result: null,
+          generationOperationId: null,
+        }
+      );
+      notifyGenerationTerminalState(terminalSnapshot);
       throw error;
     }
   }

@@ -288,8 +288,21 @@ describe('Service Worker Generate terminal projection', () => {
             result: validResult,
           }),
         }),
-      })
-    );
+        })
+      );
+      await vi.waitFor(() =>
+        expect(
+          (globalThis as typeof globalThis & {
+            chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
+          }).chrome.runtime.sendMessage
+        ).toHaveBeenCalledWith({
+          type: 'p7-state-updated',
+          snapshot: expect.objectContaining({
+            uiState: 'REVIEW',
+            result: validResult,
+          }),
+        })
+      );
     expect(authorized.resolved.configurationDigest).toBeTruthy();
   });
 
