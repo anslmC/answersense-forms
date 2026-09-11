@@ -78,9 +78,7 @@ function clamp(value: number, min: number, max: number): number {
 function buildWorkflowAppScaffold(body: HTMLElement): void {
   body.innerHTML = `
     <main class="popup-shell" data-app-root>
-      <header class="status-row">
-        <h1>AnswerSense: Forms</h1>
-      </header>
+      <header class="status-row"></header>
       <section class="status-panel" aria-live="polite">
         <p class="status" data-status>Checking this page...</p>
         <p class="detail" data-detail></p>
@@ -164,7 +162,7 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
         <p class="detail" data-credential-status>Loading configuration...</p>
       </section>
       <section class="validation-panel" aria-labelledby="validation-heading">
-        <h2 id="validation-heading">Authorization</h2>
+        <h2 id="validation-heading">Key Validation</h2>
         <p class="status" data-validation-status></p>
         <p class="detail" data-unsaved-configuration hidden>
           Save the configuration before validating

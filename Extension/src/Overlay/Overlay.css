@@ -11,7 +11,7 @@
 }
 
 .overlay-panel {
-  width: min(360px, calc(100vw - 32px));
+  width: min(660px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
   display: flex;
@@ -26,7 +26,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: #155e75;
   color: #fff;
   cursor: grab;
@@ -75,33 +75,56 @@
 }
 
 .overlay-body {
-  padding: 10px 12px;
+  padding: 6px 10px;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .popup-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
 }
 
 .status-panel,
 .configuration-panel,
 .credential-panel,
 .validation-panel,
-.results {
-  padding: 10px 0;
+.generation-panel {
+  min-width: 0;
+  padding: 4px 0;
+  border-top: 1px solid #dbe2ea;
+}
+
+.credential-panel,
+.configuration-panel,
+.validation-panel,
+.generation-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.status-panel {
+  grid-column: 1 / -1;
+  min-height: 16px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: 1px 0;
   border-top: 1px solid #dbe2ea;
 }
 
 .generation-panel {
-  padding: 10px 0;
-  border-top: 1px solid #dbe2ea;
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .workflow-progress {
-  margin: 8px 0 10px;
+  margin: 2px 0 4px;
 }
 
 .workflow-progress-track {
@@ -127,7 +150,7 @@
 }
 
 .workflow-progress-text {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: #4b5563;
   font-size: 12px;
 }
@@ -176,43 +199,48 @@
 
 .status {
   margin: 0;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.2;
 }
 
 .detail {
   margin: 0;
   color: #4b5563;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 h2 {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   font-size: 14px;
 }
 
 label {
   display: block;
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.2;
 }
 
 input,
 select {
   box-sizing: border-box;
   width: 100%;
-  margin-top: 4px;
-  padding: 7px;
+  margin-top: 1px;
+  padding: 4px 5px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   background: #fff;
   color: #1f2937;
   font: inherit;
+  font-size: 12px;
 }
 
 .message,
 .result {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: #4b5563;
   font-size: 13px;
 }
@@ -226,18 +254,50 @@ select {
 
 .actions {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.credential-panel > .actions {
+  display: inline-flex;
+  width: fit-content;
+  justify-self: start;
+}
+
+.credential-panel > .actions button {
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.credential-form {
+  margin-top: 2px;
+}
+
+.credential-form .actions {
+  margin-top: 2px;
+}
+
+.validation-panel [data-validate-configuration] {
+  width: fit-content;
+  align-self: flex-start;
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  min-height: 28px;
   border: 0;
-  border-radius: 4px;
-  padding: 8px 12px;
+  border-radius: 999px;
+  padding: 4px 10px;
   background: #155e75;
   color: #fff;
   cursor: pointer;
   font: inherit;
+  font-size: 12px;
   font-weight: 600;
 }
 
