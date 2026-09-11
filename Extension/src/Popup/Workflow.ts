@@ -10,7 +10,6 @@ export interface PopupWorkflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
   generate(retry?: boolean): Promise<UiGenerationResult>;
   forceClear(): Promise<WorkflowSnapshot>;
-  reviewComplete?(): Promise<void>;
 }
 
 interface DiscoveryResponse {
@@ -81,9 +80,6 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
         result: null,
         error: null,
       };
-    },
-    async reviewComplete(): Promise<void> {
-      await chrome.runtime.sendMessage({ type: 'p7-review-complete' });
     },
   };
 }

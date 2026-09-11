@@ -178,7 +178,7 @@ describe('P7 worker integration state', () => {
   it('retains lifecycle and popup recovery state per tab without owning domain decisions', async () => {
     const store = new IntegrationStateStore();
     const snapshot = await store.update(7, {
-      uiState: 'READY_FOR_NEXT',
+      uiState: 'READY',
       page: { pageId: 'page-1', questionCount: 2 },
       result: null,
       error: null,

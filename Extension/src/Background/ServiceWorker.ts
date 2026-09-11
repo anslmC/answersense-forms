@@ -552,16 +552,6 @@ export async function handleMessage(
       throw error;
     }
   }
-  if (message.type === 'p7-review-complete') {
-    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
-      throw new Error('Review control is only available to the extension UI.');
-    }
-    const snapshot = await stateStore.update(await activeTabId(), {
-      uiState: 'READY_FOR_NEXT',
-    });
-    void notifyPopup({ type: 'p7-state-updated', snapshot });
-    return snapshot;
-  }
   if (message.type === 'p7-begin-next') {
     if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error(

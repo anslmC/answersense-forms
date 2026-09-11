@@ -63,8 +63,6 @@ describe('P6 popup state machine', () => {
     const token = machine.activeOperationToken;
     machine.completeGeneration(token, result);
     expect(machine.state.name).toBe('REVIEW');
-    machine.finishReview();
-    expect(machine.state.name).toBe('READY_FOR_NEXT');
     machine.beginGeneration();
     expect(machine.state.name).toBe('GENERATING');
     machine.failGeneration(machine.activeOperationToken, 'failed');

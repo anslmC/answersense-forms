@@ -98,6 +98,9 @@ async function forceClearAnswerSenseState(): Promise<void> {
   await hydration;
   ensureLifecycle().forceClear();
   await publishResetSnapshot();
+
+  lifecycle = null;
+  lifecycleInitialization = null;
 }
 
 function publishTransition(

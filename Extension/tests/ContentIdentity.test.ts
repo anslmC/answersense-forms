@@ -46,4 +46,11 @@ describe('Content form identity hydration guard', () => {
   it('rejects hydration when the discovered form identity is missing', () => {
     expect(belongsToSameForm(snapshot('form-1'), discovered(null))).toBe(false);
   });
+
+  it('allows hydration when form identity is unavailable but the page is unchanged', () => {
+    const samePageSnapshot = snapshot(null);
+    samePageSnapshot.activePage.form.activePageId = 'entry:3-6';
+
+    expect(belongsToSameForm(samePageSnapshot, discovered(null))).toBe(true);
+  });
 });

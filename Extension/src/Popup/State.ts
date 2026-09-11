@@ -6,7 +6,6 @@ export type UiStateName =
   | 'READY'
   | 'GENERATING'
   | 'REVIEW'
-  | 'READY_FOR_NEXT'
   | 'ERROR';
 
 export interface PageSummary {
@@ -38,7 +37,6 @@ export type UiState =
   | { name: 'READY'; page: PageSummary }
   | { name: 'GENERATING'; page: PageSummary }
   | { name: 'REVIEW'; page: PageSummary; result: UiGenerationResult }
-  | { name: 'READY_FOR_NEXT'; page: PageSummary; result: UiGenerationResult }
   | { name: 'ERROR'; page: PageSummary | null; message: string };
 
 export function unsupportedState(
@@ -67,23 +65,24 @@ export class PopupStateMachine {
 
   restore(snapshot: WorkflowSnapshot): UiState {
     this.operationToken += 1;
-    if (snapshot.uiState === 'UNSUPPORTED' || !snapshot.page) {
+    const normalizedUiState =
+      (snapshot.uiState as string) === 'READY_FOR_NEXT'
+        ? 'READY'
+        : snapshot.uiState;
+
+    if (normalizedUiState === 'UNSUPPORTED' || !snapshot.page) {
       this.current = unsupportedState();
-    } else if (snapshot.uiState === 'GENERATING') {
+    } else if (normalizedUiState === 'GENERATING') {
       this.current = { name: 'GENERATING', page: snapshot.page };
-    } else if (snapshot.uiState === 'ERROR') {
+    } else if (normalizedUiState === 'ERROR') {
       this.current = {
         name: 'ERROR',
         page: snapshot.page,
         message: snapshot.error ?? 'Generation failed.',
       };
-    } else if (
-      (snapshot.uiState === 'REVIEW' ||
-        snapshot.uiState === 'READY_FOR_NEXT') &&
-      snapshot.result
-    ) {
+    } else if (normalizedUiState === 'REVIEW' && snapshot.result) {
       this.current = {
-        name: snapshot.uiState,
+        name: 'REVIEW',
         page: snapshot.page,
         result: snapshot.result,
       };
@@ -97,7 +96,6 @@ export class PopupStateMachine {
     if (
       this.current.name !== 'READY' &&
       this.current.name !== 'REVIEW' &&
-      this.current.name !== 'READY_FOR_NEXT' &&
       this.current.name !== 'ERROR'
     ) {
       return this.current;
@@ -137,13 +135,6 @@ export class PopupStateMachine {
       page: this.current.page,
       message,
     };
-    return this.current;
-  }
-
-  finishReview(): UiState {
-    if (this.current.name === 'REVIEW') {
-      this.current = { ...this.current, name: 'READY_FOR_NEXT' };
-    }
     return this.current;
   }
 

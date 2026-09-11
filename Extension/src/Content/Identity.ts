@@ -6,10 +6,28 @@ export function belongsToSameForm(
   discovered: DiscoveredPage
 ): boolean {
   const previousFormId = snapshot.activePage.form.formId;
-  const currentFormId = discovered.formId;
-  return (
-    previousFormId !== null &&
-    currentFormId !== null &&
-    previousFormId === currentFormId
-  );
+  const currentFormId = discovered.formId ?? null;
+  const previousPageId = snapshot.activePage.form.activePageId;
+  const currentPageId = discovered.pageId;
+
+  if (previousFormId !== null && currentFormId !== null) {
+    return previousFormId === currentFormId;
+  }
+
+  if (previousPageId === currentPageId) {
+    return true;
+  }
+
+  const previousRange = snapshot.activePage.form.pageEntryRange;
+  const currentRange = discovered.pageEntryRange;
+  if (
+    previousRange &&
+    currentRange &&
+    previousRange.first === currentRange.first &&
+    previousRange.last === currentRange.last
+  ) {
+    return true;
+  }
+
+  return false;
 }

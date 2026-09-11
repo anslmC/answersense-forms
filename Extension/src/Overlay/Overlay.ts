@@ -197,11 +197,8 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <button type="button" data-primary-action hidden>
             Generate &amp; Auto-Fill
           </button>
-          <button type="button" class="secondary" data-review-action hidden>
-            Review complete
-          </button>
           <button type="button" class="secondary" data-force-clear>
-            Force Unsettle
+            Force Unsettle All
           </button>
         </div>
       </section>
@@ -320,10 +317,29 @@ export async function mountOverlay(
     header.addEventListener('pointercancel', onPointerUp);
   };
 
-  refresh.addEventListener('click', () => {
-    void Promise.resolve(options.onRefresh?.()).catch((error) => {
+  let refreshing = false;
+
+  const setRefreshState = (isRefreshing: boolean): void => {
+    refresh.disabled = isRefreshing;
+    refresh.textContent = isRefreshing ? 'Refreshing…' : 'Refresh';
+  };
+
+  refresh.addEventListener('click', async () => {
+    if (refreshing) {
+      return;
+    }
+
+    refreshing = true;
+    setRefreshState(true);
+
+    try {
+      await Promise.resolve(options.onRefresh?.());
+    } catch (error) {
       console.error('AnswerSense refresh failed.', error);
-    });
+    } finally {
+      refreshing = false;
+      setRefreshState(false);
+    }
   });
 
   close.addEventListener('click', (event) => {

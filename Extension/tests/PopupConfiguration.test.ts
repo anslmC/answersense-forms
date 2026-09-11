@@ -51,7 +51,6 @@ describe('popup configuration state', () => {
       'data-message',
       'data-results',
       'data-primary-action',
-      'data-review-action',
       'data-force-clear',
       'data-workflow-progress',
       'data-workflow-progress-bar',

@@ -30,7 +30,6 @@ const UI_STATE_NAMES: readonly UiStateName[] = [
   'READY',
   'GENERATING',
   'REVIEW',
-  'READY_FOR_NEXT',
   'ERROR',
 ];
 
@@ -162,6 +161,13 @@ export class IntegrationStateStore {
       }
       for (const [tabId, snapshot] of Object.entries(entries)) {
         const numericTabId = Number(tabId);
+        if (snapshot && typeof snapshot === 'object') {
+          const legacySnapshot = snapshot as Record<string, unknown>;
+          if (legacySnapshot.uiState === 'READY_FOR_NEXT') {
+            legacySnapshot.uiState = 'READY';
+            legacySnapshot.result = null;
+          }
+        }
         if (
           Number.isSafeInteger(numericTabId) &&
           numericTabId >= 0 &&

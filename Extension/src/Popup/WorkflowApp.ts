@@ -50,7 +50,6 @@ export function mountAnswerSenseApp(
     const message = element<HTMLElement>('[data-message]');
     const results = element<HTMLElement>('[data-results]');
     const primary = element<HTMLButtonElement>('[data-primary-action]');
-    const review = element<HTMLButtonElement>('[data-review-action]');
     const progress = element<HTMLElement>('[data-workflow-progress]');
     const progressBar = element<HTMLElement>('[data-workflow-progress-bar]');
     const progressText = element<HTMLElement>('[data-workflow-progress-text]');
@@ -61,7 +60,6 @@ export function mountAnswerSenseApp(
       !message ||
       !results ||
       !primary ||
-      !review ||
       !progress ||
       !progressBar ||
       !progressText ||
@@ -73,7 +71,6 @@ export function mountAnswerSenseApp(
     results.hidden = true;
     message.hidden = true;
     primary.hidden = false;
-    review.hidden = true;
     progress.hidden = true;
     progress.classList.remove('is-processing', 'is-complete', 'is-partial', 'is-error');
     progressText.textContent = '';
@@ -134,7 +131,6 @@ export function mountAnswerSenseApp(
           ? 'Review the values in Google Forms before continuing.'
           : 'Review answers before clicking Next in Google Forms.';
       primary.textContent = 'Regenerate';
-      review.hidden = state.name !== 'REVIEW';
       const outcomes = state.result.fillReport.outcomes;
       const filledCount = outcomes.filter(
         ({ status }) => status === 'FILLED'
@@ -290,7 +286,6 @@ export function mountAnswerSenseApp(
   }
 
   const primary = element<HTMLButtonElement>('[data-primary-action]');
-  const review = element<HTMLButtonElement>('[data-review-action]');
   const forceClear = element<HTMLButtonElement>('[data-force-clear]');
   const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
   const modelSelect = element<HTMLSelectElement>('[data-model-select]');
@@ -315,7 +310,7 @@ export function mountAnswerSenseApp(
   const replaceCredentialButton = element<HTMLButtonElement>(
     '[data-replace-credential]'
   );
-  if (!primary || !review || !forceClear) return { refresh: () => undefined };
+  if (!primary || !forceClear) return { refresh: () => undefined };
 
   if (
     providerSelect &&
@@ -566,7 +561,6 @@ export function mountAnswerSenseApp(
     renderAll(controller.stateMachine.beginGeneration());
     void controller.generate().then((state) => renderAll(state));
   });
-  review.addEventListener('click', () => renderAll(controller.finishReview()));
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;
     renderAll(await controller.forceClear());

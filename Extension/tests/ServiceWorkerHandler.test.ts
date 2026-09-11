@@ -524,21 +524,6 @@ describe('Service Worker popup broadcast reliability', () => {
     });
   });
 
-  it('does not reject when the popup receiver disappeared after review completion', async () => {
-    const state: ChromeTestState = { values: {}, queryCount: 0 };
-    installChrome(state);
-    const chromeApi = (globalThis as typeof globalThis & {
-      chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
-    }).chrome;
-    chromeApi.runtime.sendMessage.mockRejectedValue(
-      new Error('Receiving end does not exist.')
-    );
-    const handleMessage = await loadHandler();
-
-    await expect(
-      handleMessage({ type: 'p7-review-complete' }, { id: extensionId } as HandlerSender)
-    ).resolves.toMatchObject({ uiState: 'READY_FOR_NEXT' });
-  });
 });
 
 describe('Service Worker lifecycle reset durability', () => {
@@ -560,7 +545,7 @@ describe('Service Worker lifecycle reset durability', () => {
       activeCycle: { cycleId: 'cycle-3' },
       pending: null,
       settledPages: [
-        { pageId: 'entry:0-3', pageFingerprint: 'old', entries: [] },
+        { pageId: 'entry:0-3', pageFingerprint: 'old', answers: [] },
       ],
       visits: [
         { pageId: 'entry:0-3', cycleId: 'cycle-1', status: 'settled' },

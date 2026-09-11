@@ -39,12 +39,6 @@ export class PopupController {
     }
   }
 
-  finishReview(): UiState {
-    const state = this.stateMachine.finishReview();
-    void this.workflow.reviewComplete?.();
-    return state;
-  }
-
   retry(): Promise<UiState> {
     return this.generate(true);
   }
