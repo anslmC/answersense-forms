@@ -154,4 +154,16 @@ describe('P6 popup workflow boundary', () => {
     expect(controller.state.name).toBe('UNSUPPORTED');
     expect(workflow.generate).not.toHaveBeenCalled();
   });
+
+  it('converts an invalid completed result into a visible error state', () => {
+    const machine = new PopupStateMachine();
+    machine.confirmedPage(page);
+    const generating = machine.beginGeneration();
+
+    expect(machine.completeGeneration(machine.activeOperationToken, {} as never)).toMatchObject({
+      name: 'ERROR',
+      message: 'Generation returned an invalid result.',
+    });
+    expect(generating.name).toBe('GENERATING');
+  });
 });

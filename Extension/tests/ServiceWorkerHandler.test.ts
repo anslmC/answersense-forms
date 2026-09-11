@@ -242,6 +242,283 @@ describe('Service Worker generation handler security boundary', () => {
   });
 });
 
+describe('Service Worker Generate terminal projection', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  async function prepareGenerationResponse(response: unknown) {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    chromeApi.tabs.sendMessage.mockResolvedValue(response);
+    const storage = testStorage();
+    const authorized = await authorizedState(storage);
+    const handleMessage = await loadHandler();
+    return { state, handleMessage, authorized };
+  }
+
+  const validResult = {
+    report: { cycleId: 'cycle-1', status: 'complete', results: [] },
+    fillReport: { cycleId: 'cycle-1', outcomes: [] },
+  };
+
+  it('stores a valid content result as REVIEW', async () => {
+    const { handleMessage, state, authorized } =
+      await prepareGenerationResponse(validResult);
+
+    await expect(
+      handleMessage(
+        {
+          type: 'p7-generate',
+          retry: false,
+        },
+        { id: extensionId } as HandlerSender
+      )
+    ).resolves.toEqual(validResult);
+    expect(state.sessionValues).toBeDefined();
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'REVIEW',
+            result: validResult,
+          }),
+        }),
+      })
+    );
+    expect(authorized.resolved.configurationDigest).toBeTruthy();
+  });
+
+  it.each([
+    ['content error', { error: 'Generation response was stale.' }],
+    ['empty response', undefined],
+    ['malformed response', { report: {} }],
+  ])('projects %s as ERROR instead of REVIEW', async (_label, response) => {
+    const { handleMessage, state } = await prepareGenerationResponse(response);
+
+    await expect(
+      handleMessage(
+        { type: 'p7-generate', retry: false },
+        { id: extensionId } as HandlerSender
+      )
+    ).rejects.toThrow();
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'ERROR',
+            result: null,
+          }),
+        }),
+      })
+    );
+  });
+
+  it('does not let an older error overwrite a newer successful operation', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    const responses: Array<{
+      resolve: (value: unknown) => void;
+      reject: (reason: unknown) => void;
+    }> = [];
+    chromeApi.tabs.sendMessage.mockImplementation(
+      (_tabId: number, message: { type?: string }) => {
+        if (message.type !== 'generate-current-page') {
+          return Promise.resolve({});
+        }
+        return new Promise((resolve, reject) => {
+          responses.push({ resolve, reject });
+        });
+      }
+    );
+    await authorizedState(testStorage());
+    const handleMessage = await loadHandler();
+    const first = handleMessage(
+      { type: 'p7-generate', retry: false },
+      { id: extensionId } as HandlerSender
+    );
+    const second = handleMessage(
+      { type: 'p7-generate', retry: true },
+      { id: extensionId } as HandlerSender
+    );
+    await vi.waitFor(() => expect(responses).toHaveLength(2));
+
+    responses[1].resolve(validResult);
+    await expect(second).resolves.toEqual(validResult);
+    responses[0].reject(new Error('stale generation'));
+    await expect(first).rejects.toThrow('stale generation');
+
+    await expect(
+      handleMessage(
+        { type: 'get-lifecycle-snapshot' },
+        sender(activeTabId)
+      )
+    ).resolves.toMatchObject({
+      uiState: 'REVIEW',
+      result: validResult,
+      generationOperationId: null,
+    });
+  });
+
+  it('keeps the newer terminal state when older success or error completes later', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    const responses: Array<{
+      resolve: (value: unknown) => void;
+      reject: (reason: unknown) => void;
+    }> = [];
+    chromeApi.tabs.sendMessage.mockImplementation(
+      (_tabId: number, message: { type?: string }) =>
+        message.type === 'generate-current-page'
+          ? new Promise((resolve, reject) => responses.push({ resolve, reject }))
+          : Promise.resolve({})
+    );
+    await authorizedState(testStorage());
+    const handleMessage = await loadHandler();
+
+    const first = handleMessage(
+      { type: 'p7-generate', retry: false },
+      { id: extensionId } as HandlerSender
+    );
+    const second = handleMessage(
+      { type: 'p7-generate', retry: true },
+      { id: extensionId } as HandlerSender
+    );
+    await vi.waitFor(() => expect(responses).toHaveLength(2));
+    responses[1].reject(new Error('newer failure'));
+    await expect(second).rejects.toThrow('newer failure');
+    responses[0].resolve(validResult);
+    await expect(first).rejects.toThrow('superseded');
+    await expect(
+      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
+    ).resolves.toMatchObject({
+      uiState: 'ERROR',
+      error: 'newer failure',
+      result: null,
+    });
+
+    const third = handleMessage(
+      { type: 'p7-generate', retry: true },
+      { id: extensionId } as HandlerSender
+    );
+    const fourth = handleMessage(
+      { type: 'p7-generate', retry: true },
+      { id: extensionId } as HandlerSender
+    );
+    await vi.waitFor(() => expect(responses).toHaveLength(4));
+    responses[3].resolve(validResult);
+    await expect(fourth).resolves.toEqual(validResult);
+    responses[2].resolve(validResult);
+    await expect(third).rejects.toThrow('superseded');
+    await expect(
+      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
+    ).resolves.toMatchObject({ uiState: 'REVIEW', result: validResult });
+
+    const fifth = handleMessage(
+      { type: 'p7-generate', retry: true },
+      { id: extensionId } as HandlerSender
+    );
+    const sixth = handleMessage(
+      { type: 'p7-generate', retry: true },
+      { id: extensionId } as HandlerSender
+    );
+    await vi.waitFor(() => expect(responses).toHaveLength(6));
+    responses[5].reject(new Error('latest failure'));
+    await expect(sixth).rejects.toThrow('latest failure');
+    responses[4].reject(new Error('older failure'));
+    await expect(fifth).rejects.toThrow('older failure');
+    await expect(
+      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
+    ).resolves.toMatchObject({
+      uiState: 'ERROR',
+      error: 'latest failure',
+      result: null,
+    });
+  });
+
+  it('retires generation when discovery reconciles a changed lifecycle', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    let resolveGeneration!: (value: unknown) => void;
+    chromeApi.tabs.sendMessage.mockImplementation(
+      (_tabId: number, message: { type?: string }) => {
+        if (message.type === 'generate-current-page') {
+          return new Promise((resolve) => {
+            resolveGeneration = resolve;
+          });
+        }
+        return Promise.resolve({
+          status: 'current-state',
+          supported: true,
+          lifecycle: {
+            activePage: {
+              form: {
+                formId: 'form-1',
+                activePageId: 'page-2',
+                questions: [],
+              },
+              questionResults: [],
+              processingCycle: { cycleId: 'cycle-2' },
+            },
+            activeCycle: { cycleId: 'cycle-2' },
+            pending: null,
+            settledPages: [],
+            visits: [{ pageId: 'page-2', cycleId: 'cycle-2', status: 'active' }],
+            navigation: null,
+            documentPathname: '/formResponse',
+          },
+          page: { pageId: 'page-2', questionCount: 0 },
+        });
+      }
+    );
+    await authorizedState(testStorage());
+    const handleMessage = await loadHandler();
+    const generation = handleMessage(
+      { type: 'p7-generate', retry: false },
+      { id: extensionId } as HandlerSender
+    );
+    await vi.waitFor(async () => {
+      await expect(
+        handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
+      ).resolves.toMatchObject({ uiState: 'GENERATING' });
+    });
+
+    await expect(
+      handleMessage(
+        { type: 'p7-discover' },
+        { id: extensionId } as HandlerSender
+      )
+    ).resolves.toMatchObject({
+      uiState: 'READY',
+      page: { pageId: 'page-2' },
+    });
+
+    resolveGeneration(validResult);
+    await expect(generation).rejects.toThrow('superseded');
+    await expect(
+      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
+    ).resolves.toMatchObject({
+      uiState: 'READY',
+      page: { pageId: 'page-2' },
+      result: null,
+      generationOperationId: null,
+    });
+  });
+});
+
 describe('Service Worker current-content discovery reconciliation', () => {
   beforeEach(() => {
     vi.resetModules();

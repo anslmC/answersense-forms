@@ -36,6 +36,7 @@ import {
   SafeServiceWorkerError,
   serviceWorkerErrorResponse,
 } from './ServiceWorkerResponse';
+import { isUiGenerationResult } from '../Popup/State';
 import {
   IntegrationStateStore,
   reconcileContentState,
@@ -448,6 +449,7 @@ export async function handleMessage(
         : (current?.page ?? null),
       uiState: message.reset ? 'READY' : current?.uiState ?? 'READY',
       ...(message.reset ? { result: null, error: null } : {}),
+      ...(message.reset ? { generationOperationId: null } : {}),
     });
     if (message.reset) {
       const snapshot = await stateStore.get(tabId);
@@ -467,6 +469,7 @@ export async function handleMessage(
       page: message.page ?? null,
       result: null,
       error: null,
+      generationOperationId: null,
     });
     void notifyPopup({ type: 'p7-state-updated', snapshot });
     return { status: 'transition-stored', snapshot };
@@ -496,12 +499,13 @@ export async function handleMessage(
         };
       }
       if (response?.lifecycle && response?.page) {
-        const reconciled = reconcileContentState(snapshot, {
+        const latestSnapshot = await stateStore.get(tabId);
+        const reconciled = reconcileContentState(latestSnapshot, {
           lifecycle: response.lifecycle,
           page: response.page,
         } satisfies CurrentContentState);
-        const stored = reconciled === snapshot
-          ? snapshot
+        const stored = reconciled === latestSnapshot
+          ? latestSnapshot
           : await stateStore.set(tabId, reconciled);
         return { supported: true, ...stored };
       }
@@ -530,7 +534,12 @@ export async function handleMessage(
       );
     }
     const tabId = await activeTabId();
-    await stateStore.update(tabId, { uiState: 'GENERATING', error: null });
+    const generationOperationId = crypto.randomUUID();
+    await stateStore.update(tabId, {
+      uiState: 'GENERATING',
+      error: null,
+      generationOperationId,
+    });
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
@@ -538,16 +547,50 @@ export async function handleMessage(
         configurationDigest: resolved.configurationDigest,
         configurationRevision: resolved.authorizationRevision,
       });
-      if (result?.status === 'reused') {
-        await stateStore.update(tabId, { uiState: 'READY', result: null });
+      if (result?.error) {
+        throw new Error(String(result.error));
+      }
+      if (!isUiGenerationResult(result)) {
+        throw new Error('Generation returned an invalid result.');
+      }
+      if ('status' in result && result.status === 'reused') {
+        if (
+          !(await stateStore.updateIfGenerationCurrent(
+            tabId,
+            generationOperationId,
+            {
+              uiState: 'READY',
+              result: null,
+              error: null,
+              generationOperationId: null,
+            }
+          ))
+        ) {
+          throw new Error('Generation operation was superseded.');
+        }
         return result;
       }
-      await stateStore.update(tabId, { uiState: 'REVIEW', result });
+      if (
+        !(await stateStore.updateIfGenerationCurrent(
+          tabId,
+          generationOperationId,
+          {
+            uiState: 'REVIEW',
+            result,
+            error: null,
+            generationOperationId: null,
+          }
+        ))
+      ) {
+        throw new Error('Generation operation was superseded.');
+      }
       return result;
     } catch (error) {
-      await stateStore.update(tabId, {
+      await stateStore.updateIfGenerationCurrent(tabId, generationOperationId, {
         uiState: 'ERROR',
         error: error instanceof Error ? error.message : 'Generation failed.',
+        result: null,
+        generationOperationId: null,
       });
       throw error;
     }

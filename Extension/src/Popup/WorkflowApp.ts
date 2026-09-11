@@ -563,8 +563,9 @@ export function mountAnswerSenseApp(
   }
   primary.addEventListener('click', () => {
     if (!isCurrentValidationValid(configurationState)) return;
+    const retry = controller.state.name === 'REVIEW' || controller.state.name === 'ERROR';
     renderAll(controller.stateMachine.beginGeneration());
-    void controller.generate().then((state) => renderAll(state));
+    void controller.generate(retry).then((state) => renderAll(state));
   });
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;

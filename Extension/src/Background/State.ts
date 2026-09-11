@@ -11,6 +11,7 @@ export interface IntegrationSnapshot {
   page: PageSummary | null;
   result: UiGenerationResult | null;
   error: string | null;
+  generationOperationId?: string | null;
 }
 
 export interface CurrentContentState {
@@ -94,7 +95,10 @@ function isIntegrationSnapshot(value: unknown): value is IntegrationSnapshot {
         Number.isSafeInteger(page.questionCount) &&
         page.questionCount >= 0)) &&
     (value.result === null || isRecord(value.result)) &&
-    (value.error === null || typeof value.error === 'string')
+    (value.error === null || typeof value.error === 'string') &&
+    (value.generationOperationId === undefined ||
+      value.generationOperationId === null ||
+      typeof value.generationOperationId === 'string')
   );
 }
 
@@ -137,6 +141,9 @@ export function reconcileContentState(
     page: content.page,
     result: isCurrent ? current.result : null,
     error: isCurrent ? current.error : null,
+    generationOperationId: isCurrent
+      ? current.generationOperationId ?? null
+      : null,
   };
 }
 
@@ -225,8 +232,25 @@ export class IntegrationStateStore {
       page: null,
       result: null,
       error: null,
+      generationOperationId: null,
     };
     return this.set(tabId, { ...current, ...update });
+  }
+
+  async updateIfGenerationCurrent(
+    tabId: number,
+    generationOperationId: string,
+    update: Partial<IntegrationSnapshot>
+  ): Promise<IntegrationSnapshot | null> {
+    await this.ready;
+    const current = this.snapshots.get(tabId);
+    if (current?.generationOperationId !== generationOperationId) {
+      return null;
+    }
+    const next = { ...current, ...update };
+    this.snapshots.set(tabId, next);
+    await this.persist();
+    return next;
   }
 
   async remove(tabId: number): Promise<void> {

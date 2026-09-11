@@ -5,6 +5,7 @@ import type {
   UiGenerationResult,
   WorkflowSnapshot,
 } from './State';
+import { isUiGenerationResult } from './State';
 
 export interface PopupWorkflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
@@ -57,6 +58,9 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
       });
       if (response?.error) {
         throw new Error(response.error);
+      }
+      if (!isUiGenerationResult(response)) {
+        throw new Error('Generation returned an invalid result.');
       }
       return response as UiGenerationResult;
     },
