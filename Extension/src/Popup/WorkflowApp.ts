@@ -58,13 +58,17 @@ export function mountAnswerSenseApp(
   let selectedSpecificQuestionIds: string[] = [];
 
   const controller = new PopupController(createBrowserPopupWorkflow());
+  let primaryAction: HTMLButtonElement | null = null;
+  let primaryActionContainer: HTMLElement | null = null;
 
   function renderGeneration(state: UiState): void {
     const status = element<HTMLElement>('[data-status]');
     const detail = element<HTMLElement>('[data-detail]');
     const message = element<HTMLElement>('[data-message]');
     const results = element<HTMLElement>('[data-results]');
-    const primary = element<HTMLButtonElement>('[data-primary-action]');
+    const primary =
+      primaryAction ?? element<HTMLButtonElement>('[data-primary-action]');
+    const filledStatus = element<HTMLElement>('[data-filled-status]');
     const progress = element<HTMLElement>('[data-workflow-progress]');
     const progressBar = element<HTMLElement>('[data-workflow-progress-bar]');
     const progressText = element<HTMLElement>('[data-workflow-progress-text]');
@@ -76,12 +80,15 @@ export function mountAnswerSenseApp(
       !message ||
       !results ||
       !primary ||
+      !filledStatus ||
       !progress ||
       !progressBar ||
       !progressText ||
       !progressFill
     )
       return;
+    primaryAction = primary;
+    primaryActionContainer ??= primary.parentElement;
 
     if (overlayPanel) {
       overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');
@@ -99,7 +106,15 @@ export function mountAnswerSenseApp(
     results.replaceChildren();
     results.hidden = true;
     message.hidden = true;
-    primary.hidden = false;
+    filledStatus.textContent = 'Filled';
+    filledStatus.classList.remove('is-settled');
+    if (state.name === 'REVIEW') {
+      primary.remove();
+    } else {
+      primaryActionContainer?.insertBefore(primary, filledStatus);
+      primary.hidden = false;
+    }
+    filledStatus.hidden = true;
     progress.hidden = true;
     progress.classList.remove('is-processing', 'is-complete', 'is-partial', 'is-error');
     progressText.textContent = '';
@@ -144,8 +159,9 @@ export function mountAnswerSenseApp(
       if ('status' in state.result) {
         status.textContent = 'Answers already settled';
         detail.textContent = `Reused answers for page ${state.result.pageId}.`;
-        primary.textContent = 'Already settled';
-        primary.disabled = true;
+        filledStatus.textContent = 'Page Answers already settled';
+        filledStatus.classList.add('is-settled');
+        filledStatus.hidden = false;
         return;
       }
       progress.hidden = false;
@@ -160,6 +176,7 @@ export function mountAnswerSenseApp(
           ? 'Review the values in Google Forms before continuing.'
           : 'Review answers before clicking Next in Google Forms.';
       primary.hidden = true;
+      filledStatus.hidden = false;
       const outcomes = state.result.fillReport.outcomes;
       const filledCount = outcomes.filter(
         ({ status }) => status === 'FILLED'

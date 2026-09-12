@@ -454,7 +454,8 @@ select {
   align-self: flex-start;
 }
 
-button {
+button,
+[data-filled-status].is-settled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -470,6 +471,10 @@ button {
   font: inherit;
   font-size: 12px;
   font-weight: 600;
+}
+
+[data-filled-status].is-settled {
+  cursor: default;
 }
 
 button:disabled {

@@ -122,7 +122,7 @@ async function resynchronizeCurrentPage(): Promise<void> {
     throw new Error('Active page could not be discovered for refresh.');
   }
   ensureLifecycle(discovered).resynchronizeCurrentPage(discovered);
-  await publishLifecycleSnapshot();
+  await publishResetSnapshot();
 }
 
 async function synchronizeCurrentPage(): Promise<
@@ -466,7 +466,6 @@ async function handleRequest(request: {
       }).__answersenseSkipDiagnostics = skipDiagnostics;
     }
     await publishLifecycleSnapshot();
-    overlayHandle?.refresh();
     return { report, fillReport };
   }
 

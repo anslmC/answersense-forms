@@ -197,6 +197,7 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <button type="button" data-primary-action hidden>
             Generate &amp; Auto-Fill
           </button>
+          <span data-filled-status hidden>Filled</span>
           <button type="button" class="secondary" data-force-clear>
             Force Unsettle All
           </button>

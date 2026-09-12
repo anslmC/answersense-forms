@@ -41,7 +41,15 @@ const configurationState = {
 
 const generationResult = {
   report: { cycleId: 'cycle-1', status: 'complete' as const, results: [] },
-  fillReport: { cycleId: 'cycle-1', outcomes: [] },
+  fillReport: {
+    cycleId: 'cycle-1',
+    outcomes: [
+      { questionId: 'question-1', status: 'FILLED' as const },
+      { questionId: 'question-2', status: 'FILLED' as const },
+      { questionId: 'question-3', status: 'FILLED' as const },
+      { questionId: 'question-4', status: 'FILLED' as const },
+    ],
+  },
 };
 
 let resolveGeneration!: (result: typeof generationResult) => void;
@@ -112,6 +120,9 @@ describe('live Overlay generation workflow', () => {
     const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
     const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
     const status = () => shadowRoot?.querySelector<HTMLElement>('[data-status]');
+    const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+    const filledStatus = () => shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
+    const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
 
     await vi.waitFor(() => {
       expect(primary()?.hidden).toBe(false);
@@ -131,18 +142,41 @@ describe('live Overlay generation workflow', () => {
     resolveGeneration(generationResult);
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Review answers');
-      expect(primary()?.hidden).toBe(true);
+      expect(primary()).toBeNull();
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
+      expect(resultSummary()?.hidden).not.toBe(true);
+      expect(resultSummary()?.textContent).toBe('4 filled · 0 failed · 0 skipped');
+      expect(filledStatus()?.hidden).toBe(false);
+      expect(filledStatus()?.textContent).toBe('Filled');
+      expect(filledStatus()?.tagName).toBe('SPAN');
+      expect(filledStatus()?.classList.contains('is-settled')).toBe(false);
+      expect(forceClear()?.tagName).toBe('BUTTON');
+      expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle All');
+      expect(forceClear()?.hidden).toBe(false);
+      expect(
+        [...(shadowRoot?.querySelectorAll('button') ?? [])].some(
+          (button) => button.textContent?.includes('Generating...')
+        )
+      ).toBe(false);
+      expect(
+        [...(shadowRoot?.querySelectorAll('button') ?? [])].some(
+          (button) => button.textContent?.includes('Generate & Auto-Fill')
+        )
+      ).toBe(false);
     });
-    expect(shadowRoot?.querySelector('[data-primary-action]')?.textContent).not.toContain(
-      'Regenerate'
-    );
+    expect(shadowRoot?.querySelector('button[data-filled-status]')).toBeNull();
+    expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
+    expect(
+      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
+    ).toHaveLength(1);
 
     shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Ready to generate');
       expect(primary()?.textContent).toBe('Generate & Auto-Fill');
       expect(primary()?.hidden).toBe(false);
+      expect(resultSummary()).toBeNull();
+      expect(filledStatus()?.hidden).toBe(true);
     });
     expect(
       sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
@@ -152,7 +186,7 @@ describe('live Overlay generation workflow', () => {
     primary()?.click();
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Review answers');
-      expect(primary()?.hidden).toBe(true);
+      expect(primary()).toBeNull();
     });
     expect(generationCount).toBe(2);
 
@@ -167,9 +201,51 @@ describe('live Overlay generation workflow', () => {
     primary()?.click();
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Review answers');
-      expect(primary()?.hidden).toBe(true);
+      expect(primary()).toBeNull();
     });
     expect(generationCount).toBe(3);
+  });
+
+  it('renders reused answers as a non-interactive settled status', async () => {
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') {
+        return { status: 'reused' as const, pageId: 'page-1' };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const settledStatus = () => shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
+
+    await vi.waitFor(() => expect(primary()?.textContent).toBe('Generate & Auto-Fill'));
+    primary()?.click();
+    await vi.waitFor(() => {
+      expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
+      expect(settledStatus()?.textContent).toBe('Page Answers already settled');
+      expect(settledStatus()?.hidden).toBe(false);
+      expect(settledStatus()?.tagName).toBe('SPAN');
+      expect(settledStatus()?.classList.contains('is-settled')).toBe(true);
+      expect(shadowRoot?.querySelector('button[data-filled-status]')).toBeNull();
+      const forceClear = shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+      expect(forceClear?.tagName).toBe('BUTTON');
+      expect(forceClear?.textContent?.trim()).toBe('Force Unsettle All');
+      expect(forceClear?.hidden).toBe(false);
+    });
   });
 
 });
