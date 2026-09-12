@@ -321,35 +321,6 @@ describe('Service Worker Generate terminal projection', () => {
     expect(authorized.resolved.configurationDigest).toBeTruthy();
   });
 
-  it('rejects an ordinary duplicate after REVIEW without contacting content', async () => {
-    const { handleMessage, state } = await prepareGenerationResponse(validResult);
-    const request = { type: 'p7-generate', retry: false };
-    const uiSender = { id: extensionId } as HandlerSender;
-
-    await expect(handleMessage(request, uiSender)).resolves.toEqual(validResult);
-    const chromeApi = (globalThis as typeof globalThis & {
-      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
-    }).chrome;
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(1);
-
-    await expect(handleMessage(request, uiSender)).rejects.toMatchObject({
-      code: 'GENERATION_ALREADY_COMPLETED',
-      message: 'Generation already completed for the current page.',
-    });
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(1);
-    expect(state.sessionValues).toEqual(
-      expect.objectContaining({
-        answerSenseIntegrationState: expect.objectContaining({
-          [activeTabId]: expect.objectContaining({
-            uiState: 'REVIEW',
-            result: validResult,
-            generationOperationId: null,
-          }),
-        }),
-      })
-    );
-  });
-
   it('allows explicit Regenerate from REVIEW', async () => {
     const { handleMessage } = await prepareGenerationResponse(validResult);
     const uiSender = { id: extensionId } as HandlerSender;
@@ -389,7 +360,7 @@ describe('Service Worker Generate terminal projection', () => {
     await expect(
       handleMessage({ type: 'p7-generate', retry: false }, uiSender)
     ).resolves.toEqual(validResult);
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(3);
   });
 
   it('allows Generate after discovery reconciles a changed revisit cycle', async () => {
@@ -432,7 +403,7 @@ describe('Service Worker Generate terminal projection', () => {
     await expect(
       handleMessage({ type: 'p7-generate', retry: false }, uiSender)
     ).resolves.toEqual(validResult);
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(3);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(5);
   });
 
   it('allows Generate after Force Unsettle All reset state is published', async () => {
@@ -457,7 +428,7 @@ describe('Service Worker Generate terminal projection', () => {
     await expect(
       handleMessage({ type: 'p7-generate', retry: false }, uiSender)
     ).resolves.toEqual(validResult);
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(3);
   });
 
   it.each([
@@ -485,7 +456,7 @@ describe('Service Worker Generate terminal projection', () => {
     );
   });
 
-  it('does not let an older error overwrite a newer successful operation', async () => {
+  it('preserves the first operation when an overlapping request is rejected', async () => {
     const state: ChromeTestState = { values: {}, queryCount: 0 };
     installChrome(state);
     const chromeApi = (globalThis as typeof globalThis & {
@@ -514,13 +485,16 @@ describe('Service Worker Generate terminal projection', () => {
     const second = handleMessage(
       { type: 'p7-generate', retry: true },
       { id: extensionId } as HandlerSender
+    ).then(
+      () => null,
+      (error: unknown) => error
     );
-    await vi.waitFor(() => expect(responses).toHaveLength(2));
-
-    responses[1].resolve(validResult);
-    await expect(second).resolves.toEqual(validResult);
-    responses[0].reject(new Error('stale generation'));
-    await expect(first).rejects.toThrow('stale generation');
+    await vi.waitFor(() => expect(responses).toHaveLength(1));
+    await expect(second).resolves.toMatchObject({
+      code: 'GENERATION_IN_PROGRESS',
+    });
+    responses[0].resolve(validResult);
+    await expect(first).resolves.toEqual(validResult);
 
     await expect(
       handleMessage(
@@ -534,7 +508,7 @@ describe('Service Worker Generate terminal projection', () => {
     });
   });
 
-  it('keeps the newer terminal state when older success or error completes later', async () => {
+  it('rejects overlapping Generate and Regenerate before a second provider call', async () => {
     const state: ChromeTestState = { values: {}, queryCount: 0 };
     installChrome(state);
     const chromeApi = (globalThis as typeof globalThis & {
@@ -554,63 +528,31 @@ describe('Service Worker Generate terminal projection', () => {
     const handleMessage = await loadHandler();
 
     const first = handleMessage(
-      { type: 'p7-generate', retry: false },
-      { id: extensionId } as HandlerSender
-    );
+        { type: 'p7-generate', retry: false },
+        { id: extensionId } as HandlerSender
+      );
     const second = handleMessage(
-      { type: 'p7-generate', retry: true },
-      { id: extensionId } as HandlerSender
-    );
-    await vi.waitFor(() => expect(responses).toHaveLength(2));
-    responses[1].reject(new Error('newer failure'));
-    await expect(second).rejects.toThrow('newer failure');
+        { type: 'p7-generate', retry: true },
+        { id: extensionId } as HandlerSender
+      ).then(
+        () => null,
+        (error: unknown) => error
+      );
+    await vi.waitFor(() => expect(responses).toHaveLength(1));
+    await expect(second).resolves.toMatchObject({
+      code: 'GENERATION_IN_PROGRESS',
+    });
     responses[0].resolve(validResult);
-    await expect(first).rejects.toThrow('superseded');
+    await expect(first).resolves.toEqual(validResult);
     await expect(
       handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
     ).resolves.toMatchObject({
-      uiState: 'ERROR',
-      error: 'newer failure',
-      result: null,
+      uiState: 'REVIEW',
+      result: validResult,
+      generationOperationId: null,
     });
 
-    const third = handleMessage(
-      { type: 'p7-generate', retry: true },
-      { id: extensionId } as HandlerSender
-    );
-    const fourth = handleMessage(
-      { type: 'p7-generate', retry: true },
-      { id: extensionId } as HandlerSender
-    );
-    await vi.waitFor(() => expect(responses).toHaveLength(4));
-    responses[3].resolve(validResult);
-    await expect(fourth).resolves.toEqual(validResult);
-    responses[2].resolve(validResult);
-    await expect(third).rejects.toThrow('superseded');
-    await expect(
-      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
-    ).resolves.toMatchObject({ uiState: 'REVIEW', result: validResult });
-
-    const fifth = handleMessage(
-      { type: 'p7-generate', retry: true },
-      { id: extensionId } as HandlerSender
-    );
-    const sixth = handleMessage(
-      { type: 'p7-generate', retry: true },
-      { id: extensionId } as HandlerSender
-    );
-    await vi.waitFor(() => expect(responses).toHaveLength(6));
-    responses[5].reject(new Error('latest failure'));
-    await expect(sixth).rejects.toThrow('latest failure');
-    responses[4].reject(new Error('older failure'));
-    await expect(fifth).rejects.toThrow('older failure');
-    await expect(
-      handleMessage({ type: 'get-lifecycle-snapshot' }, sender(activeTabId))
-    ).resolves.toMatchObject({
-      uiState: 'ERROR',
-      error: 'latest failure',
-      result: null,
-    });
+    expect(responses).toHaveLength(1);
   });
 
   it('retires generation when discovery reconciles a changed lifecycle', async () => {

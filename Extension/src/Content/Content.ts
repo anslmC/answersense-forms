@@ -113,6 +113,21 @@ async function resynchronizeCurrentPage(): Promise<void> {
   await publishLifecycleSnapshot();
 }
 
+async function synchronizeCurrentPage(): Promise<
+  'unchanged' | 'resynchronized' | 'pending'
+> {
+  const discovered = discoverPage();
+  if (!discovered) {
+    throw new Error('Active page could not be discovered for generation.');
+  }
+  const pageLifecycle = ensureLifecycle(discovered);
+  const synchronization = pageLifecycle.synchronizeCurrentPage(discovered);
+  if (synchronization === 'resynchronized') {
+    await publishResetSnapshot();
+  }
+  return synchronization;
+}
+
 function publishTransition(
   page: ReturnType<PageLifecycle['confirmTransition']>
 ): Promise<void> {
@@ -259,7 +274,7 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
         transition
       );
       if (transition === 'reload') {
-        await publishLifecycleSnapshot();
+        await publishResetSnapshot();
       } else {
         await publishTransition(reconciled);
       }
@@ -348,14 +363,17 @@ async function handleRequest(request: {
       return { status: 'no-active-page', supported: true };
     }
     await hydrateLifecycle(page);
+    const synchronization = await synchronizeCurrentPage();
+    const currentPage = ensureLifecycle().currentPage;
     return {
       status: 'current-state',
+      synchronized: synchronization !== 'pending',
       supported: true,
       lifecycle: lifecycle?.getSnapshot(window.location.pathname) ?? null,
       publicationError: lifecyclePublicationError,
       page: {
-        pageId: page.pageId,
-        questionCount: page.questions.length,
+        pageId: currentPage.form.activePageId,
+        questionCount: currentPage.form.questions.length,
       },
     };
   }
@@ -367,6 +385,13 @@ async function handleRequest(request: {
       request.configurationRevision === undefined
     ) {
       throw new Error('Generation configuration is missing.');
+    }
+    const synchronization = await synchronizeCurrentPage();
+    if (synchronization === 'pending') {
+      throw new Error('Generation is unavailable while page transition is pending.');
+    }
+    if (synchronization === 'resynchronized') {
+      throw new Error('Generation requires a synchronized current page.');
     }
     const pageLifecycle = ensureLifecycle();
     if (request.retry === true) {

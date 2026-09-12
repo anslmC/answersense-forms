@@ -192,6 +192,22 @@ describe('P7 worker integration state', () => {
     });
   });
 
+  it('serializes concurrent generation claims so only one operation owns the tab', async () => {
+    const store = new IntegrationStateStore();
+
+    const claims = await Promise.all([
+      store.tryClaimGeneration(7, 'operation-1'),
+      store.tryClaimGeneration(7, 'operation-2'),
+    ]);
+
+    expect(claims.filter((claim) => claim.status === 'claimed')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.status === 'in-progress')).toHaveLength(1);
+    await expect(store.get(7)).resolves.toMatchObject({
+      uiState: 'GENERATING',
+      generationOperationId: expect.stringMatching(/^operation-[12]$/),
+    });
+  });
+
   it('prefers a current content page over a stale worker page', () => {
     const stale = {
       lifecycle: lifecycle('entry:0-3', 'cycle-1', '/viewform'),

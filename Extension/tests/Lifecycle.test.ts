@@ -217,6 +217,32 @@ describe('P5 page lifecycle', () => {
     ]);
   });
 
+  it('keeps current identity when synchronized and replaces same-page changed identity', () => {
+    const lifecycle = createLifecycle();
+    const samePage = discoveredPage('page-1', 0, 3, 'name');
+    expect(lifecycle.synchronizeCurrentPage(samePage)).toBe('unchanged');
+    const cycleBeforeChange = lifecycle.currentCycle.cycleId;
+
+    expect(lifecycle.synchronizeCurrentPage(
+      discoveredPage('page-1', 0, 3, 'changed-question')
+    )).toBe('resynchronized');
+    expect(lifecycle.currentPage.form.questions[0]?.id).toBe(
+      'changed-question'
+    );
+    expect(lifecycle.currentCycle.cycleId).not.toBe(cycleBeforeChange);
+  });
+
+  it('rejects generation admission while Next is pending on the outgoing page', () => {
+    const lifecycle = createLifecycle();
+    const outgoingDocument = createDocument();
+    lifecycle.beginNext(outgoingDocument);
+
+    expect(lifecycle.synchronizeCurrentPage(
+      discoveredPage('page-1', 0, 3, 'name')
+    )).toBe('pending');
+    expect(lifecycle.currentPage.form.activePageId).toBe('page-1');
+  });
+
   it('leaves the current page unchanged when synchronization cannot normalize input', () => {
     const lifecycle = createLifecycle();
     const before = lifecycle.currentPage;

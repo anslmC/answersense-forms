@@ -266,6 +266,27 @@ export class PageLifecycle {
     return this.activePage;
   }
 
+  synchronizeCurrentPage(
+    discovered: DiscoveredPage
+  ): 'unchanged' | 'resynchronized' | 'pending' {
+    if (this.navigation) {
+      return 'pending';
+    }
+    const normalizedPage = normalizeDiscoveredActivePage(discovered);
+    const currentForm = this.activePage.form;
+    const currentFingerprint =
+      currentForm.pageFingerprint ?? computePageFingerprint(currentForm);
+    const sameIdentity =
+      currentForm.formId === normalizedPage.form.formId &&
+      currentForm.activePageId === normalizedPage.form.activePageId &&
+      currentFingerprint === normalizedPage.form.pageFingerprint;
+    if (sameIdentity) {
+      return 'unchanged';
+    }
+    this.resynchronizeCurrentPage(discovered);
+    return 'resynchronized';
+  }
+
   handlePreviousOrBack(document: Document): NormalizedActivePage | null {
     const activePage = confirmPageTransition(document, {
       oldPageId: this.activePage.form.activePageId,

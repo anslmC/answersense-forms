@@ -532,15 +532,27 @@ export async function handleMessage(
     }
     const tabId = await activeTabId();
     const currentSnapshot = await stateStore.get(tabId);
-    if (
-      message.retry !== true &&
-      currentSnapshot?.uiState === 'REVIEW' &&
-      isUiGenerationResult(currentSnapshot.result)
-    ) {
-      throw new SafeServiceWorkerError(
-        'GENERATION_ALREADY_COMPLETED',
-        'Generation already completed for the current page.'
-      );
+    if (currentSnapshot?.lifecycle) {
+      let currentContentState: unknown;
+      try {
+        currentContentState = await chrome.tabs.sendMessage(tabId, {
+          type: 'get-current-state',
+        });
+      } catch {
+        throw new SafeServiceWorkerError(
+          'GENERATION_PAGE_NOT_SYNCHRONIZED',
+          'The current page is not synchronized for generation.'
+        );
+      }
+      if (
+        !currentContentState ||
+        (currentContentState as { synchronized?: unknown }).synchronized === false
+      ) {
+        throw new SafeServiceWorkerError(
+          'GENERATION_PAGE_NOT_SYNCHRONIZED',
+          'The current page is not synchronized for generation.'
+        );
+      }
     }
     let resolved;
     try {
@@ -556,11 +568,16 @@ export async function handleMessage(
       );
     }
     const generationOperationId = crypto.randomUUID();
-    await stateStore.update(tabId, {
-      uiState: 'GENERATING',
-      error: null,
-      generationOperationId,
-    });
+    const admission = await stateStore.tryClaimGeneration(
+      tabId,
+      generationOperationId
+    );
+    if (admission.status === 'in-progress') {
+      throw new SafeServiceWorkerError(
+        'GENERATION_IN_PROGRESS',
+        'Generation is already in progress for the current page.'
+      );
+    }
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',

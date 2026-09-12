@@ -19,6 +19,10 @@ export interface CurrentContentState {
   page: PageSummary | null;
 }
 
+export type GenerationAdmissionResult =
+  | { status: 'claimed'; snapshot: IntegrationSnapshot }
+  | { status: 'in-progress' };
+
 export const INTEGRATION_STATE_STORAGE_KEY = 'answerSenseIntegrationState';
 
 interface SessionStorageArea {
@@ -151,6 +155,7 @@ export class IntegrationStateStore {
   private readonly snapshots = new Map<number, IntegrationSnapshot>();
   private readonly ready: Promise<void>;
   private writeQueue = Promise.resolve();
+  private generationClaimQueue = Promise.resolve();
 
   constructor(private readonly storage?: SessionStorageArea) {
     this.ready = this.hydrate();
@@ -251,6 +256,44 @@ export class IntegrationStateStore {
     this.snapshots.set(tabId, next);
     await this.persist();
     return next;
+  }
+
+  async tryClaimGeneration(
+    tabId: number,
+    generationOperationId: string
+  ): Promise<GenerationAdmissionResult> {
+    const claim = this.generationClaimQueue.then(() =>
+      this.claimGeneration(tabId, generationOperationId)
+    );
+    this.generationClaimQueue = claim.then(
+      () => undefined,
+      () => undefined
+    );
+    return claim;
+  }
+
+  private async claimGeneration(
+    tabId: number,
+    generationOperationId: string
+  ): Promise<GenerationAdmissionResult> {
+    await this.ready;
+    const current = this.snapshots.get(tabId);
+    if (current?.generationOperationId) {
+      return { status: 'in-progress' };
+    }
+    const next = await this.set(tabId, {
+      ...(current ?? {
+        lifecycle: null,
+        uiState: 'UNSUPPORTED' as const,
+        page: null,
+        result: null,
+        error: null,
+      }),
+      uiState: 'GENERATING',
+      error: null,
+      generationOperationId,
+    });
+    return { status: 'claimed', snapshot: next };
   }
 
   async remove(tabId: number): Promise<void> {

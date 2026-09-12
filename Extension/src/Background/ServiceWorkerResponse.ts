@@ -9,7 +9,8 @@ export class SafeServiceWorkerError extends Error {
       | SafeProviderErrorCode
       | 'CONFIGURATION_NOT_AUTHORIZED'
       | 'CONFIGURATION_STALE'
-      | 'GENERATION_ALREADY_COMPLETED'
+      | 'GENERATION_IN_PROGRESS'
+      | 'GENERATION_PAGE_NOT_SYNCHRONIZED'
       | 'UNAUTHORIZED_SENDER',
     message: string
   ) {
