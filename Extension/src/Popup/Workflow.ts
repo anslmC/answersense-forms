@@ -5,6 +5,7 @@ import type {
   UiGenerationResult,
   WorkflowSnapshot,
 } from './State';
+import type { PopupQuestion } from './State';
 import { isUiGenerationResult } from './State';
 
 export interface PopupWorkflow {
@@ -21,6 +22,9 @@ interface DiscoveryResponse {
 
 interface SnapshotResponse extends WorkflowSnapshot {
   supported: boolean;
+  lifecycle?: {
+    activePage?: { form?: { questions?: PopupQuestion[] } };
+  };
 }
 
 export function createBrowserPopupWorkflow(): PopupWorkflow {
@@ -41,7 +45,12 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
         const snapshot = response as unknown as SnapshotResponse;
         return {
           uiState: snapshot.uiState,
-          page: snapshot.page,
+          page: snapshot.page
+            ? {
+                ...snapshot.page,
+                questions: snapshot.lifecycle?.activePage?.form?.questions,
+              }
+            : null,
           result: snapshot.result ?? null,
           error: snapshot.error ?? null,
         };

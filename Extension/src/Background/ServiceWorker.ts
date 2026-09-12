@@ -22,6 +22,7 @@ import {
 } from '../Generation/ProviderRegistry';
 import { configurationIdentity } from '../Generation/Credentials';
 import type { GenerationRequest } from '../Generation/Contract';
+import type { GenerationIntent } from '../Generation/Intent';
 import {
   resolveActiveProviderConfiguration,
   resolveAuthorizedProviderConfiguration,
@@ -63,6 +64,7 @@ interface WorkerMessage {
   label?: unknown;
   secret?: unknown;
   providerConfig?: unknown;
+  intent?: GenerationIntent;
 }
 
 const stateStore = new IntegrationStateStore(chrome.storage.session);
@@ -554,6 +556,28 @@ export async function handleMessage(
         );
       }
     }
+    if (message.intent !== undefined) {
+      let preflight: unknown;
+      try {
+        preflight = await chrome.tabs.sendMessage(tabId, {
+          type: 'preflight-generation',
+          intent: message.intent,
+        });
+      } catch (error) {
+        throw new SafeServiceWorkerError(
+          'GENERATION_PAGE_NOT_SYNCHRONIZED',
+          error instanceof Error
+            ? error.message
+            : 'Override selection could not be validated.'
+        );
+      }
+      if (!preflight || (preflight as { status?: unknown }).status !== 'valid') {
+        throw new SafeServiceWorkerError(
+          'GENERATION_PAGE_NOT_SYNCHRONIZED',
+          'Override selection could not be validated.'
+        );
+      }
+    }
     let resolved;
     try {
       resolved = await resolveAuthorizedProviderConfiguration();
@@ -582,6 +606,7 @@ export async function handleMessage(
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
         retry: message.retry === true,
+        intent: message.intent,
         configurationDigest: resolved.configurationDigest,
         configurationRevision: resolved.authorizationRevision,
       });

@@ -1,5 +1,6 @@
 import type { GenerationReport } from '../Generation/Report';
 import type { FillReport } from '../Fill/Filler';
+import { createOverrideFilledIntent, type GenerationIntent } from '../Generation/Intent';
 
 export type UiStateName =
   | 'UNSUPPORTED'
@@ -11,6 +12,49 @@ export type UiStateName =
 export interface PageSummary {
   pageId: string;
   questionCount: number;
+  questions?: readonly PopupQuestion[];
+}
+
+export interface PopupQuestion {
+  id: string | null;
+  text: string | null;
+  type: string | null;
+  supported: boolean;
+  existingInput: { hasValue: boolean } | null;
+}
+
+export function filledSupportedQuestions(
+  page: PageSummary
+): readonly PopupQuestion[] {
+  return (page.questions ?? []).filter(
+    (question) =>
+      question.supported &&
+      question.id !== null &&
+      question.id.trim() !== '' &&
+      question.text !== null &&
+      question.text.trim() !== '' &&
+      question.type !== null &&
+      question.existingInput?.hasValue === true
+  );
+}
+
+export function overrideQuestionLabel(
+  question: PopupQuestion,
+  position: number
+): string {
+  return `Q${position + 1} — ${question.text}`;
+}
+
+export function createAllOverrideIntent(page: PageSummary): GenerationIntent {
+  return createOverrideFilledIntent(
+    filledSupportedQuestions(page).map((question) => question.id as string)
+  );
+}
+
+export function createSpecificOverrideIntent(
+  questionIds: readonly string[]
+): GenerationIntent {
+  return createOverrideFilledIntent(questionIds);
 }
 
 export interface GeneratedUiResult {
@@ -123,19 +167,31 @@ export class PopupStateMachine {
 
   restore(snapshot: WorkflowSnapshot): UiState {
     this.operationToken += 1;
+    const currentPage = this.current.name === 'UNSUPPORTED'
+      ? null
+      : this.current.page;
+    const page = snapshot.page
+      ? {
+          ...snapshot.page,
+          questions: snapshot.page.questions ??
+            (currentPage?.pageId === snapshot.page.pageId
+              ? currentPage.questions
+              : undefined),
+        }
+      : null;
     const normalizedUiState =
       (snapshot.uiState as string) === 'READY_FOR_NEXT'
         ? 'READY'
         : snapshot.uiState;
 
-    if (normalizedUiState === 'UNSUPPORTED' || !snapshot.page) {
+    if (normalizedUiState === 'UNSUPPORTED' || !page) {
       this.current = unsupportedState();
     } else if (normalizedUiState === 'GENERATING') {
-      this.current = { name: 'GENERATING', page: snapshot.page };
+      this.current = { name: 'GENERATING', page };
     } else if (normalizedUiState === 'ERROR') {
       this.current = {
         name: 'ERROR',
-        page: snapshot.page,
+        page,
         message: snapshot.error ?? 'Generation failed.',
       };
     } else if (
@@ -144,17 +200,17 @@ export class PopupStateMachine {
     ) {
       this.current = {
         name: 'REVIEW',
-        page: snapshot.page,
+        page,
         result: snapshot.result,
       };
     } else if (normalizedUiState === 'REVIEW') {
       this.current = {
         name: 'ERROR',
-        page: snapshot.page,
+        page,
         message: 'Generation returned an invalid result.',
       };
     } else {
-      this.current = readyState(snapshot.page);
+      this.current = readyState(page);
     }
     return this.current;
   }

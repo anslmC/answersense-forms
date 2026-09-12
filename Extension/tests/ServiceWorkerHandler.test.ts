@@ -321,6 +321,46 @@ describe('Service Worker Generate terminal projection', () => {
     expect(authorized.resolved.configurationDigest).toBeTruthy();
   });
 
+  it('rejects Override during Content pre-flight before claiming generation', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    chromeApi.tabs.sendMessage.mockRejectedValue(
+      new Error('Override selection is invalid: disappeared')
+    );
+    await authorizedState(testStorage());
+    const handleMessage = await loadHandler();
+
+    await expect(
+      handleMessage(
+        {
+          type: 'p7-generate',
+          retry: false,
+          intent: {
+            type: 'OVERRIDE_FILLED',
+            selectedQuestionIds: ['disappeared'],
+          },
+        },
+        { id: extensionId } as HandlerSender
+      )
+    ).rejects.toMatchObject({ code: 'GENERATION_PAGE_NOT_SYNCHRONIZED' });
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(activeTabId, {
+      type: 'preflight-generation',
+      intent: {
+        type: 'OVERRIDE_FILLED',
+        selectedQuestionIds: ['disappeared'],
+      },
+    });
+    expect(
+      chromeApi.tabs.sendMessage.mock.calls.some(
+        ([, message]) => message.type === 'generate-current-page'
+      )
+    ).toBe(false);
+    expect(state.sessionValues).toBeUndefined();
+  });
+
   it('allows explicit Regenerate from REVIEW', async () => {
     const { handleMessage } = await prepareGenerationResponse(validResult);
     const uiSender = { id: extensionId } as HandlerSender;

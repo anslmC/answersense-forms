@@ -27,6 +27,11 @@ import type {
   GenerationRequest,
   GenerationResponse,
 } from '../Generation/Contract';
+import {
+  assertValidOverrideSelection,
+  parseGenerationIntent,
+  type GenerationIntent,
+} from '../Generation/Intent';
 import type { DiscoveredPage } from '../Forms/Discovery';
 
 log(`${EXTENSION_NAME} content script initialized.`);
@@ -322,6 +327,7 @@ async function handleRequest(request: {
   retry?: boolean;
   configurationDigest?: string;
   configurationRevision?: number;
+  intent?: unknown;
 }): Promise<unknown> {
   if (request.type === 'toggle-overlay') {
     if (!supportedPage || !document.body) {
@@ -378,6 +384,23 @@ async function handleRequest(request: {
     };
   }
 
+  if (request.type === 'preflight-generation') {
+    await hydration;
+    if (!supportedPage) {
+      throw new Error('Override generation is unavailable on this page.');
+    }
+    const synchronization = await synchronizeCurrentPage();
+    if (synchronization === 'pending') {
+      throw new Error('Generation is unavailable while page transition is pending.');
+    }
+    if (synchronization === 'resynchronized') {
+      throw new Error('Override generation requires a synchronized current page.');
+    }
+    const intent = parseGenerationIntent(request.intent);
+    assertValidOverrideSelection(ensureLifecycle().currentPage, intent);
+    return { status: 'valid' };
+  }
+
   if (request.type === 'generate-current-page') {
     await hydration;
     if (
@@ -394,6 +417,10 @@ async function handleRequest(request: {
       throw new Error('Generation requires a synchronized current page.');
     }
     const pageLifecycle = ensureLifecycle();
+    const intent: GenerationIntent = request.intent
+      ? parseGenerationIntent(request.intent)
+      : { type: 'GENERATE_UNANSWERED' };
+    assertValidOverrideSelection(pageLifecycle.currentPage, intent);
     if (request.retry === true) {
       pageLifecycle.retryGeneration();
       await publishLifecycleSnapshot();
@@ -411,7 +438,8 @@ async function handleRequest(request: {
         request.configurationDigest,
         request.configurationRevision
       ),
-      pageLifecycle.currentCycle
+      pageLifecycle.currentCycle,
+      intent
     );
     if (!report) {
       throw new Error('Generation response was stale or invalidated.');

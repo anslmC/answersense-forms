@@ -6,19 +6,31 @@ import type {
 import type { GenerationInterface, GenerationRequest } from './Contract';
 import { buildSettledContext, type SettledPageState } from './Context';
 import { createProcessingCycle, isCurrentCycle } from './Cycle';
+import {
+  GENERATE_UNANSWERED,
+  type GenerationIntent,
+} from './Intent';
 import { createGenerationReport, type GenerationReport } from './Report';
 import { validateGenerationResponse } from './Validation';
 
 export function selectGenerationCandidates(
-  page: NormalizedActivePage
+  page: NormalizedActivePage,
+  intent: GenerationIntent = GENERATE_UNANSWERED
 ): Question[] {
+  const selectedQuestionIds =
+    intent.type === 'OVERRIDE_FILLED'
+      ? new Set(intent.selectedQuestionIds)
+      : null;
   return page.form.questions.filter(
     (question) =>
       question.supported &&
       question.id !== null &&
       question.text !== null &&
       question.type !== null &&
-      question.existingInput?.hasValue !== true
+      (selectedQuestionIds === null
+        ? question.existingInput?.hasValue !== true
+        : selectedQuestionIds.has(question.id) &&
+          question.existingInput?.hasValue === true)
   );
 }
 
@@ -92,14 +104,24 @@ export class GenerationCoordinator {
     page: NormalizedActivePage,
     settledPages: readonly SettledPageState[],
     generator: GenerationInterface,
-    preparedCycle?: { cycleId: string }
+    preparedCycle?: { cycleId: string },
+    intent: GenerationIntent = GENERATE_UNANSWERED
   ): Promise<GenerationReport | null> {
     const cycle = preparedCycle ?? this.beginCycle();
     if (this.currentCycleId !== cycle.cycleId) {
       return null;
     }
     const generationToken = this.generationToken;
-    const candidates = selectGenerationCandidates(page);
+    const frozenIntent: GenerationIntent =
+      intent.type === 'OVERRIDE_FILLED'
+        ? {
+            type: 'OVERRIDE_FILLED',
+            selectedQuestionIds: Object.freeze([
+              ...intent.selectedQuestionIds,
+            ]),
+          }
+        : intent;
+    const candidates = selectGenerationCandidates(page, frozenIntent);
     if (candidates.length === 0) {
       return createGenerationReport(
         cycle.cycleId,

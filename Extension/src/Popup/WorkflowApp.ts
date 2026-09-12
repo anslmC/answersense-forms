@@ -8,11 +8,23 @@ import {
   type PopupConfigurationState,
 } from './Configuration';
 import { createBrowserPopupWorkflow } from './Workflow';
-import type { UiState, WorkflowSnapshot } from './State';
+import {
+  createAllOverrideIntent,
+  createSpecificOverrideIntent,
+  filledSupportedQuestions,
+  overrideQuestionLabel,
+  type UiState,
+  type WorkflowSnapshot,
+} from './State';
+import {
+  createOverrideFilledIntent,
+  type GenerationIntent,
+} from '../Generation/Intent';
 
 export interface WorkflowAppOptions {
   root?: ParentNode;
   onState?: (state: UiState) => void;
+  onOverrideIntent?: (intent: GenerationIntent) => void;
   surface?: 'popup' | 'overlay';
 }
 
@@ -41,6 +53,9 @@ export function mountAnswerSenseApp(
   };
   let validating = false;
   let configurationDirty = false;
+  let pendingOverrideIntent: GenerationIntent | null = null;
+  let pendingAllQuestionIds: readonly string[] | null = null;
+  let selectedSpecificQuestionIds: string[] = [];
 
   const controller = new PopupController(createBrowserPopupWorkflow());
 
@@ -70,6 +85,15 @@ export function mountAnswerSenseApp(
 
     if (overlayPanel) {
       overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');
+    }
+
+    if (overrideAction) {
+      const filledQuestions =
+        state.name === 'UNSUPPORTED' || !state.page
+          ? []
+          : filledSupportedQuestions(state.page);
+      overrideAction.hidden = filledQuestions.length === 0;
+      overrideAction.disabled = state.name === 'GENERATING';
     }
 
     results.replaceChildren();
@@ -313,6 +337,96 @@ export function mountAnswerSenseApp(
     '[data-replace-credential]'
   );
   if (!primary || !forceClear) return { refresh: async () => undefined };
+
+  const overrideAction = element<HTMLButtonElement>('[data-override-action]');
+  const overrideAll = element<HTMLButtonElement>('[data-override-all]');
+  const overrideSpecific = element<HTMLButtonElement>('[data-override-specific]');
+  const overrideConfirmation = element<HTMLElement>('[data-override-confirmation]');
+  const overrideConfirmationText = element<HTMLElement>('[data-override-confirmation-text]');
+  const overrideCancel = element<HTMLButtonElement>('[data-override-cancel]');
+  const overrideConfirm = element<HTMLButtonElement>('[data-override-confirm]');
+  const overrideMessage = element<HTMLElement>('[data-override-message]');
+
+  function publishOverrideIntent(intent: GenerationIntent): void {
+    const frozenIntent =
+      intent.type === 'OVERRIDE_FILLED'
+        ? createOverrideFilledIntent(intent.selectedQuestionIds)
+        : intent;
+    pendingOverrideIntent = frozenIntent;
+    options.onOverrideIntent?.(frozenIntent);
+  }
+
+  function renderSpecificQuestions(): void {
+    const list = element<HTMLElement>('[data-override-specific-list]');
+    const state = controller.state;
+    if (!list || state.name === 'UNSUPPORTED' || !state.page) return;
+    const filledQuestions = filledSupportedQuestions(state.page);
+    list.replaceChildren();
+    for (const [index, question] of filledQuestions.entries()) {
+      const label = createElement('label');
+      const checkbox = createElement('input') as HTMLInputElement;
+      checkbox.type = 'checkbox';
+      checkbox.value = question.id as string;
+      checkbox.checked = selectedSpecificQuestionIds.includes(checkbox.value);
+      checkbox.addEventListener('change', () => {
+        selectedSpecificQuestionIds = selectedSpecificQuestionIds.filter(
+          (questionId) => questionId !== checkbox.value
+        );
+        if (checkbox.checked) selectedSpecificQuestionIds.push(checkbox.value);
+        if (selectedSpecificQuestionIds.length > 0) {
+          publishOverrideIntent(
+            createSpecificOverrideIntent(selectedSpecificQuestionIds)
+          );
+        } else {
+          pendingOverrideIntent = null;
+        }
+      });
+      label.append(checkbox, overrideQuestionLabel(question, index));
+      list.append(label);
+    }
+    list.removeAttribute('hidden');
+  }
+
+  overrideAction?.addEventListener('click', () => {
+    const flow = element<HTMLElement>('[data-override-flow]');
+    if (!flow || controller.state.name === 'UNSUPPORTED') return;
+    flow.removeAttribute('hidden');
+    pendingAllQuestionIds = null;
+    pendingOverrideIntent = null;
+    element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
+    element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
+    if (overrideMessage) overrideMessage.textContent = '';
+  });
+  overrideAll?.addEventListener('click', () => {
+    if (controller.state.name === 'UNSUPPORTED' || !controller.state.page) return;
+    const intent = createAllOverrideIntent(controller.state.page);
+    if (intent.type !== 'OVERRIDE_FILLED') return;
+    const selected = [...intent.selectedQuestionIds];
+    pendingAllQuestionIds = selected;
+    if (overrideConfirmationText) {
+      overrideConfirmationText.textContent =
+        `Override ${selected.length} filled answer${selected.length === 1 ? '' : 's'}?`;
+    }
+    overrideConfirmation?.removeAttribute('hidden');
+  });
+  overrideSpecific?.addEventListener('click', renderSpecificQuestions);
+  overrideCancel?.addEventListener('click', () => {
+    pendingOverrideIntent = null;
+    pendingAllQuestionIds = null;
+    overrideConfirmation?.setAttribute('hidden', '');
+  });
+  overrideConfirm?.addEventListener('click', () => {
+    if (pendingAllQuestionIds) {
+      publishOverrideIntent(createOverrideFilledIntent(pendingAllQuestionIds));
+    } else if (pendingOverrideIntent?.type === 'OVERRIDE_FILLED') {
+      publishOverrideIntent(pendingOverrideIntent);
+    } else {
+      return;
+    }
+    pendingAllQuestionIds = null;
+    overrideConfirmation?.setAttribute('hidden', '');
+    if (overrideMessage) overrideMessage.textContent = 'Override selection ready.';
+  });
 
   if (
     providerSelect &&

@@ -3,10 +3,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PopupController } from '../src/Popup/Controller';
 import {
+  createAllOverrideIntent,
+  createSpecificOverrideIntent,
+  filledSupportedQuestions,
+  overrideQuestionLabel,
   PopupStateMachine,
   type UiGenerationResult,
   type WorkflowSnapshot,
 } from '../src/Popup/State';
+import { readFileSync as readPopupSource } from 'node:fs';
 import type { PopupWorkflow } from '../src/Popup/Workflow';
 
 const page = { pageId: 'page-1', questionCount: 2 };
@@ -54,7 +59,80 @@ const result: UiGenerationResult = {
   },
 };
 
+const overridePage = {
+  pageId: 'page-override',
+  questionCount: 5,
+  questions: [
+    {
+      id: 'first', text: 'First answer', type: 'short-text', supported: true,
+      existingInput: { hasValue: true },
+    },
+    {
+      id: 'unanswered', text: 'Unanswered', type: 'short-text', supported: true,
+      existingInput: { hasValue: false },
+    },
+    {
+      id: 'third', text: 'Third answer', type: 'paragraph', supported: true,
+      existingInput: { hasValue: true },
+    },
+    {
+      id: 'unsupported', text: 'Unsupported', type: null, supported: false,
+      existingInput: null,
+    },
+    {
+      id: '', text: 'Invalid identity', type: 'short-text', supported: true,
+      existingInput: { hasValue: true },
+    },
+  ],
+};
+
 describe('P6 popup state machine', () => {
+  it('filters Override choices to filled supported valid questions', () => {
+    expect(filledSupportedQuestions(overridePage).map((question) => question.id)).toEqual([
+      'first',
+      'third',
+    ]);
+    expect(overrideQuestionLabel(overridePage.questions[0], 0)).toBe(
+      'Q1 — First answer'
+    );
+    expect(overrideQuestionLabel(overridePage.questions[2], 2)).toBe(
+      'Q3 — Third answer'
+    );
+  });
+
+  it('freezes All and Specific concrete question IDs', () => {
+    const all = createAllOverrideIntent(overridePage);
+    const specific = createSpecificOverrideIntent(['first', 'third']);
+
+    expect(all).toEqual({
+      type: 'OVERRIDE_FILLED',
+      selectedQuestionIds: ['first', 'third'],
+    });
+    expect(specific.selectedQuestionIds).toEqual(['first', 'third']);
+    expect(Object.isFrozen(all.selectedQuestionIds)).toBe(true);
+    expect(Object.isFrozen(specific.selectedQuestionIds)).toBe(true);
+    expect(JSON.stringify(all)).not.toContain('First answer');
+  });
+
+  it('exposes Override controls without invoking generation', () => {
+    const source = readPopupSource(
+      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      'utf8'
+    );
+    const markup = readPopupSource(
+      resolve(process.cwd(), 'src/Popup/Popup.html'),
+      'utf8'
+    );
+
+    expect(markup).toContain('Override Filled Answer(s)');
+    expect(markup).toContain('All filled answers');
+    expect(markup).toContain('Specific question(s)');
+    expect(markup).toContain('data-override-cancel');
+    expect(markup).toContain('data-override-confirm');
+    expect(source).toContain('overrideAction.hidden = filledQuestions.length === 0;');
+    expect(source).toContain('publishOverrideIntent');
+  });
+
   it('supports all authoritative state transitions', () => {
     const machine = new PopupStateMachine();
     expect(machine.state.name).toBe('UNSUPPORTED');

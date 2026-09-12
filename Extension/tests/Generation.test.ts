@@ -12,6 +12,10 @@ import {
   GenerationCoordinator,
   selectGenerationCandidates,
 } from '../src/Generation/Pipeline';
+import {
+  createOverrideFilledIntent,
+  validateOverrideSelection,
+} from '../src/Generation/Intent';
 import { createGenerationReport } from '../src/Generation/Report';
 import {
   abandonPendingPage,
@@ -378,6 +382,62 @@ describe('Settled context and pending page state', () => {
 });
 
 describe('Generation cycles and reports', () => {
+  it('validates an exact non-empty override selection', () => {
+    const filledPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) => ({
+          ...question,
+          existingInput: { value: 'Existing', hasValue: true },
+        })),
+      },
+    };
+    const intent = createOverrideFilledIntent(['name', 'topics']);
+
+    expect(validateOverrideSelection(filledPage, intent)).toEqual({
+      valid: true,
+      invalidQuestionIds: [],
+    });
+  });
+
+  it('rejects every invalid override ID without shrinking the selection', () => {
+    const cases = [
+      ['disappeared', (question: Question) => question],
+      ['unsupported', (question: Question) => ({ ...question, supported: false })],
+      ['invalid identity', (question: Question) => ({ ...question, id: '' })],
+      ['invalid text', (question: Question) => ({ ...question, text: '' })],
+      ['invalid type', (question: Question) => ({ ...question, type: null })],
+      ['unanswered', (question: Question) => ({
+        ...question,
+        existingInput: { value: null, hasValue: false },
+      })],
+    ] as const;
+
+    for (const [label, update] of cases) {
+      const questionId = label === 'disappeared' ? 'disappeared' : 'name';
+      const questions =
+        label === 'disappeared'
+          ? form.questions
+          : form.questions.map((question) =>
+              question.id === 'name' ? update(question) : question
+            );
+      const result = validateOverrideSelection(
+        { ...page, form: { ...form, questions } },
+        createOverrideFilledIntent(['name', questionId])
+      );
+
+      expect(result.valid, label).toBe(false);
+      expect(result.invalidQuestionIds).toContain(questionId);
+    }
+  });
+
+  it('rejects an empty override before candidate selection', () => {
+    expect(
+      validateOverrideSelection(page, createOverrideFilledIntent([]))
+    ).toEqual({ valid: false, invalidQuestionIds: ['<empty-selection>'] });
+  });
+
   it('excludes questions with existing current answers from candidates', () => {
     const existing = {
       ...page,
@@ -398,6 +458,139 @@ describe('Generation cycles and reports', () => {
       'language',
       'topics',
     ]);
+  });
+
+  it('selects only selected filled questions for override generation', () => {
+    const overridePage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) => ({
+          ...question,
+          existingInput:
+            question.id === 'name' || question.id === 'topics'
+              ? { value: `Existing ${question.id}`, hasValue: true }
+              : question.existingInput,
+        })),
+      },
+    };
+
+    const intent = createOverrideFilledIntent(['topics', 'name']);
+
+    expect(Object.isFrozen(intent.selectedQuestionIds)).toBe(true);
+    expect(selectGenerationCandidates(overridePage, intent).map((question) => question.id)).toEqual([
+      'name',
+      'topics',
+    ]);
+  });
+
+  it('excludes unsupported selected questions from override candidates', () => {
+    const unsupportedFilled = {
+      ...form.questions[1],
+      id: 'unsupported',
+      existingInput: { value: 'Filled', hasValue: true },
+      supported: false,
+      unsupportedReason: 'Unsupported control',
+    };
+    const overridePage = {
+      ...page,
+      form: { ...form, questions: [form.questions[0], unsupportedFilled] },
+    };
+
+    expect(
+      selectGenerationCandidates(
+        overridePage,
+        createOverrideFilledIntent(['unsupported'])
+      )
+    ).toEqual([]);
+  });
+
+  it('excludes unanswered and unselected questions from override candidates', () => {
+    const overridePage = {
+      ...page,
+      form: {
+        ...form,
+        questions: [
+          { ...form.questions[0], existingInput: { value: 'Filled', hasValue: true } },
+          { ...form.questions[1], existingInput: { value: null, hasValue: false } },
+          { ...form.questions[2], existingInput: { value: 'Filled', hasValue: true } },
+        ],
+      },
+    };
+
+    expect(
+      selectGenerationCandidates(
+        overridePage,
+        createOverrideFilledIntent(['language', 'topics'])
+      ).map((question) => question.id)
+    ).toEqual(['topics']);
+  });
+
+  it('does not fall back to unanswered candidates for an empty override', async () => {
+    const generator: GenerationInterface = { generate: vi.fn() };
+    const coordinator = new GenerationCoordinator(() => 'cycle-empty-override');
+
+    await expect(
+      coordinator.generate(
+        page,
+        [],
+        generator,
+        undefined,
+        createOverrideFilledIntent(['name'])
+      )
+    ).resolves.toMatchObject({ status: 'complete', results: [] });
+    expect(generator.generate).not.toHaveBeenCalled();
+  });
+
+  it('keeps previous answer values out of override generation requests', async () => {
+    const filledPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) =>
+          question.id === 'name'
+            ? { ...question, existingInput: { value: 'Private answer', hasValue: true } }
+            : question
+        ),
+      },
+    };
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request) => ({
+        cycleId: request.cycleId,
+        results: request.questions.map((question) => ({
+          questionId: question.questionId,
+          status: 'GENERATED' as const,
+          answer: { questionId: question.questionId, value: 'Replacement' },
+        })),
+      })),
+    };
+    const coordinator = new GenerationCoordinator(() => 'cycle-privacy');
+
+    await coordinator.generate(
+      filledPage,
+      [],
+      generator,
+      undefined,
+      createOverrideFilledIntent(['name'])
+    );
+
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        intent: expect.anything(),
+        selectedQuestionIds: expect.anything(),
+        previousAnswer: expect.anything(),
+      })
+    );
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [expect.objectContaining({ questionId: 'name' })],
+      })
+    );
+    expect(
+      JSON.stringify(
+        (generator.generate as ReturnType<typeof vi.fn>).mock.calls[0][0]
+      )
+    ).not.toContain('Private answer');
   });
 
   it('completes locally without invoking the generator when all questions are filled', async () => {

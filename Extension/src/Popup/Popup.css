@@ -299,6 +299,40 @@ select {
   margin-top: 6px;
 }
 
+.override-flow {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #d1d5db;
+}
+
+.override-flow h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.override-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.override-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-weight: 400;
+}
+
+.override-list input {
+  width: auto;
+  margin: 0;
+}
+
+.override-confirmation {
+  margin-top: 8px;
+}
+
 .credential-form .actions {
   margin-top: 6px;
 }
