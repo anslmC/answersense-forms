@@ -485,6 +485,53 @@ describe('P4 sequential filling and preservation', () => {
     expect(paragraph.value).toBe('Existing paragraph');
   });
 
+  it('replaces selected existing answers in Override mode and leaves others unchanged', async () => {
+    const document = createDocument();
+    const choice = document.querySelector(
+      '[data-question-id="choice"] [aria-label="Alpha"]'
+    )!;
+    choice.setAttribute('aria-checked', 'true');
+    const short = document.querySelector(
+      '[data-question-id="short"] input'
+    ) as HTMLInputElement;
+    short.value = 'Existing short';
+    const paragraph = document.querySelector(
+      '[data-question-id="paragraph"] textarea'
+    ) as HTMLTextAreaElement;
+    paragraph.value = 'Existing paragraph';
+
+    const report = reportFor([
+      { questionId: 'choice', value: 'Beta' },
+      { questionId: 'short', value: 'Replacement short' },
+    ]);
+    const result = await fillReviewedAnswers(
+      document,
+      form,
+      report,
+      report.results.map((item) =>
+        acceptGeneratedAnswer(item.questionId as string, item.answer!)
+      ),
+      true
+    );
+
+    expect(result.outcomes.map((outcome) => outcome.status)).toEqual([
+      'FILLED',
+      'FILLED',
+    ]);
+    expect(
+      document
+        .querySelector('[data-question-id="choice"] [aria-label="Alpha"]')
+        ?.getAttribute('aria-checked')
+    ).toBe('false');
+    expect(
+      document
+        .querySelector('[data-question-id="choice"] [aria-label="Beta"]')
+        ?.getAttribute('aria-checked')
+    ).toBe('true');
+    expect(short.value).toBe('Replacement short');
+    expect(paragraph.value).toBe('Existing paragraph');
+  });
+
   it('supports edited and skipped review decisions', async () => {
     const document = createDocument();
     const report = reportFor([

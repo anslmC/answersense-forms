@@ -451,7 +451,8 @@ async function handleRequest(request: {
       document,
       pageLifecycle.currentPage.form,
       report,
-      createAcceptedReviewDecisions(report)
+      createAcceptedReviewDecisions(report),
+      intent.type === 'OVERRIDE_FILLED'
     );
     const handoff = createFinalizedPageHandoff(
       document,

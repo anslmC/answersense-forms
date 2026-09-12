@@ -251,7 +251,8 @@ async function fillSingleChoice(
 
 async function fillCheckboxes(
   target: ResolvedChoiceTarget,
-  answer: Answer
+  answer: Answer,
+  overwriteExisting = false
 ): Promise<FillOutcome> {
   if (!Array.isArray(answer.value)) {
     return failureOutcome(
@@ -287,7 +288,19 @@ async function fillCheckboxes(
   }
 
   const newlySelected: HTMLElement[] = [];
+  const newlyDeselected: HTMLElement[] = [];
   try {
+    if (overwriteExisting) {
+      for (const option of target.options) {
+        if (
+          isOptionSelected(option) &&
+          !available.includes(getOptionLabel(option))
+        ) {
+          newlyDeselected.push(option);
+          deactivateOption(option);
+        }
+      }
+    }
     for (const label of available) {
       const option = optionsByLabel.get(label);
       if (option && !isOptionSelected(option)) {
@@ -300,6 +313,11 @@ async function fillCheckboxes(
       for (const option of newlySelected) {
         if (isOptionSelected(option)) {
           deactivateOption(option);
+        }
+      }
+      for (const option of newlyDeselected) {
+        if (!isOptionSelected(option)) {
+          activateOption(option);
         }
       }
       if (newlySelected.some((option) => isOptionSelected(option))) {
@@ -327,7 +345,11 @@ async function fillCheckboxes(
     );
   }
 
-  const alreadyComplete = requested.every((label) => selectedBefore.has(label));
+  const alreadyComplete = overwriteExisting
+    ? selectedBefore.size === available.length &&
+      available.every((label) => selectedBefore.has(label)) &&
+      missing.length === 0
+    : requested.every((label) => selectedBefore.has(label));
   if (alreadyComplete) {
     return {
       questionId: target.questionId,
@@ -393,16 +415,19 @@ async function fillCheckboxes(
 async function fillQuestion(
   document: Document,
   question: Question,
-  answer: Answer
+  answer: Answer,
+  overwriteExisting: boolean
 ): Promise<FillOutcome> {
   const resolved = resolveCurrentQuestionTarget(document, question);
   if (!resolved.ok) {
     return failureOutcome(question.id, resolved, answer);
   }
 
-  const preserved = preserveExisting(resolved.target);
-  if (preserved) {
-    return preserved;
+  if (!overwriteExisting) {
+    const preserved = preserveExisting(resolved.target);
+    if (preserved) {
+      return preserved;
+    }
   }
 
   if (
@@ -415,7 +440,7 @@ async function fillQuestion(
     return fillSingleChoice(resolved.target, answer);
   }
   if (resolved.target.kind === 'multiple-choice') {
-    return fillCheckboxes(resolved.target, answer);
+    return fillCheckboxes(resolved.target, answer, overwriteExisting);
   }
   return failureOutcome(
     question.id,
@@ -431,7 +456,8 @@ export async function fillReviewedAnswers(
   document: Document,
   form: Form,
   report: GenerationReport,
-  decisions: readonly ReviewDecision[]
+  decisions: readonly ReviewDecision[],
+  overwriteExisting = false
 ): Promise<FillReport> {
   const decisionsById = new Map(
     decisions.map((decision) => [decision.questionId, decision])
@@ -480,7 +506,9 @@ export async function fillReviewedAnswers(
       continue;
     }
 
-    outcomes.push(await fillQuestion(document, question, decision.answer));
+    outcomes.push(
+      await fillQuestion(document, question, decision.answer, overwriteExisting)
+    );
   }
 
   return Object.freeze({

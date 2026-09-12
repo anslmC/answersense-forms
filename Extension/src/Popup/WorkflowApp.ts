@@ -99,7 +99,8 @@ export function mountAnswerSenseApp(
         state.name === 'UNSUPPORTED' || !state.page
           ? []
           : filledSupportedQuestions(state.page);
-      overrideAction.hidden = filledQuestions.length === 0;
+      overrideAction.hidden =
+        state.name !== 'REVIEW' || filledQuestions.length === 0;
       overrideAction.disabled = state.name === 'GENERATING';
     }
 
@@ -176,7 +177,6 @@ export function mountAnswerSenseApp(
           ? 'Review the values in Google Forms before continuing.'
           : 'Review answers before clicking Next in Google Forms.';
       primary.hidden = true;
-      filledStatus.hidden = false;
       const outcomes = state.result.fillReport.outcomes;
       const filledCount = outcomes.filter(
         ({ status }) => status === 'FILLED'
@@ -394,8 +394,14 @@ export function mountAnswerSenseApp(
           publishOverrideIntent(
             createSpecificOverrideIntent(selectedSpecificQuestionIds)
           );
+          if (overrideConfirmationText) {
+            overrideConfirmationText.textContent =
+              `Override ${selectedSpecificQuestionIds.length} filled answer${selectedSpecificQuestionIds.length === 1 ? '' : 's'}?`;
+          }
+          overrideConfirmation?.removeAttribute('hidden');
         } else {
           pendingOverrideIntent = null;
+          overrideConfirmation?.setAttribute('hidden', '');
         }
       });
       label.append(checkbox, overrideQuestionLabel(question, index));
@@ -433,16 +439,19 @@ export function mountAnswerSenseApp(
     overrideConfirmation?.setAttribute('hidden', '');
   });
   overrideConfirm?.addEventListener('click', () => {
+    let intent: GenerationIntent | null = null;
     if (pendingAllQuestionIds) {
-      publishOverrideIntent(createOverrideFilledIntent(pendingAllQuestionIds));
+      intent = createOverrideFilledIntent(pendingAllQuestionIds);
     } else if (pendingOverrideIntent?.type === 'OVERRIDE_FILLED') {
-      publishOverrideIntent(pendingOverrideIntent);
+      intent = pendingOverrideIntent;
     } else {
       return;
     }
+    publishOverrideIntent(intent);
     pendingAllQuestionIds = null;
     overrideConfirmation?.setAttribute('hidden', '');
     if (overrideMessage) overrideMessage.textContent = 'Override selection ready.';
+    void controller.generate(renderAll, intent).then((state) => renderAll(state));
   });
 
   if (

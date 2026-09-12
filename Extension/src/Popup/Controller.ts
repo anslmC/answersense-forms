@@ -1,6 +1,7 @@
 import type { UiState, WorkflowSnapshot } from './State';
 import { PopupStateMachine } from './State';
 import type { PopupWorkflow } from './Workflow';
+import type { GenerationIntent } from '../Generation/Intent';
 
 export class PopupController {
   readonly stateMachine = new PopupStateMachine();
@@ -23,15 +24,18 @@ export class PopupController {
     return this.stateMachine.setPage(page);
   }
 
-  async generate(onGenerating?: (state: UiState) => void): Promise<UiState> {
-    const generating = this.stateMachine.beginGeneration();
+  async generate(
+    onGenerating?: (state: UiState) => void,
+    intent?: GenerationIntent
+  ): Promise<UiState> {
+    const generating = this.stateMachine.beginGeneration(intent);
     if (generating.name !== 'GENERATING') {
       return generating;
     }
     onGenerating?.(generating);
     const token = this.stateMachine.activeOperationToken;
     try {
-      const result = await this.workflow.generate();
+      const result = await this.workflow.generate(intent);
       return this.stateMachine.completeGeneration(token, result);
     } catch (error) {
       const message =

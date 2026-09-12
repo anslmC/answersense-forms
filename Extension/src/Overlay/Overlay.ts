@@ -197,10 +197,36 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <button type="button" data-primary-action hidden>
             Generate &amp; Auto-Fill
           </button>
-          <span data-filled-status hidden>Filled</span>
+          <span data-filled-status hidden></span>
+          <button type="button" class="secondary" data-override-action hidden>
+            Override Filled Answer(s)
+          </button>
           <button type="button" class="secondary" data-force-clear>
             Force Unsettle All
           </button>
+        </div>
+        <div class="override-flow" data-override-flow hidden>
+          <h3>Override Filled Answer(s)</h3>
+          <div class="actions">
+            <button type="button" data-override-all>All filled answers</button>
+            <button type="button" class="secondary" data-override-specific>
+              Specific question(s)
+            </button>
+          </div>
+          <div class="override-list" data-override-specific-list hidden></div>
+          <div class="override-confirmation" data-override-confirmation hidden>
+            <p data-override-confirmation-text></p>
+            <p class="detail">
+              These answers will be regenerated and may be replaced if generation succeeds.
+            </p>
+            <div class="actions">
+              <button type="button" class="secondary" data-override-cancel>
+                Cancel
+              </button>
+              <button type="button" data-override-confirm>Override</button>
+            </div>
+          </div>
+          <p class="message" data-override-message hidden></p>
         </div>
       </section>
     </main>

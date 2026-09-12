@@ -215,8 +215,14 @@ export class PopupStateMachine {
     return this.current;
   }
 
-  beginGeneration(): UiState {
-    if (this.current.name !== 'READY') {
+  beginGeneration(intent: GenerationIntent = { type: 'GENERATE_UNANSWERED' }): UiState {
+    const canGenerate =
+      this.current.name === 'READY' ||
+      (this.current.name === 'REVIEW' && intent.type === 'OVERRIDE_FILLED');
+    if (!canGenerate) {
+      return this.current;
+    }
+    if (this.current.name === 'UNSUPPORTED') {
       return this.current;
     }
     const page = this.current.page;

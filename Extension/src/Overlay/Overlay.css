@@ -449,6 +449,41 @@ select {
   margin-top: 2px;
 }
 
+.override-flow {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #d1d5db;
+}
+
+.override-flow h3 {
+  margin: 0 0 2px;
+  font-size: 12px;
+}
+
+.override-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.override-list label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.override-list input {
+  width: auto;
+  margin-top: 0;
+}
+
+.override-confirmation {
+  margin-top: 4px;
+}
+
 .validation-panel [data-validate-configuration] {
   width: fit-content;
   align-self: flex-start;

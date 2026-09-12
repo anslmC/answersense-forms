@@ -7,10 +7,11 @@ import type {
 } from './State';
 import type { PopupQuestion } from './State';
 import { isUiGenerationResult } from './State';
+import type { GenerationIntent } from '../Generation/Intent';
 
 export interface PopupWorkflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
-  generate(): Promise<UiGenerationResult>;
+  generate(intent?: GenerationIntent): Promise<UiGenerationResult>;
   forceClear(): Promise<WorkflowSnapshot>;
 }
 
@@ -60,9 +61,10 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
         questionCount: response.page.questions.length,
       };
     },
-    async generate(): Promise<UiGenerationResult> {
+    async generate(intent?: GenerationIntent): Promise<UiGenerationResult> {
       const response = await chrome.runtime.sendMessage({
         type: 'p7-generate',
+        ...(intent ? { intent } : {}),
       });
       if (response?.error) {
         throw new Error(response.error);

@@ -58,7 +58,22 @@ function createSnapshot() {
   return {
     supported: true,
     uiState: 'READY' as const,
-    page: { pageId: 'page-1', questionCount: 1 },
+    page: { pageId: 'page-1', questionCount: 4 },
+    lifecycle: {
+      activePage: {
+        form: {
+          questions: ['question-1', 'question-2', 'question-3', 'question-4'].map(
+            (id, index) => ({
+              id,
+              text: `Question ${index + 1}`,
+              type: 'short-text',
+              supported: true,
+              existingInput: { hasValue: true },
+            })
+          ),
+        },
+      },
+    },
     result: null,
     error: null,
   };
@@ -121,7 +136,7 @@ describe('live Overlay generation workflow', () => {
     const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
     const status = () => shadowRoot?.querySelector<HTMLElement>('[data-status]');
     const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
-    const filledStatus = () => shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
+    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
 
     await vi.waitFor(() => {
@@ -146,10 +161,8 @@ describe('live Overlay generation workflow', () => {
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
       expect(resultSummary()?.hidden).not.toBe(true);
       expect(resultSummary()?.textContent).toBe('4 filled · 0 failed · 0 skipped');
-      expect(filledStatus()?.hidden).toBe(false);
-      expect(filledStatus()?.textContent).toBe('Filled');
-      expect(filledStatus()?.tagName).toBe('SPAN');
-      expect(filledStatus()?.classList.contains('is-settled')).toBe(false);
+      expect(overrideAction()?.hidden).toBe(false);
+      expect(overrideAction()?.textContent?.trim()).toBe('Override Filled Answer(s)');
       expect(forceClear()?.tagName).toBe('BUTTON');
       expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle All');
       expect(forceClear()?.hidden).toBe(false);
@@ -164,7 +177,7 @@ describe('live Overlay generation workflow', () => {
         )
       ).toBe(false);
     });
-    expect(shadowRoot?.querySelector('button[data-filled-status]')).toBeNull();
+    expect(shadowRoot?.querySelector('span[data-filled-status]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
     expect(
       sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
@@ -176,7 +189,7 @@ describe('live Overlay generation workflow', () => {
       expect(primary()?.textContent).toBe('Generate & Auto-Fill');
       expect(primary()?.hidden).toBe(false);
       expect(resultSummary()).toBeNull();
-      expect(filledStatus()?.hidden).toBe(true);
+      expect(overrideAction()?.hidden).toBe(true);
     });
     expect(
       sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
@@ -245,6 +258,59 @@ describe('live Overlay generation workflow', () => {
       expect(forceClear?.tagName).toBe('BUTTON');
       expect(forceClear?.textContent?.trim()).toBe('Force Unsettle All');
       expect(forceClear?.hidden).toBe(false);
+    });
+  });
+
+  it('opens Override in REVIEW and sends only the selected eligible question IDs', async () => {
+    const sendMessage = vi.fn(async (message: { type?: string; intent?: unknown }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') return generationResult;
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() => expect(overrideAction()?.hidden).toBe(false));
+    overrideAction()?.click();
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-flow]')?.hidden).toBe(false);
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]')?.click();
+
+    const checkboxes = shadowRoot?.querySelectorAll<HTMLInputElement>(
+      '[data-override-specific-list] input[type="checkbox"]'
+    );
+    expect(checkboxes).toHaveLength(4);
+    checkboxes?.[1].click();
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(false);
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+
+    await vi.waitFor(() =>
+      expect(
+        sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
+      ).toHaveLength(2)
+    );
+    const generateCalls = sendMessage.mock.calls.filter(
+      ([message]) => message.type === 'p7-generate'
+    );
+    expect(generateCalls[1]?.[0]).toMatchObject({
+      type: 'p7-generate',
+      intent: { type: 'OVERRIDE_FILLED', selectedQuestionIds: ['question-2'] },
     });
   });
 

@@ -129,7 +129,7 @@ describe('P6 popup state machine', () => {
     expect(markup).toContain('Specific question(s)');
     expect(markup).toContain('data-override-cancel');
     expect(markup).toContain('data-override-confirm');
-    expect(source).toContain('overrideAction.hidden = filledQuestions.length === 0;');
+    expect(source).toContain('state.name !== \'REVIEW\' || filledQuestions.length === 0;');
     expect(source).toContain('publishOverrideIntent');
   });
 
