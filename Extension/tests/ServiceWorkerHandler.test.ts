@@ -266,6 +266,21 @@ describe('Service Worker Generate terminal projection', () => {
     fillReport: { cycleId: 'cycle-1', outcomes: [] },
   };
 
+  function lifecycleSnapshot(pageId: string, cycleId: string): LifecycleSnapshot {
+    return {
+      activePage: {
+        form: { formId: 'form-1', activePageId: pageId, questions: [] },
+        questionResults: [],
+        processingCycle: { cycleId },
+      },
+      activeCycle: { cycleId },
+      pending: null,
+      settledPages: [],
+      visits: [{ pageId, cycleId, status: 'active' }],
+      navigation: null,
+    };
+  }
+
   it('stores a valid content result as REVIEW', async () => {
     const { handleMessage, state, authorized } =
       await prepareGenerationResponse(validResult);
@@ -304,6 +319,145 @@ describe('Service Worker Generate terminal projection', () => {
         })
       );
     expect(authorized.resolved.configurationDigest).toBeTruthy();
+  });
+
+  it('rejects an ordinary duplicate after REVIEW without contacting content', async () => {
+    const { handleMessage, state } = await prepareGenerationResponse(validResult);
+    const request = { type: 'p7-generate', retry: false };
+    const uiSender = { id: extensionId } as HandlerSender;
+
+    await expect(handleMessage(request, uiSender)).resolves.toEqual(validResult);
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(1);
+
+    await expect(handleMessage(request, uiSender)).rejects.toMatchObject({
+      code: 'GENERATION_ALREADY_COMPLETED',
+      message: 'Generation already completed for the current page.',
+    });
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'REVIEW',
+            result: validResult,
+            generationOperationId: null,
+          }),
+        }),
+      })
+    );
+  });
+
+  it('allows explicit Regenerate from REVIEW', async () => {
+    const { handleMessage } = await prepareGenerationResponse(validResult);
+    const uiSender = { id: extensionId } as HandlerSender;
+
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: true }, uiSender)
+    ).resolves.toEqual(validResult);
+
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows ordinary Generate after a confirmed page transition to a new cycle', async () => {
+    const { handleMessage } = await prepareGenerationResponse(validResult);
+    const uiSender = { id: extensionId } as HandlerSender;
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    await handleMessage(
+      {
+        type: 'lifecycle-transition-confirmed',
+        page: { pageId: 'page-2', questionCount: 0 },
+        snapshot: lifecycleSnapshot('page-2', 'cycle-2'),
+      },
+      sender(activeTabId)
+    );
+
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows Generate after discovery reconciles a changed revisit cycle', async () => {
+    const { handleMessage } = await prepareGenerationResponse(validResult);
+    const uiSender = { id: extensionId } as HandlerSender;
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+    chromeApi.tabs.sendMessage.mockImplementation(
+      async (_tabId: number, message: { type?: string }) => {
+        if (message.type === 'get-current-state') {
+          return {
+            status: 'current-state',
+            supported: true,
+            lifecycle: lifecycleSnapshot('page-1', 'cycle-changed'),
+            page: { pageId: 'page-1', questionCount: 0 },
+          };
+        }
+        return validResult;
+      }
+    );
+    await handleMessage(
+      {
+        type: 'lifecycle-snapshot',
+        snapshot: lifecycleSnapshot('page-1', 'cycle-original'),
+      },
+      sender(activeTabId)
+    );
+
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    await expect(
+      handleMessage({ type: 'p7-discover' }, uiSender)
+    ).resolves.toMatchObject({
+      uiState: 'READY',
+      page: { pageId: 'page-1' },
+      result: null,
+    });
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('allows Generate after Force Unsettle All reset state is published', async () => {
+    const { handleMessage } = await prepareGenerationResponse(validResult);
+    const uiSender = { id: extensionId } as HandlerSender;
+    const chromeApi = (globalThis as typeof globalThis & {
+      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+    }).chrome;
+
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    await handleMessage(
+      {
+        type: 'lifecycle-snapshot',
+        reset: true,
+        snapshot: lifecycleSnapshot('page-1', 'cycle-reset'),
+      },
+      sender(activeTabId)
+    );
+
+    await expect(
+      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+    ).resolves.toEqual(validResult);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it.each([

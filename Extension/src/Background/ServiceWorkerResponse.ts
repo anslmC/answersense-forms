@@ -5,7 +5,12 @@ import {
 
 export class SafeServiceWorkerError extends Error {
   constructor(
-    public readonly code: SafeProviderErrorCode | 'CONFIGURATION_NOT_AUTHORIZED' | 'CONFIGURATION_STALE' | 'UNAUTHORIZED_SENDER',
+    public readonly code:
+      | SafeProviderErrorCode
+      | 'CONFIGURATION_NOT_AUTHORIZED'
+      | 'CONFIGURATION_STALE'
+      | 'GENERATION_ALREADY_COMPLETED'
+      | 'UNAUTHORIZED_SENDER',
     message: string
   ) {
     super(message);

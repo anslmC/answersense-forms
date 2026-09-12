@@ -287,9 +287,10 @@ export async function handleMessage(
       );
     }
     try {
-      return await resolved
+      const result = await resolved
         .adapter(resolved.secret)
         .generate(message.request as GenerationRequest);
+      return result;
     } catch (error) {
       const safe = sanitizeProviderError(error);
       throw new SafeServiceWorkerError(safe.code, safe.message);
@@ -529,6 +530,18 @@ export async function handleMessage(
     if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Generation is only available to the extension UI.');
     }
+    const tabId = await activeTabId();
+    const currentSnapshot = await stateStore.get(tabId);
+    if (
+      message.retry !== true &&
+      currentSnapshot?.uiState === 'REVIEW' &&
+      isUiGenerationResult(currentSnapshot.result)
+    ) {
+      throw new SafeServiceWorkerError(
+        'GENERATION_ALREADY_COMPLETED',
+        'Generation already completed for the current page.'
+      );
+    }
     let resolved;
     try {
       resolved = await resolveAuthorizedProviderConfiguration();
@@ -542,7 +555,6 @@ export async function handleMessage(
           : 'Generation configuration is not authorized.'
       );
     }
-    const tabId = await activeTabId();
     const generationOperationId = crypto.randomUUID();
     await stateStore.update(tabId, {
       uiState: 'GENERATING',
