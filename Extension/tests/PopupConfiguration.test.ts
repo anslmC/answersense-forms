@@ -161,9 +161,6 @@ describe('popup configuration state', () => {
       "primary.textContent = 'Generating...';"
     );
     expect(popupSource).toContain(
-      "primary.textContent = 'Regenerate';"
-    );
-    expect(popupSource).toContain(
       "primary.textContent = 'Already settled';"
     );
     expect(popupSource).toContain(

@@ -18,39 +18,26 @@ export class PopupController {
   async discover(): Promise<UiState> {
     const page = await this.workflow.discover();
     if (page && 'uiState' in page) {
-      const current = this.stateMachine.state;
-      if (
-        current.name === 'REVIEW' &&
-        page.uiState === 'READY' &&
-        page.result === null &&
-        page.page?.pageId === current.page.pageId &&
-        page.page.questionCount === current.page.questionCount
-      ) {
-        return current;
-      }
       return this.stateMachine.restore(page as WorkflowSnapshot);
     }
     return this.stateMachine.setPage(page);
   }
 
-  async generate(retry = false): Promise<UiState> {
+  async generate(onGenerating?: (state: UiState) => void): Promise<UiState> {
     const generating = this.stateMachine.beginGeneration();
     if (generating.name !== 'GENERATING') {
       return generating;
     }
+    onGenerating?.(generating);
     const token = this.stateMachine.activeOperationToken;
     try {
-      const result = await this.workflow.generate(retry);
+      const result = await this.workflow.generate();
       return this.stateMachine.completeGeneration(token, result);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not generate answers.';
       return this.stateMachine.failGeneration(token, message);
     }
-  }
-
-  retry(): Promise<UiState> {
-    return this.generate(true);
   }
 
   async forceClear(): Promise<UiState> {

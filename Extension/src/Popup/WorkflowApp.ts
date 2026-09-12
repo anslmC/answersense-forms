@@ -139,7 +139,7 @@ export function mountAnswerSenseApp(
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
       message.textContent = state.message;
       message.hidden = false;
-      primary.textContent = 'Retry';
+      primary.hidden = true;
     } else {
       if ('status' in state.result) {
         status.textContent = 'Answers already settled';
@@ -159,7 +159,7 @@ export function mountAnswerSenseApp(
         state.name === 'REVIEW'
           ? 'Review the values in Google Forms before continuing.'
           : 'Review answers before clicking Next in Google Forms.';
-      primary.textContent = 'Regenerate';
+      primary.hidden = true;
       const outcomes = state.result.fillReport.outcomes;
       const filledCount = outcomes.filter(
         ({ status }) => status === 'FILLED'
@@ -674,9 +674,7 @@ export function mountAnswerSenseApp(
   }
   primary.addEventListener('click', () => {
     if (!isCurrentValidationValid(configurationState)) return;
-    const retry = controller.state.name === 'REVIEW' || controller.state.name === 'ERROR';
-    renderAll(controller.stateMachine.beginGeneration());
-    void controller.generate(retry).then((state) => renderAll(state));
+    void controller.generate(renderAll).then((state) => renderAll(state));
   });
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;

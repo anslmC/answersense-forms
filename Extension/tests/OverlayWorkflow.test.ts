@@ -1,0 +1,175 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { mountOverlay, type OverlayHandle } from '../src/Overlay/Overlay';
+
+const configurationState = {
+  providers: [
+    {
+      providerId: 'gemini',
+      displayName: 'Gemini',
+      models: [{ modelId: 'gemini-model', displayName: 'Gemini model' }],
+      supportsValidation: true,
+    },
+  ],
+  credentials: [
+    {
+      credentialId: 'credential-1',
+      providerId: 'gemini',
+      label: 'Primary',
+      createdAt: '2026-09-12T00:00:00.000Z',
+      updatedAt: '2026-09-12T00:00:00.000Z',
+    },
+  ],
+  activeConfiguration: {
+    providerId: 'gemini',
+    modelId: 'gemini-model',
+    credentialId: 'credential-1',
+    providerConfig: {},
+  },
+  configurationDigest: 'digest-1',
+  configurationRevision: 1,
+  validation: {
+    configurationDigest: 'digest-1',
+    providerId: 'gemini',
+    modelId: 'gemini-model',
+    credentialId: 'credential-1',
+    status: 'VALID' as const,
+    validatedAt: '2026-09-12T00:00:00.000Z',
+  },
+};
+
+const generationResult = {
+  report: { cycleId: 'cycle-1', status: 'complete' as const, results: [] },
+  fillReport: { cycleId: 'cycle-1', outcomes: [] },
+};
+
+let resolveGeneration!: (result: typeof generationResult) => void;
+
+function createSnapshot() {
+  return {
+    supported: true,
+    uiState: 'READY' as const,
+    page: { pageId: 'page-1', questionCount: 1 },
+    result: null,
+    error: null,
+  };
+}
+
+function createForceClearResponse() {
+  return {
+    status: 'force-cleared',
+    snapshot: {
+      activePage: {
+        form: { activePageId: 'page-1', questions: [{ id: 'question-1' }] },
+      },
+    },
+  };
+}
+
+describe('live Overlay generation workflow', () => {
+  let overlay: OverlayHandle | null = null;
+
+  afterEach(() => {
+    overlay?.close();
+    overlay = null;
+    document.documentElement.replaceChildren(document.head, document.body);
+    vi.unstubAllGlobals();
+  });
+
+  it('generates once and removes the obsolete primary action in the real Shadow DOM workflow', async () => {
+    let generationCount = 0;
+    const pendingGeneration = new Promise<typeof generationResult>((resolve) => {
+      resolveGeneration = resolve;
+    });
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') {
+        generationCount += 1;
+        return generationCount === 1 ? pendingGeneration : generationResult;
+      }
+      if (message.type === 'p7-force-clear') return createForceClearResponse();
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay({
+      onRefresh: async () => {
+        await overlay?.refresh();
+      },
+    });
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const status = () => shadowRoot?.querySelector<HTMLElement>('[data-status]');
+
+    await vi.waitFor(() => {
+      expect(primary()?.hidden).toBe(false);
+      expect(primary()?.textContent).toBe('Generate & Auto-Fill');
+    });
+
+    primary()?.click();
+    await vi.waitFor(() => {
+      expect(primary()?.textContent).toBe('Generating...');
+      expect(status()?.textContent).toBe('Generating answers...');
+      expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(true);
+      expect(shadowRoot?.querySelector('style')).not.toBeNull();
+      expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
+        'animation: overlay-border-gradient 0.7s linear infinite'
+      );
+    });
+    resolveGeneration(generationResult);
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Review answers');
+      expect(primary()?.hidden).toBe(true);
+      expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
+    });
+    expect(shadowRoot?.querySelector('[data-primary-action]')?.textContent).not.toContain(
+      'Regenerate'
+    );
+
+    shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Ready to generate');
+      expect(primary()?.textContent).toBe('Generate & Auto-Fill');
+      expect(primary()?.hidden).toBe(false);
+    });
+    expect(
+      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
+    ).toHaveLength(2);
+    expect(sendMessage).not.toHaveBeenCalledWith({ type: 'p7-force-clear' });
+
+    primary()?.click();
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Review answers');
+      expect(primary()?.hidden).toBe(true);
+    });
+    expect(generationCount).toBe(2);
+
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.click();
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Ready to generate');
+      expect(primary()?.textContent).toBe('Generate & Auto-Fill');
+      expect(primary()?.hidden).toBe(false);
+    });
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'p7-force-clear' });
+
+    primary()?.click();
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Review answers');
+      expect(primary()?.hidden).toBe(true);
+    });
+    expect(generationCount).toBe(3);
+  });
+
+});

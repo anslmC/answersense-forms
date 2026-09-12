@@ -348,7 +348,7 @@ describe('P5 page lifecycle', () => {
     ).toBe(true);
   });
 
-  it('excludes refreshed answers from all-filled Regenerate', async () => {
+  it('excludes refreshed answers from all-filled generation', async () => {
     const { lifecycle, coordinator, discovered } = createControlLifecycle(
       'short-text'
     );
@@ -985,68 +985,6 @@ describe('P5 page lifecycle', () => {
     expect(lifecycle.pendingPage).toBeNull();
   });
 
-  it('creates a new cycle for a user retry and rejects the previous response', async () => {
-    let count = 1;
-    const coordinator = new GenerationCoordinator(() => `cycle-${++count}`);
-    const lifecycle = new PageLifecycle(page, coordinator);
-    const firstCycle = lifecycle.currentCycle;
-    const resolvers: Array<(response: GenerationResponse) => void> = [];
-    const generator: GenerationInterface = {
-      generate: vi.fn<(request: GenerationRequest) => Promise<GenerationResponse>>(
-        (request) =>
-          new Promise<GenerationResponse>((resolve) => {
-            void request;
-            resolvers.push(resolve);
-          })
-      ),
-    };
-
-    const firstAttempt = coordinator.generate(
-      lifecycle.currentPage,
-      lifecycle.settledPageStates,
-      generator,
-      firstCycle
-    );
-    const secondCycle = lifecycle.retryGeneration();
-    const secondAttempt = coordinator.generate(
-      lifecycle.currentPage,
-      lifecycle.settledPageStates,
-      generator,
-      secondCycle
-    );
-
-    expect(secondCycle.cycleId).not.toBe(firstCycle.cycleId);
-    resolvers[0]({
-      cycleId: firstCycle.cycleId,
-      results: [
-        {
-          questionId: 'name',
-          status: 'GENERATED',
-          answer: { questionId: 'name', value: 'Ada' },
-        },
-      ],
-    });
-    resolvers[1]({
-      cycleId: secondCycle.cycleId,
-      results: [
-        {
-          questionId: 'name',
-          status: 'GENERATED',
-          answer: { questionId: 'name', value: 'Ada' },
-        },
-      ],
-    });
-
-    await expect(firstAttempt).resolves.toBeNull();
-    await expect(secondAttempt).resolves.toMatchObject({
-      cycleId: secondCycle.cycleId,
-    });
-    expect(
-      (generator.generate as ReturnType<typeof vi.fn>).mock.calls.map(
-        ([request]) => request.cycleId
-      )
-    ).toEqual([firstCycle.cycleId, secondCycle.cycleId]);
-  });
 
   it('revisiting a page creates a new visit and preserves settled context without duplication', () => {
     const lifecycle = createLifecycle();

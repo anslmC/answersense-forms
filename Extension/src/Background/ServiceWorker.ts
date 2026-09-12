@@ -55,7 +55,6 @@ interface WorkerMessage {
   result?: unknown;
   error?: string;
   apiKey?: unknown;
-  retry?: boolean;
   configurationDigest?: unknown;
   configurationRevision?: unknown;
   credentialId?: unknown;
@@ -605,7 +604,6 @@ export async function handleMessage(
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
-        retry: message.retry === true,
         intent: message.intent,
         configurationDigest: resolved.configurationDigest,
         configurationRevision: resolved.authorizationRevision,

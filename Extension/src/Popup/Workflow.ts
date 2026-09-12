@@ -10,7 +10,7 @@ import { isUiGenerationResult } from './State';
 
 export interface PopupWorkflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
-  generate(retry?: boolean): Promise<UiGenerationResult>;
+  generate(): Promise<UiGenerationResult>;
   forceClear(): Promise<WorkflowSnapshot>;
 }
 
@@ -60,10 +60,9 @@ export function createBrowserPopupWorkflow(): PopupWorkflow {
         questionCount: response.page.questions.length,
       };
     },
-    async generate(retry = false): Promise<UiGenerationResult> {
+    async generate(): Promise<UiGenerationResult> {
       const response = await chrome.runtime.sendMessage({
         type: 'p7-generate',
-        retry,
       });
       if (response?.error) {
         throw new Error(response.error);

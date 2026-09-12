@@ -234,7 +234,7 @@ describe('Content navigation runtime adapter', () => {
           status: 'GENERATED' as const,
           answer: {
             questionId: question.questionId,
-            value: 'Regenerated answer',
+            value: 'Generated answer',
           },
         })),
       })),
@@ -274,7 +274,7 @@ describe('Content navigation runtime adapter', () => {
           status: 'GENERATED' as const,
           answer: {
             questionId: question.questionId,
-            value: 'Regenerated answer',
+            value: 'Generated answer',
           },
         })),
       })),

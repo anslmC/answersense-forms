@@ -99,13 +99,20 @@ function publishResetSnapshot(): Promise<void> {
   });
 }
 
-async function forceClearAnswerSenseState(): Promise<void> {
+async function forceClearAnswerSenseState(): Promise<
+  ReturnType<PageLifecycle['getSnapshot']>
+> {
   await hydration;
-  ensureLifecycle().forceClear();
+  const pageLifecycle = ensureLifecycle();
+  pageLifecycle.forceClear();
+  const resetSnapshot = pageLifecycle.getSnapshot(
+    window.location.pathname
+  );
   await publishResetSnapshot();
 
   lifecycle = null;
   lifecycleInitialization = null;
+  return resetSnapshot;
 }
 
 async function resynchronizeCurrentPage(): Promise<void> {
@@ -324,7 +331,6 @@ function createGeminiGenerator(
 
 async function handleRequest(request: {
   type?: string;
-  retry?: boolean;
   configurationDigest?: string;
   configurationRevision?: number;
   intent?: unknown;
@@ -421,10 +427,6 @@ async function handleRequest(request: {
       ? parseGenerationIntent(request.intent)
       : { type: 'GENERATE_UNANSWERED' };
     assertValidOverrideSelection(pageLifecycle.currentPage, intent);
-    if (request.retry === true) {
-      pageLifecycle.retryGeneration();
-      await publishLifecycleSnapshot();
-    }
     if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {
       return {
         status: 'reused',
@@ -475,10 +477,10 @@ async function handleRequest(request: {
   }
 
   if (request.type === 'force-clear') {
-    await forceClearAnswerSenseState();
+    const snapshot = await forceClearAnswerSenseState();
     return {
       status: 'force-cleared',
-      snapshot: lifecycle?.getSnapshot(window.location.pathname) ?? null,
+      snapshot,
     };
   }
 

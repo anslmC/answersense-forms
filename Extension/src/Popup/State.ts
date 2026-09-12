@@ -216,15 +216,10 @@ export class PopupStateMachine {
   }
 
   beginGeneration(): UiState {
-    if (
-      this.current.name !== 'READY' &&
-      this.current.name !== 'REVIEW' &&
-      this.current.name !== 'ERROR'
-    ) {
+    if (this.current.name !== 'READY') {
       return this.current;
     }
-    const page =
-      this.current.name === 'ERROR' ? this.current.page : this.current.page;
+    const page = this.current.page;
     if (!page) {
       return this.current;
     }

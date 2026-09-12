@@ -144,11 +144,7 @@ describe('P6 popup state machine', () => {
     machine.completeGeneration(token, result);
     expect(machine.state.name).toBe('REVIEW');
     machine.beginGeneration();
-    expect(machine.state.name).toBe('GENERATING');
-    machine.failGeneration(machine.activeOperationToken, 'failed');
-    expect(machine.state.name).toBe('ERROR');
-    machine.beginGeneration();
-    expect(machine.state.name).toBe('GENERATING');
+    expect(machine.state.name).toBe('REVIEW');
   });
 
   it('ignores stale generation results and preserves rejected navigation state', () => {
@@ -192,13 +188,12 @@ describe('P6 popup workflow boundary', () => {
     expect(workflow.generate).toHaveBeenCalledOnce();
   });
 
-  it('enters ERROR on generation failure and retries through the workflow', async () => {
+  it('enters ERROR on generation failure without exposing a retry action', async () => {
     const workflow: PopupWorkflow = {
       discover: vi.fn(async () => page),
       generate: vi
         .fn()
-        .mockRejectedValueOnce(new Error('Backend unavailable'))
-        .mockResolvedValueOnce(result),
+        .mockRejectedValueOnce(new Error('Backend unavailable')),
       forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
         uiState: 'READY',
         page,
@@ -211,13 +206,13 @@ describe('P6 popup workflow boundary', () => {
     await expect(controller.generate()).resolves.toMatchObject({
       name: 'ERROR',
     });
-    await expect(controller.retry()).resolves.toMatchObject({ name: 'REVIEW' });
-    expect(workflow.generate).toHaveBeenCalledTimes(2);
-    expect(workflow.generate).toHaveBeenNthCalledWith(1, false);
-    expect(workflow.generate).toHaveBeenNthCalledWith(2, true);
+    await expect(controller.generate()).resolves.toMatchObject({
+      name: 'ERROR',
+    });
+    expect(workflow.generate).toHaveBeenCalledOnce();
   });
 
-  it('keeps the current completed review during same-page post-fill discovery', async () => {
+  it('projects READY after same-page post-fill discovery', async () => {
     const workflow: PopupWorkflow = {
       discover: vi
         .fn()
@@ -243,8 +238,8 @@ describe('P6 popup workflow boundary', () => {
     const rediscovered = await controller.discover();
 
     expect(completed).toEqual({ name: 'REVIEW', page, result });
-    expect(rediscovered).toBe(completed);
-    expect(controller.state).toEqual(completed);
+    expect(rediscovered).toEqual({ name: 'READY', page });
+    expect(controller.state).toEqual(rediscovered);
   });
 
   it('allows a different page discovery to replace the completed review', async () => {

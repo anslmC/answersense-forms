@@ -289,7 +289,6 @@ describe('Service Worker Generate terminal projection', () => {
       handleMessage(
         {
           type: 'p7-generate',
-          retry: false,
         },
         { id: extensionId } as HandlerSender
       )
@@ -337,7 +336,6 @@ describe('Service Worker Generate terminal projection', () => {
       handleMessage(
         {
           type: 'p7-generate',
-          retry: false,
           intent: {
             type: 'OVERRIDE_FILLED',
             selectedQuestionIds: ['disappeared'],
@@ -361,23 +359,6 @@ describe('Service Worker Generate terminal projection', () => {
     expect(state.sessionValues).toBeUndefined();
   });
 
-  it('allows explicit Regenerate from REVIEW', async () => {
-    const { handleMessage } = await prepareGenerationResponse(validResult);
-    const uiSender = { id: extensionId } as HandlerSender;
-
-    await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
-    ).resolves.toEqual(validResult);
-    await expect(
-      handleMessage({ type: 'p7-generate', retry: true }, uiSender)
-    ).resolves.toEqual(validResult);
-
-    const chromeApi = (globalThis as typeof globalThis & {
-      chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
-    }).chrome;
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(2);
-  });
-
   it('allows ordinary Generate after a confirmed page transition to a new cycle', async () => {
     const { handleMessage } = await prepareGenerationResponse(validResult);
     const uiSender = { id: extensionId } as HandlerSender;
@@ -386,7 +367,7 @@ describe('Service Worker Generate terminal projection', () => {
     }).chrome;
 
     await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+      handleMessage({ type: 'p7-generate' }, uiSender)
     ).resolves.toEqual(validResult);
     await handleMessage(
       {
@@ -398,7 +379,7 @@ describe('Service Worker Generate terminal projection', () => {
     );
 
     await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+      handleMessage({ type: 'p7-generate' }, uiSender)
     ).resolves.toEqual(validResult);
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(3);
   });
@@ -431,7 +412,7 @@ describe('Service Worker Generate terminal projection', () => {
     );
 
     await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+      handleMessage({ type: 'p7-generate' }, uiSender)
     ).resolves.toEqual(validResult);
     await expect(
       handleMessage({ type: 'p7-discover' }, uiSender)
@@ -441,7 +422,7 @@ describe('Service Worker Generate terminal projection', () => {
       result: null,
     });
     await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+      handleMessage({ type: 'p7-generate' }, uiSender)
     ).resolves.toEqual(validResult);
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(5);
   });
@@ -454,7 +435,7 @@ describe('Service Worker Generate terminal projection', () => {
     }).chrome;
 
     await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+      handleMessage({ type: 'p7-generate' }, uiSender)
     ).resolves.toEqual(validResult);
     await handleMessage(
       {
@@ -466,7 +447,7 @@ describe('Service Worker Generate terminal projection', () => {
     );
 
     await expect(
-      handleMessage({ type: 'p7-generate', retry: false }, uiSender)
+      handleMessage({ type: 'p7-generate' }, uiSender)
     ).resolves.toEqual(validResult);
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(3);
   });
@@ -480,7 +461,7 @@ describe('Service Worker Generate terminal projection', () => {
 
     await expect(
       handleMessage(
-        { type: 'p7-generate', retry: false },
+        { type: 'p7-generate' },
         { id: extensionId } as HandlerSender
       )
     ).rejects.toThrow();
@@ -519,11 +500,11 @@ describe('Service Worker Generate terminal projection', () => {
     await authorizedState(testStorage());
     const handleMessage = await loadHandler();
     const first = handleMessage(
-      { type: 'p7-generate', retry: false },
+      { type: 'p7-generate' },
       { id: extensionId } as HandlerSender
     );
     const second = handleMessage(
-      { type: 'p7-generate', retry: true },
+      { type: 'p7-generate' },
       { id: extensionId } as HandlerSender
     ).then(
       () => null,
@@ -548,7 +529,7 @@ describe('Service Worker Generate terminal projection', () => {
     });
   });
 
-  it('rejects overlapping Generate and Regenerate before a second provider call', async () => {
+  it('rejects overlapping Generate requests before a second provider call', async () => {
     const state: ChromeTestState = { values: {}, queryCount: 0 };
     installChrome(state);
     const chromeApi = (globalThis as typeof globalThis & {
@@ -568,11 +549,11 @@ describe('Service Worker Generate terminal projection', () => {
     const handleMessage = await loadHandler();
 
     const first = handleMessage(
-        { type: 'p7-generate', retry: false },
+        { type: 'p7-generate' },
         { id: extensionId } as HandlerSender
       );
     const second = handleMessage(
-        { type: 'p7-generate', retry: true },
+        { type: 'p7-generate' },
         { id: extensionId } as HandlerSender
       ).then(
         () => null,
@@ -636,7 +617,7 @@ describe('Service Worker Generate terminal projection', () => {
     await authorizedState(testStorage());
     const handleMessage = await loadHandler();
     const generation = handleMessage(
-      { type: 'p7-generate', retry: false },
+      { type: 'p7-generate' },
       { id: extensionId } as HandlerSender
     );
     await vi.waitFor(async () => {
