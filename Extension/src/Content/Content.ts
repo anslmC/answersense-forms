@@ -201,7 +201,8 @@ function observeNextIntent(): void {
       lifecycle,
       document,
       discoverPage,
-      publishTransition
+      publishTransition,
+      recordLifecyclePublicationFailure
     ).catch(recordLifecyclePublicationFailure);
   });
   if (document.documentElement) {

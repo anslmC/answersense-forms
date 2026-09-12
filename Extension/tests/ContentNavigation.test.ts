@@ -175,6 +175,93 @@ describe('Content navigation runtime adapter', () => {
     expect(lifecycle.currentRevisitStatus).toBe('NEW');
   });
 
+  it.each([
+    ['null discovery', null],
+    ['old page discovery', 'page-1'],
+  ])(
+    'rechecks a pending Next after an intermediate %s state',
+    async (_description, intermediatePage) => {
+      vi.useFakeTimers();
+      try {
+        const { lifecycle } = createLifecycle();
+        const oldDocument = createDocument();
+        settleInitialPage(lifecycle, oldDocument);
+        const nextDocument = createDocument();
+        let discoveryCalls = 0;
+        const publishTransition = vi.fn(async () => undefined);
+        const discoverPage = vi.fn(() => {
+          discoveryCalls += 1;
+          if (discoveryCalls <= 2) {
+            return intermediatePage === null
+              ? null
+              : discoverActiveGoogleFormsPage(createDocument(intermediatePage));
+          }
+          return discoverActiveGoogleFormsPage(nextDocument);
+        });
+
+        await processObservedNavigation(
+          lifecycle,
+          nextDocument,
+          discoverPage,
+          publishTransition
+        );
+        expect(lifecycle.pendingPage).not.toBeNull();
+        expect(lifecycle.context).toEqual([]);
+
+        nextDocument
+          .querySelector('[data-page-id="page-1"]')
+          ?.setAttribute('data-answersense-active-page', 'false');
+        nextDocument
+          .querySelector('[data-page-id="page-2"]')
+          ?.setAttribute('data-answersense-active-page', 'true');
+
+        await vi.runAllTimersAsync();
+
+        expect(publishTransition).toHaveBeenCalledTimes(1);
+        expect(lifecycle.pendingPage).toBeNull();
+        expect(lifecycle.settledPageStates.map((page) => page.pageId)).toEqual([
+          'page-1',
+        ]);
+        expect(lifecycle.context).toEqual([
+          {
+            questionId: 'name',
+            questionText: 'name',
+            answer: 'Settled answer',
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it('cancels the deferred recheck when pending navigation is abandoned', async () => {
+    vi.useFakeTimers();
+    try {
+      const { lifecycle } = createLifecycle();
+      const oldDocument = createDocument();
+      settleInitialPage(lifecycle, oldDocument);
+      const nextDocument = createDocument();
+      const publishTransition = vi.fn(async () => undefined);
+      const discoverPage = vi.fn(() => null);
+
+      await processObservedNavigation(
+        lifecycle,
+        nextDocument,
+        discoverPage,
+        publishTransition
+      );
+      lifecycle.abandon();
+      await vi.runAllTimersAsync();
+
+      expect(publishTransition).not.toHaveBeenCalled();
+      expect(lifecycle.pendingPage).toBeNull();
+      expect(lifecycle.settledPageStates).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not complete a transition before publication is acknowledged', async () => {
     const { lifecycle } = createLifecycle();
     const oldDocument = createDocument();

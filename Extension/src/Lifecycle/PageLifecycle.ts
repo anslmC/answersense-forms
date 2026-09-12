@@ -92,6 +92,10 @@ export class PageLifecycle {
     return this.pending;
   }
 
+  get pendingNavigation(): PendingNavigation | null {
+    return this.navigation;
+  }
+
   get context(): ReturnType<typeof buildSettledContext> {
     return buildSettledContext(this.settledPages);
   }

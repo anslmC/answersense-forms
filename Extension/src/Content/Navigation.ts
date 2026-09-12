@@ -22,6 +22,54 @@ export interface InitialDiscoveryOptions {
   timeoutMs?: number;
 }
 
+interface DeferredNavigationRecheck {
+  navigation: NonNullable<PageLifecycle['pendingNavigation']>;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
+const deferredNavigationRechecks = new WeakMap<
+  PageLifecycle,
+  DeferredNavigationRecheck
+>();
+
+function clearDeferredNavigationRecheck(lifecycle: PageLifecycle): void {
+  const recheck = deferredNavigationRechecks.get(lifecycle);
+  if (!recheck) {
+    return;
+  }
+  clearTimeout(recheck.timeoutId);
+  deferredNavigationRechecks.delete(lifecycle);
+}
+
+function scheduleDeferredNavigationRecheck(
+  lifecycle: PageLifecycle,
+  document: Document,
+  discoverPage: () => DiscoveredPage | null,
+  publishTransition: (page: NormalizedActivePage) => Promise<void>,
+  onError: (error: unknown) => void
+): void {
+  const navigation = lifecycle.pendingNavigation;
+  if (!navigation || deferredNavigationRechecks.has(lifecycle)) {
+    return;
+  }
+
+  const timeoutId = setTimeout(() => {
+    const recheck = deferredNavigationRechecks.get(lifecycle);
+    if (!recheck || lifecycle.pendingNavigation !== recheck.navigation) {
+      clearDeferredNavigationRecheck(lifecycle);
+      return;
+    }
+    void processObservedNavigation(
+      lifecycle,
+      document,
+      discoverPage,
+      publishTransition,
+      onError
+    ).catch(onError);
+  }, 0);
+  deferredNavigationRechecks.set(lifecycle, { navigation, timeoutId });
+}
+
 export function waitForInitialDiscovery(
   document: Document,
   discoverPage: () => DiscoveredPage | null,
@@ -82,10 +130,12 @@ export function processObservedNavigation(
   lifecycle: PageLifecycle,
   document: Document,
   discoverPage: () => DiscoveredPage | null,
-  publishTransition: (page: NormalizedActivePage) => Promise<void>
+  publishTransition: (page: NormalizedActivePage) => Promise<void>,
+  onError: (error: unknown) => void = () => undefined
 ): Promise<boolean> {
   const nextPage = lifecycle.confirmTransition(document);
   if (nextPage) {
+    clearDeferredNavigationRecheck(lifecycle);
     return publishTransition(nextPage).then(() => true);
   }
 
@@ -94,6 +144,13 @@ export function processObservedNavigation(
     !discovered ||
     discovered.pageId === lifecycle.currentPage.form.activePageId
   ) {
+    scheduleDeferredNavigationRecheck(
+      lifecycle,
+      document,
+      discoverPage,
+      publishTransition,
+      onError
+    );
     return Promise.resolve(false);
   }
 
