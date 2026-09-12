@@ -18,6 +18,16 @@ export class PopupController {
   async discover(): Promise<UiState> {
     const page = await this.workflow.discover();
     if (page && 'uiState' in page) {
+      const current = this.stateMachine.state;
+      if (
+        current.name === 'REVIEW' &&
+        page.uiState === 'READY' &&
+        page.result === null &&
+        page.page?.pageId === current.page.pageId &&
+        page.page.questionCount === current.page.questionCount
+      ) {
+        return current;
+      }
       return this.stateMachine.restore(page as WorkflowSnapshot);
     }
     return this.stateMachine.setPage(page);

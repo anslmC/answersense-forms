@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PopupController } from '../src/Popup/Controller';
 import {
   PopupStateMachine,
@@ -135,6 +137,82 @@ describe('P6 popup workflow boundary', () => {
     expect(workflow.generate).toHaveBeenCalledTimes(2);
     expect(workflow.generate).toHaveBeenNthCalledWith(1, false);
     expect(workflow.generate).toHaveBeenNthCalledWith(2, true);
+  });
+
+  it('keeps the current completed review during same-page post-fill discovery', async () => {
+    const workflow: PopupWorkflow = {
+      discover: vi
+        .fn()
+        .mockResolvedValueOnce(page)
+        .mockResolvedValueOnce({
+          uiState: 'READY',
+          page,
+          result: null,
+          error: null,
+        }),
+      generate: vi.fn(async () => result),
+      forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
+        uiState: 'READY',
+        page,
+        result: null,
+        error: null,
+      })),
+    };
+    const controller = new PopupController(workflow);
+
+    await controller.discover();
+    const completed = await controller.generate();
+    const rediscovered = await controller.discover();
+
+    expect(completed).toEqual({ name: 'REVIEW', page, result });
+    expect(rediscovered).toBe(completed);
+    expect(controller.state).toEqual(completed);
+  });
+
+  it('allows a different page discovery to replace the completed review', async () => {
+    const nextPage = { pageId: 'page-2', questionCount: 1 };
+    const workflow: PopupWorkflow = {
+      discover: vi
+        .fn()
+        .mockResolvedValueOnce(page)
+        .mockResolvedValueOnce({
+          uiState: 'READY',
+          page: nextPage,
+          result: null,
+          error: null,
+        }),
+      generate: vi.fn(async () => result),
+      forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
+        uiState: 'READY',
+        page: nextPage,
+        result: null,
+        error: null,
+      })),
+    };
+    const controller = new PopupController(workflow);
+
+    await controller.discover();
+    await controller.generate();
+
+    await expect(controller.discover()).resolves.toEqual({
+      name: 'READY',
+      page: nextPage,
+    });
+  });
+
+  it('keeps the completed bar and omits preserved answers from the summary', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      'utf8'
+    );
+
+    expect(source).toContain("progress.classList.add('is-complete');");
+    expect(source).toContain("progressFill.style.width = '100%';");
+    expect(source).not.toContain('alreadyFilledCount');
+    expect(source).not.toContain('already filled');
+    expect(result.fillReport.outcomes).toContainEqual(
+      expect.objectContaining({ status: 'PRESERVED_EXISTING' })
+    );
   });
 
   it('does not expose Generate on an unsupported page', async () => {

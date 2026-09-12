@@ -140,9 +140,6 @@ export function mountAnswerSenseApp(
       const filledCount = outcomes.filter(
         ({ status }) => status === 'FILLED'
       ).length;
-      const alreadyFilledCount = outcomes.filter(
-        ({ status }) => status === 'PRESERVED_EXISTING'
-      ).length;
       const failedCount = outcomes.filter(
         ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
       ).length;
@@ -150,10 +147,10 @@ export function mountAnswerSenseApp(
         ({ status }) => status === 'SKIPPED'
       ).length;
 
-    const summary = createElement('p');
-    summary.className = 'result-summary';
-    summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped`;
-    results.append(summary);
+      const summary = createElement('p');
+      summary.className = 'result-summary';
+      summary.textContent = `${filledCount} filled · ${failedCount} failed · ${skippedCount} skipped`;
+      results.append(summary);
       results.hidden = false;
     }
   }
