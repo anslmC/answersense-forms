@@ -25,7 +25,7 @@ function createDocument(testCase: IntegrationCase): Document {
         ? '<textarea></textarea>'
         : testCase.type === 'single-choice'
           ? '<div role="radio" aria-label="Alpha" aria-checked="false"></div><div role="radio" aria-label="Beta" aria-checked="false"></div>'
-          : '<div role="checkbox" aria-label="Existing" aria-checked="true"></div><div role="checkbox" aria-label="Added" aria-checked="false"></div>';
+          : '<div role="checkbox" aria-label="Existing" aria-checked="false"></div><div role="checkbox" aria-label="Added" aria-checked="false"></div>';
   const document = new DOMParser().parseFromString(
     `<!doctype html><main>
     <section data-page-id="page-${testCase.type}" data-answersense-active-page="true">
@@ -161,7 +161,7 @@ async function runIntegrationCase(testCase: IntegrationCase) {
       document
         .querySelector('[aria-label="Existing"]')
         ?.getAttribute('aria-checked')
-    ).toBe('true');
+    ).toBe('false');
     expect(
       document
         .querySelector('[aria-label="Added"]')
@@ -198,12 +198,12 @@ describe('P10 supported control runtime paths', () => {
     });
   });
 
-  it('runs multiple-choice through discovery to additive verified result', async () => {
+  it('runs multiple-choice through discovery to verified result', async () => {
     await runIntegrationCase({
       type: 'multiple-choice',
       questionId: 'multiple-choice-question',
-      answer: ['Existing', 'Added'],
-      expectedValue: ['Existing', 'Added'],
+      answer: ['Added'],
+      expectedValue: ['Added'],
     });
   });
 });

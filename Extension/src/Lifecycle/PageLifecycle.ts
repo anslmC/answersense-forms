@@ -281,6 +281,10 @@ export class PageLifecycle {
       currentForm.activePageId === normalizedPage.form.activePageId &&
       currentFingerprint === normalizedPage.form.pageFingerprint;
     if (sameIdentity) {
+      this.activePage = {
+        ...normalizedPage,
+        processingCycle: this.activeCycle,
+      };
       return 'unchanged';
     }
     this.resynchronizeCurrentPage(discovered);

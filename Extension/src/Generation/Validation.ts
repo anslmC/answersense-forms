@@ -51,7 +51,7 @@ function isValidAnswer(
 function validateResponseShape(
   response: unknown,
   expectedCycleId: string,
-  expectedQuestions: Question[]
+  expectedQuestions: readonly Question[]
 ): GenerationResponse {
   if (!isRecord(response)) {
     throw new GenerationResponseValidationError(
@@ -167,61 +167,70 @@ function validateResponseShape(
 export function validateGenerationResponse(
   response: unknown,
   form: Form,
-  expectedCycleId: string
+  expectedCycleId: string,
+  expectedQuestions: readonly Question[] = form.questions
 ): QuestionResult[] {
   const validResponse = validateResponseShape(
     response,
     expectedCycleId,
-    form.questions
+    expectedQuestions
   );
   const resultsById = new Map<string, GenerationResult>(
     validResponse.results.map((result) => [result.questionId, result])
   );
+  const candidateIds = new Set(
+    expectedQuestions.flatMap((question) =>
+      question.id === null ? [] : [question.id]
+    )
+  );
 
-  return form.questions.map((question): QuestionResult => {
+  return form.questions.flatMap((question): QuestionResult[] => {
     if (!question.supported) {
-      return {
+      return [{
         questionId: question.id,
         status: 'unsupported',
         answer: null,
         reason: question.unsupportedReason,
-      };
+      }];
+    }
+    if (question.id === null || !candidateIds.has(question.id)) {
+      return [];
     }
 
     const questionId = question.id as string;
     const result = resultsById.get(questionId) as GenerationResult;
     if (result.status === 'GENERATION_FAILED') {
-      return {
+      return [{
         questionId,
         status: 'GENERATION_FAILED',
         answer: null,
         reason: result.failure.message,
-      };
+      }];
     }
 
     if (result.status === 'ABSTAINED') {
-      return {
+      return [{
         questionId,
         status: 'ABSTAINED',
         answer: null,
         reason: result.reason,
-      };
+      }];
     }
 
     if (!isValidAnswer(question, result.answer.value)) {
-      return {
+      return [{
         questionId,
         status: 'VALIDATION_FAILED',
         answer: null,
         reason: 'Generated answer does not match the question contract.',
-      };
+      }];
     }
 
-    return {
+    return [{
       questionId,
       status: 'GENERATED',
       answer: { questionId, value: result.answer.value },
       reason: null,
-    };
+    }];
   });
 }

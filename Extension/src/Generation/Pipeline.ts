@@ -1,40 +1,61 @@
-import type { NormalizedActivePage } from '../Models/Logical';
+import type {
+  NormalizedActivePage,
+  Question,
+  QuestionResult,
+} from '../Models/Logical';
 import type { GenerationInterface, GenerationRequest } from './Contract';
 import { buildSettledContext, type SettledPageState } from './Context';
 import { createProcessingCycle, isCurrentCycle } from './Cycle';
 import { createGenerationReport, type GenerationReport } from './Report';
 import { validateGenerationResponse } from './Validation';
 
+export function selectGenerationCandidates(
+  page: NormalizedActivePage
+): Question[] {
+  return page.form.questions.filter(
+    (question) =>
+      question.supported &&
+      question.id !== null &&
+      question.text !== null &&
+      question.type !== null &&
+      question.existingInput?.hasValue !== true
+  );
+}
+
 function createRequest(
   page: NormalizedActivePage,
   cycleId: string,
+  candidates: readonly Question[],
   settledPages: readonly SettledPageState[]
 ): GenerationRequest {
-  const questions = page.form.questions.flatMap((question) => {
-    if (
-      !question.supported ||
-      question.id === null ||
-      question.text === null ||
-      question.type === null
-    ) {
-      return [];
-    }
-    return [
-      {
-        questionId: question.id,
-        text: question.text,
-        type: question.type,
-        required: question.required,
-        options: question.options.map((option) => option.label),
-      },
-    ];
-  });
+  const questions = candidates.map((question) => ({
+    questionId: question.id as string,
+    text: question.text as string,
+    type: question.type as NonNullable<Question['type']>,
+    required: question.required,
+    options: question.options.map((option) => option.label),
+  }));
   return {
     cycleId,
     pageId: page.form.activePageId,
     questions,
     settledContext: buildSettledContext(settledPages),
   };
+}
+
+function createLocalGenerationResults(
+  page: NormalizedActivePage
+): QuestionResult[] {
+  return page.form.questions.flatMap((question) =>
+    question.supported
+      ? []
+      : [{
+          questionId: question.id,
+          status: 'unsupported' as const,
+          answer: null,
+          reason: question.unsupportedReason,
+        }]
+  );
 }
 
 export class GenerationCoordinator {
@@ -78,8 +99,15 @@ export class GenerationCoordinator {
       return null;
     }
     const generationToken = this.generationToken;
+    const candidates = selectGenerationCandidates(page);
+    if (candidates.length === 0) {
+      return createGenerationReport(
+        cycle.cycleId,
+        createLocalGenerationResults(page)
+      );
+    }
     const response = await generator.generate(
-      createRequest(page, cycle.cycleId, settledPages)
+      createRequest(page, cycle.cycleId, candidates, settledPages)
     );
 
     if (
@@ -93,7 +121,8 @@ export class GenerationCoordinator {
     const results = validateGenerationResponse(
       response,
       page.form,
-      cycle.cycleId
+      cycle.cycleId,
+      candidates
     );
     // The page workflow creates pending state from this report after generation; it commits only after a confirmed transition.
     return createGenerationReport(cycle.cycleId, results);

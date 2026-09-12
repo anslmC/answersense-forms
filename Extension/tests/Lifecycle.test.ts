@@ -73,6 +73,66 @@ function createLifecycle() {
   return new PageLifecycle(page, coordinator);
 }
 
+function createControlLifecycle(type: SupportedQuestionType) {
+  const labels =
+    type === 'single-choice' || type === 'multiple-choice'
+      ? ['Alpha', 'Beta']
+      : [];
+  const initialQuestion: Question = {
+    ...question('answer'),
+    type,
+    options: labels.map((label) => ({ label, selected: false })),
+  };
+  const initialPage: NormalizedActivePage = {
+    form: { ...form, questions: [initialQuestion] },
+    questionResults: [
+      { questionId: 'answer', status: 'ready', answer: null, reason: null },
+    ],
+    processingCycle: { cycleId: 'cycle-1' },
+  };
+  const discoveredQuestion = {
+    kind: 'supported' as const,
+    id: 'answer',
+    text: 'answer',
+    type,
+    required: false,
+    options: labels.map((label) => ({ label, selected: false })),
+    existingValue: null as string | string[] | null,
+  };
+  const coordinator = new GenerationCoordinator(() => 'cycle-next');
+  return {
+    lifecycle: new PageLifecycle(initialPage, coordinator),
+    coordinator,
+    discovered: {
+      pageId: 'page-1',
+      formId: 'form-1',
+      questions: [discoveredQuestion],
+    },
+  };
+}
+
+function synchronizeAnswer(
+  type: SupportedQuestionType,
+  value: string | string[]
+) {
+  const { lifecycle, discovered } = createControlLifecycle(type);
+  const selected = new Set(Array.isArray(value) ? value : [value]);
+  const refreshed = {
+    ...discovered,
+    questions: discovered.questions.map((current) => ({
+      ...current,
+      existingValue: value,
+      options: current.options.map((option) => ({
+        ...option,
+        selected: selected.has(option.label),
+      })),
+    })),
+  };
+  const cycleId = lifecycle.currentCycle.cycleId;
+  const result = lifecycle.synchronizeCurrentPage(refreshed);
+  return { lifecycle, cycleId, result };
+}
+
 function createHandoff(document: Document, value = 'Ada', cycleId = 'cycle-1') {
   const report = {
     cycleId,
@@ -230,6 +290,141 @@ describe('P5 page lifecycle', () => {
       'changed-question'
     );
     expect(lifecycle.currentCycle.cycleId).not.toBe(cycleBeforeChange);
+  });
+
+  it('refreshes short-answer state on an unchanged page', () => {
+    const { lifecycle, cycleId, result } = synchronizeAnswer(
+      'short-text',
+      'Ada'
+    );
+
+    expect(result).toBe('unchanged');
+    expect(lifecycle.currentCycle.cycleId).toBe(cycleId);
+    expect(lifecycle.currentPage.form.activePageId).toBe('page-1');
+    expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
+  });
+
+  it('refreshes paragraph state on an unchanged page', () => {
+    const { lifecycle, result } = synchronizeAnswer('paragraph', 'Details');
+
+    expect(result).toBe('unchanged');
+    expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
+      value: 'Details',
+      hasValue: true,
+    });
+  });
+
+  it('refreshes multiple-choice state on an unchanged page', () => {
+    const { lifecycle, result } = synchronizeAnswer('single-choice', 'Beta');
+
+    expect(result).toBe('unchanged');
+    expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
+      value: 'Beta',
+      hasValue: true,
+    });
+    expect(lifecycle.currentPage.form.questions[0].options[1].selected).toBe(
+      true
+    );
+  });
+
+  it('refreshes checkbox state on an unchanged page', () => {
+    const { lifecycle, result } = synchronizeAnswer(
+      'multiple-choice',
+      ['Alpha', 'Beta']
+    );
+
+    expect(result).toBe('unchanged');
+    expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
+      value: ['Alpha', 'Beta'],
+      hasValue: true,
+    });
+    expect(
+      lifecycle.currentPage.form.questions[0].options.every(
+        (option) => option.selected
+      )
+    ).toBe(true);
+  });
+
+  it('excludes refreshed answers from all-filled Regenerate', async () => {
+    const { lifecycle, coordinator, discovered } = createControlLifecycle(
+      'short-text'
+    );
+    const refreshed = {
+      ...discovered,
+      questions: [{ ...discovered.questions[0], existingValue: 'Filled' }],
+    };
+    expect(lifecycle.synchronizeCurrentPage(refreshed)).toBe('unchanged');
+    const generator: GenerationInterface = { generate: vi.fn() };
+
+    const report = await coordinator.generate(
+      lifecycle.currentPage,
+      lifecycle.settledPageStates,
+      generator,
+      lifecycle.currentCycle
+    );
+
+    expect(report?.results).toEqual([]);
+    expect(generator.generate).not.toHaveBeenCalled();
+  });
+
+  it('sends only unanswered questions after mixed-page refresh', async () => {
+    const initialQuestions = ['answered', 'unanswered', 'also-answered'].map(
+      (id) => question(id)
+    );
+    const coordinator = new GenerationCoordinator(() => 'cycle-mixed');
+    const lifecycle = new PageLifecycle(
+      {
+        form: { ...form, questions: initialQuestions },
+        questionResults: initialQuestions.map((current) => ({
+          questionId: current.id,
+          status: 'ready' as const,
+          answer: null,
+          reason: null,
+        })),
+        processingCycle: { cycleId: 'cycle-1' },
+      },
+      coordinator
+    );
+    const discovered = {
+      pageId: 'page-1',
+      formId: 'form-1',
+      questions: initialQuestions.map((current) => ({
+        kind: 'supported' as const,
+        id: current.id,
+        text: current.text!,
+        type: 'short-text' as const,
+        required: false,
+        options: [],
+        existingValue: current.id === 'unanswered' ? null : current.id,
+      })),
+    };
+    expect(lifecycle.synchronizeCurrentPage(discovered)).toBe('unchanged');
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request) => ({
+        cycleId: request.cycleId,
+        results: [{
+          questionId: 'unanswered',
+          status: 'GENERATED' as const,
+          answer: { questionId: 'unanswered', value: 'Generated' },
+        }],
+      })),
+    };
+
+    await coordinator.generate(
+      lifecycle.currentPage,
+      lifecycle.settledPageStates,
+      generator,
+      lifecycle.currentCycle
+    );
+
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [expect.objectContaining({ questionId: 'unanswered' })],
+      })
+    );
   });
 
   it('rejects generation admission while Next is pending on the outgoing page', () => {

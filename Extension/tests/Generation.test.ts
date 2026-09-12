@@ -8,7 +8,10 @@ import {
   buildSettledContext,
   type SettledPageState,
 } from '../src/Generation/Context';
-import { GenerationCoordinator } from '../src/Generation/Pipeline';
+import {
+  GenerationCoordinator,
+  selectGenerationCandidates,
+} from '../src/Generation/Pipeline';
 import { createGenerationReport } from '../src/Generation/Report';
 import {
   abandonPendingPage,
@@ -375,6 +378,117 @@ describe('Settled context and pending page state', () => {
 });
 
 describe('Generation cycles and reports', () => {
+  it('excludes questions with existing current answers from candidates', () => {
+    const existing = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) =>
+          question.id === 'name'
+            ? {
+                ...question,
+                existingInput: { value: 'Existing', hasValue: true },
+              }
+            : question
+        ),
+      },
+    };
+
+    expect(selectGenerationCandidates(existing).map((question) => question.id)).toEqual([
+      'language',
+      'topics',
+    ]);
+  });
+
+  it('completes locally without invoking the generator when all questions are filled', async () => {
+    const filledPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) => ({
+          ...question,
+          existingInput: { value: 'Existing', hasValue: true },
+        })),
+      },
+    };
+    const generator: GenerationInterface = { generate: vi.fn() };
+    const coordinator = new GenerationCoordinator(() => 'cycle-filled');
+
+    await expect(
+      coordinator.generate(filledPage, [], generator)
+    ).resolves.toMatchObject({ status: 'complete', results: [] });
+    expect(generator.generate).not.toHaveBeenCalled();
+  });
+
+  it('keeps sequential regeneration local when all questions remain filled', async () => {
+    const filledPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) => ({
+          ...question,
+          existingInput: { value: 'Existing', hasValue: true },
+        })),
+      },
+    };
+    const generator: GenerationInterface = { generate: vi.fn() };
+    const coordinator = new GenerationCoordinator(() => crypto.randomUUID());
+
+    await coordinator.generate(filledPage, [], generator);
+    await coordinator.generate(filledPage, [], generator);
+
+    expect(generator.generate).not.toHaveBeenCalled();
+  });
+
+  it('sends only unanswered questions for a mixed page', async () => {
+    const mixedPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: [
+          { ...form.questions[0], existingInput: { value: 'Filled', hasValue: true } },
+          { ...form.questions[1], existingInput: { value: null, hasValue: false } },
+          { ...form.questions[2], existingInput: { value: 'Selected', hasValue: true } },
+        ],
+      },
+    };
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request) => ({
+        cycleId: request.cycleId,
+        results: request.questions.map((question) => ({
+          questionId: question.questionId,
+          status: 'GENERATED' as const,
+          answer: { questionId: question.questionId, value: 'Answer' },
+        })),
+      })),
+    };
+    const coordinator = new GenerationCoordinator(() => 'cycle-mixed');
+
+    await coordinator.generate(mixedPage, [], generator);
+
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [expect.objectContaining({ questionId: 'language' })],
+      })
+    );
+  });
+
+  it('validates responses against candidates rather than the whole form', () => {
+    const candidates = [form.questions[1]];
+    const response: GenerationResponse = {
+      cycleId: 'cycle-1',
+      results: [
+        {
+          questionId: 'language',
+          status: 'GENERATED',
+          answer: { questionId: 'language', value: 'TypeScript' },
+        },
+      ],
+    };
+
+    expect(validateGenerationResponse(response, form, 'cycle-1', candidates)).toHaveLength(1);
+  });
+
   it('creates a new cycle for each attempt and ignores stale responses', async () => {
     const resolvers: Array<(response: GenerationResponse) => void> = [];
     const generator: GenerationInterface = {
