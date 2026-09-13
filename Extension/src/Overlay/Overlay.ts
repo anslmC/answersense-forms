@@ -206,7 +206,6 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           </button>
         </div>
         <div class="override-flow" data-override-flow hidden>
-          <h3>Override Filled Answer(s)</h3>
           <div class="actions">
             <button type="button" data-override-all>All filled answers</button>
             <button type="button" class="secondary" data-override-specific>

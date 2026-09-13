@@ -138,6 +138,10 @@ describe('live Overlay generation workflow', () => {
     const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+    const overrideFlow = () => shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
+
+    expect(overrideAction()?.hidden).toBe(true);
+    expect(shadowRoot?.querySelector('[data-override-action]:not([hidden])')).toBeNull();
 
     await vi.waitFor(() => {
       expect(primary()?.hidden).toBe(false);
@@ -161,8 +165,10 @@ describe('live Overlay generation workflow', () => {
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
       expect(resultSummary()?.hidden).not.toBe(true);
       expect(resultSummary()?.textContent).toBe('4 filled · 0 failed · 0 skipped');
-      expect(overrideAction()?.hidden).toBe(false);
-      expect(overrideAction()?.textContent?.trim()).toBe('Override Filled Answer(s)');
+      const visibleOverrideActions = [...(shadowRoot?.querySelectorAll<HTMLButtonElement>('[data-override-action]') ?? [])]
+        .filter((button) => !button.hidden);
+      expect(visibleOverrideActions).toHaveLength(1);
+      expect(visibleOverrideActions[0]?.textContent?.trim()).toBe('Override Filled Answer(s)');
       expect(forceClear()?.tagName).toBe('BUTTON');
       expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle All');
       expect(forceClear()?.hidden).toBe(false);
@@ -177,6 +183,19 @@ describe('live Overlay generation workflow', () => {
         )
       ).toBe(false);
     });
+    
+    expect(overrideFlow()?.hidden).toBe(true);
+    overrideAction()?.click();
+    expect(overrideFlow()?.hidden).toBe(false);
+    expect(overrideAction()?.textContent?.trim()).toBe('Override Filled Answer(s)');
+    expect(overrideFlow()?.querySelector('h3')).toBeNull();
+    overrideAction()?.click();
+    expect(overrideFlow()?.hidden).toBe(true);
+    overrideAction()?.click();
+    expect(overrideFlow()?.hidden).toBe(false);
+    expect(shadowRoot?.querySelector('[data-override-all]')).not.toBeNull();
+    expect(shadowRoot?.querySelector('[data-override-specific]')).not.toBeNull();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]')?.click();
     expect(shadowRoot?.querySelector('span[data-filled-status]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
     expect(

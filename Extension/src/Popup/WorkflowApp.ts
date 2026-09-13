@@ -95,12 +95,8 @@ export function mountAnswerSenseApp(
     }
 
     if (overrideAction) {
-      const filledQuestions =
-        state.name === 'UNSUPPORTED' || !state.page
-          ? []
-          : filledSupportedQuestions(state.page);
-      overrideAction.hidden =
-        state.name !== 'REVIEW' || filledQuestions.length === 0;
+      const hideOverride = state.name !== 'REVIEW';
+      overrideAction.toggleAttribute('hidden', hideOverride);
       overrideAction.disabled = state.name === 'GENERATING';
     }
 
@@ -413,12 +409,15 @@ export function mountAnswerSenseApp(
   overrideAction?.addEventListener('click', () => {
     const flow = element<HTMLElement>('[data-override-flow]');
     if (!flow || controller.state.name === 'UNSUPPORTED') return;
-    flow.removeAttribute('hidden');
-    pendingAllQuestionIds = null;
-    pendingOverrideIntent = null;
-    element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
-    element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
-    if (overrideMessage) overrideMessage.textContent = '';
+    const shouldOpen = flow.hidden;
+    flow.toggleAttribute('hidden', !shouldOpen);
+    if (shouldOpen) {
+      pendingAllQuestionIds = null;
+      pendingOverrideIntent = null;
+      element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
+      element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
+      if (overrideMessage) overrideMessage.textContent = '';
+    }
   });
   overrideAll?.addEventListener('click', () => {
     if (controller.state.name === 'UNSUPPORTED' || !controller.state.page) return;
