@@ -508,6 +508,10 @@ button,
   font-weight: 600;
 }
 
+[data-override-action][hidden] {
+  display: none;
+}
+
 [data-filled-status].is-settled {
   cursor: default;
 }
