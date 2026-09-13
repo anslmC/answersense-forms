@@ -325,6 +325,8 @@ describe('live Overlay generation workflow', () => {
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(true);
+      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')).not.toBeNull();
+      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-right')).not.toBeNull();
       expect(shadowRoot?.querySelector('style')).not.toBeNull();
       expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
         'animation: overlay-border-gradient 0.7s linear infinite'
@@ -337,6 +339,8 @@ describe('live Overlay generation workflow', () => {
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
+      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')).toBeNull();
+      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-right')).toBeNull();
       expect(resultSummary()?.hidden).not.toBe(true);
       expect(resultSummary()?.textContent).toContain(
         '4 filled · 0 already filled · 0 failed · 0 skipped'

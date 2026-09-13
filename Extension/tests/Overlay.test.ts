@@ -87,15 +87,22 @@ describe('overlay refresh operation', () => {
       { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M9,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,9,22Z' },
       { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M15,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,15,22Z' },
       { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M15,19H9a1,1,0,0,1-1-1V12a1,1,0,0,1,1-1h6a1,1,0,0,1,1,1v6A1,1,0,0,1,15,19Zm-5-2h4V13H10Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z' },
+      { className: 'cls-1 logo-arm logo-arm-left', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z' },
+      { className: 'cls-1 logo-arm logo-arm-right', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z' },
     ]);
-    expect(logo?.querySelectorAll('path')[8]?.getAttribute('transform')).toBe(
-      'translate(24 0) scale(-1 1)'
-    );
+    expect(logo?.querySelectorAll('.logo-arm')).toHaveLength(2);
+      expect(logo?.querySelector('.logo-arm-mirror')?.getAttribute('transform')).toBe(
+        'translate(24 0) scale(-1 1)'
+      );
     expect(stylesheet).toMatch(
       /\.overlay-logo\s*\{[^}]*fill: #333;[^}]*filter: invert\(1\);/s
     );
+    expect(stylesheet).toMatch(/\.overlay-logo\s*\{[^}]*margin-right: -4px;/s);
+      expect(stylesheet).toContain('.overlay-panel.is-generating .logo-arm');
+      expect(stylesheet).toContain('animation: overlay-logo-arm 0.42s ease-in-out infinite;');
+    expect(stylesheet).toContain('transform: rotate(42deg);');
+    expect(stylesheet).toContain('transform-origin: 100% 0%;');
+    expect(stylesheet).toContain('@media (prefers-reduced-motion: reduce)');
     expect(header?.children[0]).toBe(logo);
     expect(header?.querySelector('h1')?.textContent).toBe('AnswerSense: Forms');
     expect(header?.children[1]).toBe(header?.querySelector('h1'));

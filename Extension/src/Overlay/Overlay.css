@@ -64,9 +64,36 @@
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
+  margin-right: -7px;
   fill: #333;
   filter: invert(1);
   pointer-events: none;
+}
+
+.overlay-logo .logo-arm {
+  transform-box: fill-box;
+  transform-origin: 100% 0%;
+}
+
+.overlay-panel.is-generating .logo-arm {
+  animation: overlay-logo-arm 0.42s ease-in-out infinite;
+}
+
+@keyframes overlay-logo-arm {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  50% {
+    transform: rotate(42deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .overlay-panel.is-generating .logo-arm {
+    animation: none;
+  }
 }
 
 .overlay-header h1 {
