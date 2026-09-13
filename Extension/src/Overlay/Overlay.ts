@@ -41,6 +41,22 @@ function buildShell(): {
   header.setAttribute('role', 'banner');
   header.setAttribute('aria-label', 'Drag to move the panel');
 
+  const logo = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  logo.setAttribute('class', 'overlay-logo');
+  logo.setAttribute('viewBox', '0 0 24 24');
+  logo.setAttribute('aria-hidden', 'true');
+  logo.setAttribute('focusable', 'false');
+  logo.innerHTML = `
+    <path class="cls-1" d="M16,13H8a3,3,0,0,1-3-3V6A3,3,0,0,1,8,3h8a3,3,0,0,1,3,3v4A3,3,0,0,1,16,13ZM8,5A1,1,0,0,0,7,6v4a1,1,0,0,0,1,1h8a1,1,0,0,0,1-1V6a1,1,0,0,0-1-1Z"></path>
+    <path class="cls-1" d="M10,9a1.05,1.05,0,0,1-.71-.29A1,1,0,0,1,10.19,7a.6.6,0,0,1,.19.06.56.56,0,0,1,.17.09l.16.12A1,1,0,0,1,10,9Z"></path>
+    <path class="cls-1" d="M14,9a1,1,0,0,1-.71-1.71,1,1,0,0,1,1.42,1.42,1,1,0,0,1-.16.12.56.56,0,0,1-.17.09.6.6,0,0,1-.19.06Z"></path>
+    <path class="cls-1" d="M12,4a1,1,0,0,1-1-1V2a1,1,0,0,1,2,0V3A1,1,0,0,1,12,4Z"></path>
+    <path class="cls-1" d="M9,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,9,22Z"></path>
+    <path class="cls-1" d="M15,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,15,22Z"></path>
+    <path class="cls-1" d="M15,19H9a1,1,0,0,1-1-1V12a1,1,0,0,1,1-1h6a1,1,0,0,1,1,1v6A1,1,0,0,1,15,19Zm-5-2h4V13H10Z"></path>
+    <path class="cls-1" d="M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z"></path>
+    <path class="cls-1" d="M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z" transform="translate(24 0) scale(-1 1)"></path>`;
+
   const title = document.createElement('h1');
   title.textContent = EXTENSION_NAME;
 
@@ -78,7 +94,7 @@ function buildShell(): {
   const body = document.createElement('div');
   body.className = 'overlay-body';
 
-  header.append(title, github, refresh, close);
+  header.append(logo, title, github, refresh, close);
   panel.append(header, body);
   shell.append(panel);
   return { panel, header, body, shell, refresh, close };

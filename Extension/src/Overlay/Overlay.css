@@ -60,6 +60,15 @@
   cursor: grabbing;
 }
 
+.overlay-logo {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  fill: #333;
+  filter: invert(1);
+  pointer-events: none;
+}
+
 .overlay-header h1 {
   margin: 0;
   font-size: 14px;
