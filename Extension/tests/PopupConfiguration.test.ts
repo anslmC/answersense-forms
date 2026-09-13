@@ -7,10 +7,10 @@ import {
   authorizationStatus,
   validGenerationMessage,
   validationStatus,
-  type PopupConfigurationState,
-} from '../src/Popup/Configuration';
+  type ConfigurationState,
+} from '../src/Workflow/Configuration';
 
-const baseState: PopupConfigurationState = {
+const baseState: ConfigurationState = {
   providers: [
     {
       providerId: 'gemini',
@@ -81,74 +81,14 @@ describe('popup configuration state', () => {
     }
   });
 
-  it('keeps credential entry controls hidden until the user opens an API-key flow', () => {
-    const markup = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.html'),
-      'utf8'
-    );
-    expect(markup).toContain('<div class="credential-form" data-add-credential-form hidden>');
-    expect(markup).toContain('<div class="credential-form" data-replace-credential-form hidden>');
-    expect(markup).toContain('<label for="credential-label">Key Name</label>');
-    expect(markup).toContain('<label for="credential-secret">API key</label>');
-    expect(markup).toContain('<label for="replace-credential-select">Key to replace</label>');
-    expect(markup).toContain('<label for="replace-credential-secret">New API Key</label>');
-    expect(markup).toContain('<button type="button" data-save-add-credential>Save</button>');
-    expect(markup).toContain('<button type="button" class="secondary" data-cancel-add-credential>');
-    expect(markup).toContain('<button type="button" data-save-replace-credential>Replace</button>');
-    expect(markup).toContain('<button type="button" class="secondary" data-cancel-replace-credential>');
-  });
-
-  it('uses API key terminology in visible popup text', () => {
-    const markup = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.html'),
-      'utf8'
-    );
-    const styles = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.css'),
-      'utf8'
-    );
-    const visibleText = markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-    expect(markup.indexOf('data-status')).toBeGreaterThan(
-      markup.indexOf('</header>')
-    );
-    expect(markup.indexOf('data-status')).toBeLessThan(
-      markup.indexOf('credential-heading')
-    );
-    expect(markup.indexOf('credential-heading')).toBeLessThan(
-      markup.indexOf('configuration-heading')
-    );
-    expect(markup.indexOf('configuration-heading')).toBeLessThan(
-      markup.indexOf('validation-heading')
-    );
-    expect(markup.indexOf('validation-heading')).toBeLessThan(
-      markup.indexOf('generation-heading')
-    );
-    expect(styles).toContain('.generation-panel');
-    expect(styles).toMatch(/\.generation-panel[\s\S]*border-top/);
-    expect(visibleText).toContain('API Keys');
-    expect(visibleText).toContain('No API keys added yet');
-    expect(visibleText).toContain('Add API key');
-    expect(visibleText).toContain('Replace API key');
-    expect(visibleText).toContain('Delete All keys');
-    expect(visibleText).toContain('Force Unsettle');
-    expect(visibleText).not.toContain('Credential');
-  });
-
   it('keeps generation interactive only through the authorized flow', () => {
-    const markup = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.html'),
-      'utf8'
-    );
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
     const contentSource = readFileSync(
       resolve(process.cwd(), 'src/Content/Content.ts'),
       'utf8'
-    );
-    expect(markup).toMatch(
-      /<button type="button" data-primary-action hidden>\s*Generate &amp; Auto-Fill/
     );
     expect(popupSource).toContain(
       'primary.disabled = !isCurrentValidationValid(configurationState);'
@@ -175,16 +115,10 @@ describe('popup configuration state', () => {
   });
 
   it('shows the unsaved validation message until configuration is saved', () => {
-    const markup = readFileSync(
-      resolve(process.cwd(), 'src/Popup/Popup.html'),
-      'utf8'
-    );
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
-    expect(markup).toContain('data-unsaved-configuration hidden>');
-    expect(markup).toContain('Save the configuration before validating');
     expect(popupSource).toContain(
       'unsavedConfiguration.hidden = !configurationDirty;'
     );
@@ -197,7 +131,7 @@ describe('popup configuration state', () => {
 
   it('clears stale terminal progress state when entering the GENERATING branch', () => {
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
 
@@ -210,7 +144,7 @@ describe('popup configuration state', () => {
 
   it('toggles a generating-only overlay border state and defines the 0.7s animated glint', () => {
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
     const overlayStyles = readFileSync(

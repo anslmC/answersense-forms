@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PopupController } from '../src/Popup/Controller';
+import { WorkflowController } from '../src/Workflow/Controller';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
   filledOverrideCandidates,
   overrideQuestionLabel,
-  PopupStateMachine,
+  WorkflowStateMachine,
   type UiGenerationResult,
   type WorkflowSnapshot,
-} from '../src/Popup/State';
+} from '../src/Workflow/State';
 import { readFileSync as readPopupSource } from 'node:fs';
-import type { PopupWorkflow } from '../src/Popup/Workflow';
+import type { Workflow } from '../src/Workflow/Workflow';
 
 const page = { pageId: 'page-1', questionCount: 2 };
 const result: UiGenerationResult = {
@@ -133,25 +133,15 @@ describe('P6 popup state machine', () => {
 
   it('exposes Override controls without invoking generation', () => {
     const source = readPopupSource(
-      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
-    const markup = readPopupSource(
-      resolve(process.cwd(), 'src/Popup/Popup.html'),
-      'utf8'
-    );
-
-    expect(markup).toContain('Override Filled Answer(s)');
-    expect(markup).toContain('All filled answers');
-    expect(markup).toContain('Specific question(s)');
-    expect(markup).toContain('data-override-cancel');
-    expect(markup).toContain('data-override-confirm');
     expect(source).toContain('const filledQuestions = filledOverrideCandidates(state.page);');
     expect(source).toContain('publishOverrideIntent');
   });
 
   it('supports all authoritative state transitions', () => {
-    const machine = new PopupStateMachine();
+    const machine = new WorkflowStateMachine();
     expect(machine.state.name).toBe('UNSUPPORTED');
     machine.setPage(page);
     expect(machine.state.name).toBe('READY');
@@ -165,7 +155,7 @@ describe('P6 popup state machine', () => {
   });
 
   it('ignores stale generation results and preserves rejected navigation state', () => {
-    const machine = new PopupStateMachine();
+    const machine = new WorkflowStateMachine();
     machine.setPage(page);
     machine.beginGeneration();
     const staleToken = machine.activeOperationToken;
@@ -176,7 +166,7 @@ describe('P6 popup state machine', () => {
   });
 
   it('moves confirmed supported and unsupported pages to current page states', () => {
-    const machine = new PopupStateMachine();
+    const machine = new WorkflowStateMachine();
     expect(machine.confirmedPage(page).name).toBe('READY');
     expect(machine.confirmedPage(null).name).toBe('UNSUPPORTED');
   });
@@ -184,7 +174,7 @@ describe('P6 popup state machine', () => {
 
 describe('P6 popup workflow boundary', () => {
   it('delegates discovery and generation without owning cycle IDs', async () => {
-    const workflow: PopupWorkflow = {
+    const workflow: Workflow = {
       discover: vi.fn(async () => page),
       generate: vi.fn(async () => result),
       forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
@@ -194,7 +184,7 @@ describe('P6 popup workflow boundary', () => {
         error: null,
       })),
     };
-    const controller = new PopupController(workflow);
+    const controller = new WorkflowController(workflow);
     await expect(controller.discover()).resolves.toMatchObject({
       name: 'READY',
     });
@@ -206,7 +196,7 @@ describe('P6 popup workflow boundary', () => {
   });
 
   it('enters ERROR on generation failure without exposing a retry action', async () => {
-    const workflow: PopupWorkflow = {
+    const workflow: Workflow = {
       discover: vi.fn(async () => page),
       generate: vi
         .fn()
@@ -218,7 +208,7 @@ describe('P6 popup workflow boundary', () => {
         error: null,
       })),
     };
-    const controller = new PopupController(workflow);
+    const controller = new WorkflowController(workflow);
     await controller.discover();
     await expect(controller.generate()).resolves.toMatchObject({
       name: 'ERROR',
@@ -230,7 +220,7 @@ describe('P6 popup workflow boundary', () => {
   });
 
   it('projects READY after same-page post-fill discovery', async () => {
-    const workflow: PopupWorkflow = {
+    const workflow: Workflow = {
       discover: vi
         .fn()
         .mockResolvedValueOnce(page)
@@ -248,7 +238,7 @@ describe('P6 popup workflow boundary', () => {
         error: null,
       })),
     };
-    const controller = new PopupController(workflow);
+    const controller = new WorkflowController(workflow);
 
     await controller.discover();
     const completed = await controller.generate();
@@ -261,7 +251,7 @@ describe('P6 popup workflow boundary', () => {
 
   it('allows a different page discovery to replace the completed review', async () => {
     const nextPage = { pageId: 'page-2', questionCount: 1 };
-    const workflow: PopupWorkflow = {
+    const workflow: Workflow = {
       discover: vi
         .fn()
         .mockResolvedValueOnce(page)
@@ -279,7 +269,7 @@ describe('P6 popup workflow boundary', () => {
         error: null,
       })),
     };
-    const controller = new PopupController(workflow);
+    const controller = new WorkflowController(workflow);
 
     await controller.discover();
     await controller.generate();
@@ -292,7 +282,7 @@ describe('P6 popup workflow boundary', () => {
 
   it('keeps the completed bar and includes preserved answers in the summary', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
+      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
 
@@ -306,7 +296,7 @@ describe('P6 popup workflow boundary', () => {
   });
 
   it('does not expose Generate on an unsupported page', async () => {
-    const workflow: PopupWorkflow = {
+    const workflow: Workflow = {
       discover: vi.fn(async () => null),
       generate: vi.fn(async () => result),
       forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
@@ -316,7 +306,7 @@ describe('P6 popup workflow boundary', () => {
         error: null,
       })),
     };
-    const controller = new PopupController(workflow);
+    const controller = new WorkflowController(workflow);
     await controller.discover();
     await controller.generate();
     expect(controller.state.name).toBe('UNSUPPORTED');
@@ -324,7 +314,7 @@ describe('P6 popup workflow boundary', () => {
   });
 
   it('converts an invalid completed result into a visible error state', () => {
-    const machine = new PopupStateMachine();
+    const machine = new WorkflowStateMachine();
     machine.confirmedPage(page);
     const generating = machine.beginGeneration();
 

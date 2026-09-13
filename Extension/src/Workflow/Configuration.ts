@@ -1,16 +1,16 @@
-export interface PopupModelOption {
+export interface ModelOption {
   modelId: string;
   displayName: string;
 }
 
-export interface PopupProviderOption {
+export interface ProviderOption {
   providerId: string;
   displayName: string;
-  models: PopupModelOption[];
+  models: ModelOption[];
   supportsValidation: boolean;
 }
 
-export interface PopupCredential {
+export interface Credential {
   credentialId: string;
   providerId: string;
   label: string;
@@ -18,14 +18,14 @@ export interface PopupCredential {
   updatedAt: string;
 }
 
-export interface PopupConfiguration {
+export interface Configuration {
   providerId: string;
   modelId: string;
   credentialId: string;
   providerConfig: Record<string, unknown>;
 }
 
-export interface PopupValidation {
+export interface Validation {
   configurationDigest: string;
   providerId: string;
   modelId: string;
@@ -35,22 +35,22 @@ export interface PopupValidation {
   failureCode?: string;
 }
 
-export interface PopupConfigurationState {
-  providers: PopupProviderOption[];
-  credentials: PopupCredential[];
-  activeConfiguration: PopupConfiguration | null;
+export interface ConfigurationState {
+  providers: ProviderOption[];
+  credentials: Credential[];
+  activeConfiguration: Configuration | null;
   configurationDigest: string | null;
   configurationRevision: number;
-  validation: PopupValidation | null;
+  validation: Validation | null;
 }
 
-export type PopupValidationStatus =
+export type ValidationStatus =
   'NOT_VALIDATED' | 'VALIDATING' | 'VALID' | 'INVALID';
 
 export function modelsForProvider(
-  state: PopupConfigurationState,
+  state: ConfigurationState,
   providerId: string
-): PopupModelOption[] {
+): ModelOption[] {
   return (
     state.providers.find((provider) => provider.providerId === providerId)
       ?.models ?? []
@@ -58,7 +58,7 @@ export function modelsForProvider(
 }
 
 export function isCurrentValidationValid(
-  state: PopupConfigurationState
+  state: ConfigurationState
 ): boolean {
   const configuration = state.activeConfiguration;
   const validation = state.validation;
@@ -80,13 +80,13 @@ export const VALID_GENERATION_MESSAGE =
   'Configuration is valid. Generate is available on a supported page.';
 
 export function validGenerationMessage(
-  state: PopupConfigurationState
+  state: ConfigurationState
 ): string | null {
   return isCurrentValidationValid(state) ? VALID_GENERATION_MESSAGE : null;
 }
 
 export function authorizationStatus(
-  state: PopupConfigurationState,
+  state: ConfigurationState,
   validating: boolean,
   configurationDirty = false
 ): string {
@@ -114,9 +114,9 @@ export function authorizationStatus(
 }
 
 export function validationStatus(
-  state: PopupConfigurationState,
+  state: ConfigurationState,
   validating: boolean
-): PopupValidationStatus {
+): ValidationStatus {
   if (validating) {
     return 'VALIDATING';
   }

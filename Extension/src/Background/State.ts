@@ -3,7 +3,7 @@ import type {
   PageSummary,
   UiGenerationResult,
   UiStateName,
-} from '../Popup/State';
+} from '../Workflow/State';
 
 export interface IntegrationSnapshot {
   lifecycle: LifecycleSnapshot | null;

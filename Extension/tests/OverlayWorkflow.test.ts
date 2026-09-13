@@ -182,6 +182,8 @@ describe('live Overlay generation workflow', () => {
       resolve(process.cwd(), 'src/Overlay/Overlay.css'),
       'utf8'
     );
+    expect(overlayStyles).toContain('.generation-panel');
+    expect(overlayStyles).toMatch(/\.generation-panel[\s\S]*border-top/);
     expect(overlayStyles).toContain('font-size: 11px;');
     expect(overlayStyles).toContain('color: #4b5563;');
     expect(overlayStyles).toMatch(
@@ -209,6 +211,22 @@ describe('live Overlay generation workflow', () => {
     ]) {
       expect(content?.querySelector(selector)).not.toBeNull();
     }
+
+    expect(content?.textContent).toContain('API Keys');
+    expect(content?.textContent).toContain('Add API key');
+    expect(content?.textContent).toContain('Replace API key');
+    expect(content?.textContent).toContain('Delete All keys');
+    expect(content?.textContent).not.toContain('Credential');
+    expect(content?.querySelector('[data-add-credential-form]')?.textContent).toContain(
+      'Key Name'
+    );
+    expect(content?.querySelector('[data-credential-secret]')).not.toBeNull();
+    expect(content?.querySelector('[data-replace-credential-select]')).not.toBeNull();
+    expect(content?.querySelector('[data-replace-credential-secret]')).not.toBeNull();
+    expect(content?.querySelector('[data-unsaved-configuration]')?.textContent).toContain(
+      'Save the configuration before validating'
+    );
+    expect(content?.querySelector('[data-unsaved-configuration]')?.hidden).toBe(true);
 
     const addCredential = content?.querySelector<HTMLButtonElement>('[data-add-credential]');
     const addCredentialForm = content?.querySelector<HTMLElement>('[data-add-credential-form]');
@@ -408,6 +426,9 @@ describe('live Overlay generation workflow', () => {
       'Uncheck All'
     );
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    expect(shadowRoot?.querySelector('[data-override-all]')?.textContent?.trim()).toBe(
+      'All filled answers'
+    );
     expect(
       [...(shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input') ?? [])]
         .every((checkbox) => checkbox.checked)

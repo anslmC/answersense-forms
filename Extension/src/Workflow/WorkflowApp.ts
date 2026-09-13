@@ -1,13 +1,13 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
-import { PopupController } from './Controller';
+import { WorkflowController } from './Controller';
 import {
   isCurrentValidationValid,
   authorizationStatus,
   modelsForProvider,
   validGenerationMessage,
-  type PopupConfigurationState,
+  type ConfigurationState,
 } from './Configuration';
-import { createBrowserPopupWorkflow } from './Workflow';
+import { createBrowserWorkflow } from './Workflow';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
@@ -45,7 +45,7 @@ export function mountAnswerSenseApp(
   const createElement = (name: string): HTMLElement =>
     (ownerDocument ?? document).createElement(name);
 
-  let configurationState: PopupConfigurationState = {
+  let configurationState: ConfigurationState = {
     providers: [],
     credentials: [],
     activeConfiguration: null,
@@ -59,7 +59,7 @@ export function mountAnswerSenseApp(
   let pendingAllQuestionIds: readonly string[] | null = null;
   let selectedSpecificQuestionIds: string[] = [];
 
-  const controller = new PopupController(createBrowserPopupWorkflow());
+  const controller = new WorkflowController(createBrowserWorkflow());
   let primaryAction: HTMLButtonElement | null = null;
   let primaryActionContainer: HTMLElement | null = null;
   let overridePresentation: {
@@ -410,7 +410,7 @@ export function mountAnswerSenseApp(
   async function reloadConfiguration(): Promise<void> {
     configurationState = (await send({
       type: 'configuration-state',
-    })) as unknown as PopupConfigurationState;
+    })) as unknown as ConfigurationState;
     renderAll(controller.state);
   }
 
@@ -805,7 +805,7 @@ export function mountAnswerSenseApp(
             providerId: providerSelect.value,
             modelId: modelSelect.value,
             credentialId: credentialSelect.value,
-          })) as unknown as PopupConfigurationState;
+          })) as unknown as ConfigurationState;
           configurationDirty = false;
           showMessage(
             '[data-validation-message]',

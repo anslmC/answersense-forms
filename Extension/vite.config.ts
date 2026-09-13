@@ -12,7 +12,6 @@ export default defineConfig(({ mode }) => {
         input: contentBuild
           ? resolve(__dirname, 'src/Content/Content.ts')
           : {
-              popup: resolve(__dirname, 'src/Popup/Popup.html'),
               background: resolve(__dirname, 'src/Background/ServiceWorker.ts'),
             },
         output: contentBuild

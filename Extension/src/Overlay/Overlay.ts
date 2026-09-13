@@ -1,5 +1,5 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
-import { mountAnswerSenseApp } from '../Popup/WorkflowApp';
+import { mountAnswerSenseApp } from '../Workflow/WorkflowApp';
 import overlayCss from './Overlay.css?inline';
 
 const OVERLAY_HOST_ID = 'answersense-overlay-host';

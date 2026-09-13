@@ -33,7 +33,7 @@ The production processing flow is implemented incrementally under the canonical 
 
 - **Extension:** TypeScript, Manifest V3, Vite, Chromium/Edge/Brave
 - **Backend:** Node.js, TypeScript, Zod
-- **Testing:** Vitest, Playwright
+- **Testing:** Vitest
 - **Tooling:** ESLint, Prettier, npm workspaces
 
 ## Developer/Local Backend Configuration

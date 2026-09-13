@@ -38,7 +38,6 @@ const generatedQuestionResultSchema = z
       });
     }
   });
-
 const abstainedQuestionResultSchema = z.object({
   questionId: z.string().min(1),
   status: z.literal('ABSTAINED'),
@@ -87,11 +86,3 @@ export const GenerationResponseSchema = z
       seenQuestionIds.add(result.questionId);
     });
   });
-
-// Placeholder schema for form requests
-export const FormRequestSchema = z.object({
-  formId: z.string(),
-  timestamp: z.number(),
-});
-
-export type FormRequest = z.infer<typeof FormRequestSchema>;

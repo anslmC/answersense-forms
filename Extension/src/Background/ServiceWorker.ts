@@ -37,7 +37,7 @@ import {
   SafeServiceWorkerError,
   serviceWorkerErrorResponse,
 } from './ServiceWorkerResponse';
-import { isUiGenerationResult } from '../Popup/State';
+import { isUiGenerationResult } from '../Workflow/State';
 import {
   IntegrationStateStore,
   reconcileContentState,

@@ -12,10 +12,10 @@ export type UiStateName =
 export interface PageSummary {
   pageId: string;
   questionCount: number;
-  questions?: readonly PopupQuestion[];
+  questions?: readonly WorkflowQuestion[];
 }
 
-export interface PopupQuestion {
+export interface WorkflowQuestion {
   id: string | null;
   text: string | null;
   type: string | null;
@@ -25,7 +25,7 @@ export interface PopupQuestion {
 
 export function filledOverrideCandidates(
   page: PageSummary
-): readonly PopupQuestion[] {
+): readonly WorkflowQuestion[] {
   return (page.questions ?? []).filter(
     (question) =>
       question.supported &&
@@ -39,7 +39,7 @@ export function filledOverrideCandidates(
 }
 
 export function overrideQuestionLabel(
-  question: PopupQuestion,
+  question: WorkflowQuestion,
   position: number
 ): string {
   return `Q${position + 1} — ${question.text}`;
@@ -177,7 +177,7 @@ export function readyState(page: PageSummary): UiState {
   return { name: 'READY', page };
 }
 
-export class PopupStateMachine {
+export class WorkflowStateMachine {
   private current: UiState = unsupportedState();
   private operationToken = 0;
 

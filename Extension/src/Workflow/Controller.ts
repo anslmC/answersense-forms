@@ -1,12 +1,12 @@
 import type { UiState, WorkflowSnapshot } from './State';
-import { PopupStateMachine } from './State';
-import type { PopupWorkflow } from './Workflow';
+import { WorkflowStateMachine } from './State';
+import type { Workflow } from './Workflow';
 import type { GenerationIntent } from '../Generation/Intent';
 
-export class PopupController {
-  readonly stateMachine = new PopupStateMachine();
+export class WorkflowController {
+  readonly stateMachine = new WorkflowStateMachine();
 
-  constructor(private readonly workflow: PopupWorkflow) {}
+  constructor(private readonly workflow: Workflow) {}
 
   get state(): UiState {
     return this.stateMachine.state;

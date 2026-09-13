@@ -5,11 +5,11 @@ import type {
   UiGenerationResult,
   WorkflowSnapshot,
 } from './State';
-import type { PopupQuestion } from './State';
+import type { WorkflowQuestion } from './State';
 import { isUiGenerationResult } from './State';
 import type { GenerationIntent } from '../Generation/Intent';
 
-export interface PopupWorkflow {
+export interface Workflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
   generate(intent?: GenerationIntent): Promise<UiGenerationResult>;
   forceClear(): Promise<WorkflowSnapshot>;
@@ -24,11 +24,11 @@ interface DiscoveryResponse {
 interface SnapshotResponse extends WorkflowSnapshot {
   supported: boolean;
   lifecycle?: {
-    activePage?: { form?: { questions?: PopupQuestion[] } };
+    activePage?: { form?: { questions?: WorkflowQuestion[] } };
   };
 }
 
-export function createBrowserPopupWorkflow(): PopupWorkflow {
+export function createBrowserWorkflow(): Workflow {
   return {
     async discover(): Promise<PageSummary | WorkflowSnapshot | null> {
       let response: DiscoveryResponse | SnapshotResponse;

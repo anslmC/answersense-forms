@@ -5,7 +5,7 @@ import { mountOverlay } from '../src/Overlay/Overlay';
 
 const workflowRefresh = vi.fn(async () => undefined);
 
-vi.mock('../src/Popup/WorkflowApp', () => ({
+vi.mock('../src/Workflow/WorkflowApp', () => ({
   mountAnswerSenseApp: vi.fn(() => ({
     refresh: workflowRefresh,
   })),
