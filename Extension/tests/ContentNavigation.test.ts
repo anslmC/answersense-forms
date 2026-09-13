@@ -401,4 +401,151 @@ describe('Content navigation runtime adapter', () => {
       { questionId: 'name', questionText: 'name', answer: 'Settled answer' },
     ]);
   });
+
+  it('settles the old page when Next is clicked on an SVG descendant', async () => {
+    vi.resetModules();
+    vi.doMock('../src/Forms/Detection', () => ({
+      isSupportedGoogleFormsPage: () => true,
+    }));
+
+    const runtimeMessages: Array<Record<string, unknown>> = [];
+    const contentListeners: Array<(
+      message: Record<string, unknown>,
+      sender: unknown,
+      sendResponse: (response: unknown) => void
+    ) => unknown> = [];
+    const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
+      runtimeMessages.push(message);
+      if (message.type === 'get-lifecycle-snapshot') return null;
+      if (
+        message.type === 'lifecycle-snapshot' ||
+        message.type === 'lifecycle-transition-confirmed'
+      ) {
+        return {
+          status:
+            message.type === 'lifecycle-snapshot'
+              ? 'snapshot-stored'
+              : 'transition-stored',
+        };
+      }
+      if (message.type === 'gemini-generate') {
+        const request = message.request as { cycleId: string };
+        return {
+          cycleId: request.cycleId,
+          status: 'complete',
+          results: [
+            {
+              questionId: 'name',
+              status: 'GENERATED',
+              answer: { questionId: 'name', value: 'Settled answer' },
+              reason: null,
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ 'answersense-overlay-opened': false })),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: {
+        sendMessage,
+        onMessage: {
+          addListener: (listener: typeof contentListeners[number]) => {
+            contentListeners.push(listener);
+          },
+        },
+      },
+    });
+    document.body.innerHTML = `
+      <main>
+        <section data-page-id="page-1" data-answersense-active-page="true">
+          <div role="listitem" data-question-id="name" data-question-text="name" data-question-type="short-text">
+            <input type="text" value="">
+          </div>
+          <button type="button" jsname="OCpkoe">Next<svg></svg></button>
+        </section>
+        <section data-page-id="page-2" data-answersense-active-page="false">
+          <div role="listitem" data-question-id="next" data-question-text="next" data-question-type="short-text">
+            <input type="text" value="">
+          </div>
+        </section>
+      </main>
+    `;
+
+    try {
+      await import('../src/Content/Content');
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'lifecycle-snapshot' })
+        )
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        const listener = contentListeners[0];
+        if (!listener) {
+          reject(new Error('Content message listener was not registered.'));
+          return;
+        }
+        listener(
+          {
+            type: 'generate-current-page',
+            configurationDigest: 'digest-1',
+            configurationRevision: 1,
+          },
+          {},
+          () => resolve()
+        );
+      });
+
+      const svg = document.querySelector('svg');
+      svg?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await vi.waitFor(() =>
+        expect(
+          runtimeMessages.some(
+            (message) =>
+              message.type === 'lifecycle-snapshot' &&
+              (message.snapshot as { navigation?: unknown })?.navigation
+          )
+        ).toBe(true)
+      );
+
+      document
+        .querySelector('[data-page-id="page-1"]')
+        ?.setAttribute('data-answersense-active-page', 'false');
+      document
+        .querySelector('[data-page-id="page-2"]')
+        ?.setAttribute('data-answersense-active-page', 'true');
+
+      await vi.waitFor(() => {
+        const transition = runtimeMessages.find(
+          (message) => message.type === 'lifecycle-transition-confirmed'
+        );
+        expect(transition).toBeDefined();
+        expect(
+          (transition?.snapshot as {
+            settledPages: Array<{ pageId: string; answers: unknown[] }>;
+          }).settledPages
+        ).toEqual([
+          expect.objectContaining({
+            pageId: 'page-1',
+            answers: [
+              expect.objectContaining({
+                answer: { questionId: 'name', value: 'Settled answer' },
+              }),
+            ],
+          }),
+        ]);
+      });
+    } finally {
+      document.body.innerHTML = '';
+      vi.doUnmock('../src/Forms/Detection');
+      vi.unstubAllGlobals();
+    }
+  });
 });

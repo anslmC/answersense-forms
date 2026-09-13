@@ -91,6 +91,7 @@ export function mountAnswerSenseApp(
     const progressBar = element<HTMLElement>('[data-workflow-progress-bar]');
     const progressText = element<HTMLElement>('[data-workflow-progress-text]');
     const progressFill = element<HTMLElement>('[data-workflow-progress-fill]');
+    const forceClearNote = element<HTMLElement>('[data-force-clear-note]');
     const overlayPanel = scope instanceof HTMLElement ? scope.parentElement : null;
     if (
       !status ||
@@ -124,6 +125,8 @@ export function mountAnswerSenseApp(
     message.hidden = true;
     filledStatus.textContent = 'Filled';
     filledStatus.classList.remove('is-settled');
+    detail.classList.remove('settled-detail');
+    if (forceClearNote) forceClearNote.hidden = true;
     if (state.name === 'REVIEW') {
       primary.remove();
     } else {
@@ -176,10 +179,12 @@ export function mountAnswerSenseApp(
       if ('status' in state.result) {
         status.textContent = 'Answers already settled';
         detail.textContent = `Reused answers for page ${state.result.pageId}.`;
+        detail.classList.add('settled-detail');
         filledStatus.textContent = 'Page Answers already settled';
         filledStatus.classList.add('is-settled');
         filledStatus.hidden = false;
         element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute('hidden', false);
+        if (forceClearNote) forceClearNote.hidden = false;
         return;
       }
       progress.hidden = false;

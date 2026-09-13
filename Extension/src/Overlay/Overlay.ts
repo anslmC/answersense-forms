@@ -239,6 +239,9 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <button type="button" class="secondary" data-force-clear hidden>
             Force Unsettle This Page
           </button>
+          <p class="result-note all-filled-note force-clear-note" data-force-clear-note hidden>
+            Force unsettling this page re-enables generation for this page. Once unsettled, you can generate answers again.
+          </p>
         </div>
         <div class="override-flow" data-override-flow hidden>
           <div class="actions">

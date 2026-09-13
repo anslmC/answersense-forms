@@ -184,6 +184,9 @@ describe('live Overlay generation workflow', () => {
     );
     expect(overlayStyles).toContain('font-size: 11px;');
     expect(overlayStyles).toContain('color: #4b5563;');
+    expect(overlayStyles).toMatch(
+      /\.status-panel\s*\{[\s\S]*flex-direction: column;[\s\S]*align-items: flex-start;/
+    );
     expect(content?.hidden).toBe(true);
 
     toggle?.click();
@@ -349,19 +352,18 @@ describe('live Overlay generation workflow', () => {
         resolve(process.cwd(), 'src/Overlay/Overlay.css'),
         'utf8'
       );
-      expect(overlayStyles).toContain('margin: 4px;');
-      expect(overlayStyles).toContain('padding: 6px;');
-      expect(overlayStyles).toContain('border: 2px solid #9ca3af;');
+      expect(overlayStyles).toContain('margin: 4px 0 0;');
+      expect(overlayStyles).toContain('padding: 0;');
+      expect(overlayStyles).not.toContain('border: 2px solid #9ca3af;');
       expect(overlayStyles).toContain('background: #f8fafc;');
-      expect(overlayStyles).toContain('font-size: 12.5px;');
-      expect(overlayStyles).toContain('opacity: 0.95;');
+      expect(overlayStyles).toContain('font-size: 11px;');
       const visibleOverrideActions = [...(shadowRoot?.querySelectorAll<HTMLButtonElement>('[data-override-action]') ?? [])]
         .filter((button) => !button.hidden);
       expect(visibleOverrideActions).toHaveLength(1);
       expect(visibleOverrideActions[0]?.textContent?.trim()).toBe('Override Filled Answer(s)');
       expect(forceClear()?.tagName).toBe('BUTTON');
       expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle This Page');
-      expect(forceClear()?.hidden).toBe(false);
+      expect(forceClear()?.hidden).toBe(true);
       expect(
         [...(shadowRoot?.querySelectorAll('button') ?? [])].some(
           (button) => button.textContent?.includes('Generating...')
@@ -494,6 +496,8 @@ describe('live Overlay generation workflow', () => {
     const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
     const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
     const settledStatus = () => shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
+    const settledDetail = () => shadowRoot?.querySelector<HTMLElement>('[data-detail]');
+    const forceClearNote = () => shadowRoot?.querySelector<HTMLElement>('[data-force-clear-note]');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
     const forceClearDisplay = () => {
@@ -515,6 +519,12 @@ describe('live Overlay generation workflow', () => {
       expect(settledStatus()?.hidden).toBe(false);
       expect(settledStatus()?.tagName).toBe('SPAN');
       expect(settledStatus()?.classList.contains('is-settled')).toBe(true);
+      expect(settledDetail()?.textContent).toBe('Reused answers for page page-1.');
+      expect(settledDetail()?.classList.contains('settled-detail')).toBe(true);
+      expect(forceClearNote()?.textContent?.trim()).toBe(
+        'Force unsettling this page re-enables generation for this page. Once unsettled, you can generate answers again.'
+      );
+      expect(forceClearNote()?.hidden).toBe(false);
       expect(shadowRoot?.querySelector('button[data-filled-status]')).toBeNull();
       const forceClear = shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
       expect(forceClear?.tagName).toBe('BUTTON');
@@ -532,6 +542,8 @@ describe('live Overlay generation workflow', () => {
       expect(overrideAction()?.hidden).toBe(true);
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
+      expect(forceClearNote()?.hidden).toBe(true);
+      expect(settledDetail()?.classList.contains('settled-detail')).toBe(false);
     });
     expect(sendMessage).toHaveBeenCalledWith({ type: 'p7-force-clear' });
   });
@@ -851,7 +863,8 @@ describe('live Overlay generation workflow', () => {
       expect(shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent).toBe(
         "Couldn't generate answers."
       );
-      expect(shadowRoot?.querySelector('.result-note')).toBeNull();
+      expect(shadowRoot?.querySelector('.result-note:not([hidden])')).toBeNull();
+      expect(shadowRoot?.querySelector<HTMLElement>('[data-force-clear-note]')?.hidden).toBe(true);
       expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(true);
     });
   });

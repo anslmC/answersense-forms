@@ -188,7 +188,7 @@ function observeNextIntent(): void {
   document.addEventListener('change', captureCurrentAnswers);
   document.addEventListener('click', (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLElement)) {
+    if (!(target instanceof Element)) {
       return;
     }
     const button = target.closest<HTMLElement>('[role="button"], button');
