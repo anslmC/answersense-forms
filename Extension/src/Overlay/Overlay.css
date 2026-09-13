@@ -67,32 +67,70 @@
   flex: 1;
 }
 
+.overlay-github,
 .overlay-refresh,
 .overlay-close {
   border: 0;
   border-radius: 0;
   min-width: 28px;
   height: 28px;
-  background: rgba(255, 255, 255, 0.2);
   color: #fff;
   cursor: pointer;
   font: inherit;
   line-height: 1;
 }
 
-.overlay-close {
-  margin-left: auto;
+.overlay-github {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
   padding: 0;
-  font-size: 16px;
-  font-weight: 700;
+  color: #fff;
+  text-decoration: none;
+}
+
+.overlay-github svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.overlay-refresh,
+.overlay-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 0;
 }
 
 .overlay-refresh {
-  padding: 0 8px;
-  font-size: 12px;
+  background: #374151;
+}
+
+.overlay-refresh svg,
+.overlay-close svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.overlay-refresh svg {
+  fill: none;
+}
+
+.overlay-close svg {
+  fill: #d1d5db;
+}
+
+.overlay-close {
+  margin-left: auto;
+  background: #4b5563;
+}
+
+.overlay-refresh {
   font-weight: 600;
 }
 
@@ -475,7 +513,7 @@ select {
   background: #f8fafc;
   color: #111111;
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.25;
   opacity: 1;
 }
 
@@ -608,6 +646,10 @@ button,
 
 [data-override-action][hidden] {
   display: none;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 [data-filled-status].is-settled {

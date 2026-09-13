@@ -293,7 +293,17 @@ describe('live Overlay generation workflow', () => {
     const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+    const forceClearDisplay = () => {
+      const button = forceClear();
+      if (!button) return undefined;
+      if (button.hidden) return 'none';
+      return getComputedStyle(button).display;
+    };
     const overrideFlow = () => shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
+
+    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toMatch(
+      /\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/
+    );
 
     expect(overrideAction()?.hidden).toBe(true);
     expect(shadowRoot?.querySelector('[data-override-action]:not([hidden])')).toBeNull();
@@ -301,12 +311,16 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => {
       expect(primary()?.hidden).toBe(false);
       expect(primary()?.textContent).toBe('Generate & Auto-Fill');
+      expect(forceClear()?.hidden).toBe(true);
+      expect(forceClearDisplay()).toBe('none');
     });
 
     primary()?.click();
     await vi.waitFor(() => {
       expect(primary()?.textContent).toBe('Generating...');
       expect(status()?.textContent).toBe('Generating answers...');
+      expect(forceClear()?.hidden).toBe(true);
+      expect(forceClearDisplay()).toBe('none');
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(true);
       expect(shadowRoot?.querySelector('style')).not.toBeNull();
       expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
@@ -317,13 +331,15 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Review answers');
       expect(primary()).toBeNull();
+      expect(forceClear()?.hidden).toBe(true);
+      expect(forceClearDisplay()).toBe('none');
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
       expect(resultSummary()?.hidden).not.toBe(true);
       expect(resultSummary()?.textContent).toContain(
         '4 filled · 0 already filled · 0 failed · 0 skipped'
       );
       expect(shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent).toBe(
-        "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call. Recommended: don't override every time to avoid rate limiting, unless the key was not limiting you to."
+        "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call and replace the existing filled answer(s), whether they are correct or incorrect. Recommended: don't override every time to avoid rate limiting, unless your API key has no rate limit."
       );
       expect(shadowRoot?.querySelector<HTMLElement>('.all-filled-note')).not.toBeNull();
       expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
@@ -480,6 +496,16 @@ describe('live Overlay generation workflow', () => {
     const settledStatus = () => shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+    const forceClearDisplay = () => {
+      const button = forceClear();
+      if (!button) return undefined;
+      if (button.hidden) return 'none';
+      return getComputedStyle(button).display;
+    };
+
+    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toMatch(
+      /\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/
+    );
 
     await vi.waitFor(() => expect(primary()?.textContent).toBe('Generate & Auto-Fill'));
     primary()?.click();
@@ -494,6 +520,7 @@ describe('live Overlay generation workflow', () => {
       expect(forceClear?.tagName).toBe('BUTTON');
       expect(forceClear?.textContent?.trim()).toBe('Force Unsettle All');
       expect(forceClear?.hidden).toBe(false);
+      expect(forceClearDisplay()).not.toBe('none');
       expect(overrideAction()?.hidden).toBe(true);
     });
 
@@ -503,7 +530,8 @@ describe('live Overlay generation workflow', () => {
       expect(primary()?.textContent).toBe('Generate & Auto-Fill');
       expect(primary()?.hidden).toBe(false);
       expect(overrideAction()?.hidden).toBe(true);
-      expect(forceClear()?.hidden).toBe(false);
+      expect(forceClear()?.hidden).toBe(true);
+      expect(forceClearDisplay()).toBe('none');
     });
     expect(sendMessage).toHaveBeenCalledWith({ type: 'p7-force-clear' });
   });
@@ -542,7 +570,7 @@ describe('live Overlay generation workflow', () => {
         '0 filled · 0 already filled · 0 failed · 0 skipped'
       );
       expect(shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent).toBe(
-        "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call. Recommended: don't override every time to avoid rate limiting, unless the key was not limiting you to."
+        "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call and replace the existing filled answer(s), whether they are correct or incorrect. Recommended: don't override every time to avoid rate limiting, unless your API key has no rate limit."
       );
       expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
     });
@@ -626,12 +654,8 @@ describe('live Overlay generation workflow', () => {
     expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).not.toContain(
       'color: #9a3412;'
     );
-    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.ts'), 'utf8')).toContain(
-      'const MIN_REFRESH_DURATION_MS = 500;'
-    );
     shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
-    await new Promise((resolve) => setTimeout(resolve, 520));
     inlineRefresh?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(2));
     expect(shadowRoot?.querySelector<HTMLElement>('.override-failure-detail')?.textContent).toBe(
@@ -641,7 +665,7 @@ describe('live Overlay generation workflow', () => {
     expect(overrideFlow?.hidden).toBe(true);
     expect(shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')?.hidden).toBe(true);
     expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
-    expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden).toBe(false);
+    expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden).toBe(true);
     expect(summary()?.textContent).toContain('3 filled');
     expect(summary()?.textContent).toContain('3 overrided');
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.click();

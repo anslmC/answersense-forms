@@ -131,6 +131,7 @@ export function mountAnswerSenseApp(
       primary.hidden = false;
     }
     filledStatus.hidden = true;
+    element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute('hidden', true);
     progress.hidden = true;
     progress.classList.remove('is-processing', 'is-complete', 'is-partial', 'is-error');
     progressText.textContent = '';
@@ -178,6 +179,7 @@ export function mountAnswerSenseApp(
         filledStatus.textContent = 'Page Answers already settled';
         filledStatus.classList.add('is-settled');
         filledStatus.hidden = false;
+        element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute('hidden', false);
         return;
       }
       progress.hidden = false;
@@ -268,7 +270,7 @@ export function mountAnswerSenseApp(
         const note = createElement('p');
         note.className = 'result-note all-filled-note';
         note.textContent =
-          "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call. Recommended: don't override every time to avoid rate limiting, unless the key was not limiting you to.";
+          "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call and replace the existing filled answer(s), whether they are correct or incorrect. Recommended: don't override every time to avoid rate limiting, unless your API key has no rate limit.";
         results.append(note);
       }
       results.hidden = false;

@@ -14,8 +14,6 @@ export interface OverlayOptions {
   onRefresh?: () => void | Promise<void>;
 }
 
-const MIN_REFRESH_DURATION_MS = 500;
-
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
 
 function createStylesheet(): HTMLStyleElement {
@@ -49,19 +47,38 @@ function buildShell(): {
   const refresh = document.createElement('button');
   refresh.type = 'button';
   refresh.className = 'overlay-refresh';
-  refresh.textContent = 'Refresh';
-  refresh.setAttribute('aria-label', 'Refresh the current workflow state');
+    refresh.innerHTML = `
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <path d="M20.453 12.8932C20.1752 15.5031 18.6964 17.9488 16.2494 19.3616C12.1839 21.7088 6.98539 20.3158 4.63818 16.2503L4.38818 15.8173M3.54613 11.1071C3.82393 8.49723 5.30272 6.05151 7.74971 4.63874C11.8152 2.29153 17.0137 3.68447 19.3609 7.74995L19.6109 8.18297M3.49316 18.0662L4.22521 15.3341L6.95727 16.0662M17.0424 7.93413L19.7744 8.66618L20.5065 5.93413" stroke="#D1D5DB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>`;
+  refresh.title = 'Refresh';
+  refresh.setAttribute('aria-label', 'Refresh');
+  const github = document.createElement('a');
+  github.className = 'overlay-github';
+  github.href = 'https://example.com';
+  github.target = '_blank';
+  github.rel = 'noopener noreferrer';
+  github.title = 'GitHub';
+  github.setAttribute('aria-label', 'GitHub');
+  github.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.69c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.85c.85 0 1.71.11 2.51.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.79c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" />
+    </svg>`;
 
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'overlay-close';
-  close.textContent = '×';
+  close.innerHTML = `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <path fill-rule="evenodd" clip-rule="evenodd" d="M5.29289 5.29289C5.68342 4.90237 6.31658 4.90237 6.70711 5.29289L12 10.5858L17.2929 5.29289C17.6834 4.90237 18.3166 4.90237 18.7071 5.29289C19.0976 5.68342 19.0976 6.31658 18.7071 6.70711L13.4142 12L18.7071 17.2929C19.0976 17.6834 19.0976 18.3166 18.7071 18.7071C18.3166 19.0976 17.6834 19.0976 17.2929 18.7071L12 13.4142L6.70711 18.7071C6.31658 19.0976 5.68342 19.0976 5.29289 18.7071C4.90237 18.3166 5.29289 17.2929 5.29289 17.2929L10.5858 12L5.29289 6.70711C4.90237 6.31658 5.68342 5.29289 5.29289 5.29289Z" fill="#D1D5DB"/>
+    </svg>`;
+  close.title = 'Close';
   close.setAttribute('aria-label', 'Close the panel');
 
   const body = document.createElement('div');
   body.className = 'overlay-body';
 
-  header.append(title, refresh, close);
+  header.append(title, github, refresh, close);
   panel.append(header, body);
   shell.append(panel);
   return { panel, header, body, shell, refresh, close };
@@ -219,7 +236,7 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <button type="button" class="secondary" data-override-action hidden>
             Override Filled Answer(s)
           </button>
-          <button type="button" class="secondary" data-force-clear>
+          <button type="button" class="secondary" data-force-clear hidden>
             Force Unsettle All
           </button>
         </div>
@@ -314,8 +331,8 @@ export async function mountOverlay(
       return;
     }
     if (
-      event.target instanceof HTMLElement &&
-      event.target.closest('button.overlay-close, button.overlay-refresh')
+      event.target instanceof Element &&
+      event.target.closest('button.overlay-close, button.overlay-refresh, a.overlay-github')
     ) {
       return;
     }
@@ -370,7 +387,6 @@ export async function mountOverlay(
     refresh.disabled = isRefreshing;
     refresh.classList.toggle('is-refreshing', isRefreshing);
     refresh.setAttribute('aria-busy', String(isRefreshing));
-    refresh.textContent = isRefreshing ? 'Refreshing...' : 'Refresh';
   };
 
   const runRefresh = async (): Promise<void> => {
@@ -379,7 +395,6 @@ export async function mountOverlay(
     }
 
     refreshing = true;
-    const startedAt = Date.now();
     setRefreshState(true);
 
     let refreshError: unknown;
@@ -389,12 +404,6 @@ export async function mountOverlay(
       refreshError = error;
       console.error('AnswerSense refresh failed.', error);
     }
-    await new Promise<void>((resolve) => {
-      setTimeout(
-        resolve,
-        Math.max(0, MIN_REFRESH_DURATION_MS - (Date.now() - startedAt))
-      );
-    });
     if (refreshError !== undefined) {
       const status = body.querySelector<HTMLElement>('[data-status]');
       const detail = body.querySelector<HTMLElement>('[data-detail]');
