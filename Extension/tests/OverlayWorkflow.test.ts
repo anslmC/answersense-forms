@@ -127,6 +127,127 @@ describe('live Overlay generation workflow', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps configuration collapsed until opened and preserves its controls', async () => {
+    let currentConfigurationState = {
+      ...configurationState,
+      validation: null,
+    };
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'configuration-set') return currentConfigurationState;
+      if (message.type === 'credential-delete-selected') return {};
+      if (message.type === 'configuration-validate') {
+        currentConfigurationState = configurationState;
+        return {};
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const section = shadowRoot?.querySelector<HTMLElement>('[data-configuration-toggle]')
+      ?.parentElement;
+    const toggle = shadowRoot?.querySelector<HTMLButtonElement>('[data-configuration-toggle]');
+    const content = shadowRoot?.querySelector<HTMLElement>('[data-configuration-content]');
+
+    expect(section?.children).toHaveLength(3);
+    expect(toggle?.textContent).toContain('Configuration');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle?.getAttribute('aria-label')).toBe('Expand Configuration');
+    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
+    const guidance = shadowRoot?.querySelector<HTMLElement>('[data-configuration-guidance]');
+    expect(guidance?.textContent?.trim()).toBe('Configure the extension before generating.');
+    expect(guidance?.tagName).toBe('P');
+    expect(guidance?.closest('button')).toBeNull();
+    const overlayStyles = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      'utf8'
+    );
+    expect(overlayStyles).toContain('font-size: 11px;');
+    expect(overlayStyles).toContain('color: #4b5563;');
+    expect(content?.hidden).toBe(true);
+
+    toggle?.click();
+    expect(content?.hidden).toBe(false);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle?.getAttribute('aria-label')).toBe('Collapse Configuration');
+    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
+    for (const selector of [
+      '[data-add-credential]',
+      '[data-replace-credential]',
+      '[data-provider-select]',
+      '[data-model-select]',
+      '[data-credential-select]',
+      '[data-save-configuration]',
+      '[data-delete-credential]',
+      '[data-credential-status]',
+      '[data-validation-status]',
+      '[data-validate-configuration]',
+      '[data-validation-message]',
+    ]) {
+      expect(content?.querySelector(selector)).not.toBeNull();
+    }
+
+    const addCredential = content?.querySelector<HTMLButtonElement>('[data-add-credential]');
+    const addCredentialForm = content?.querySelector<HTMLElement>('[data-add-credential-form]');
+    const replaceCredential = content?.querySelector<HTMLButtonElement>('[data-replace-credential]');
+    const replaceCredentialForm = content?.querySelector<HTMLElement>('[data-replace-credential-form]');
+    addCredential?.click();
+    expect(addCredentialForm?.hidden).toBe(false);
+    content?.querySelector<HTMLButtonElement>('[data-cancel-add-credential]')?.click();
+    expect(addCredentialForm?.hidden).toBe(true);
+    replaceCredential?.click();
+    expect(replaceCredentialForm?.hidden).toBe(false);
+    content?.querySelector<HTMLButtonElement>('[data-cancel-replace-credential]')?.click();
+    expect(replaceCredentialForm?.hidden).toBe(true);
+
+    content?.querySelector<HTMLButtonElement>('[data-save-configuration]')?.click();
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'configuration-set' })
+      );
+    });
+    content?.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'credential-delete-selected',
+        credentialId: 'credential-1',
+      });
+    });
+    content?.querySelector<HTMLButtonElement>('[data-validate-configuration]')?.click();
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
+    });
+    await vi.waitFor(() => {
+      expect(guidance?.textContent?.trim()).toBe(
+        'Configuration is valid. Generate is available on a supported page.'
+      );
+    });
+    toggle?.click();
+    expect(content?.hidden).toBe(true);
+    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
+    expect(guidance?.textContent?.trim()).toBe(
+      'Configuration is valid. Generate is available on a supported page.'
+    );
+    expect(shadowRoot?.querySelector('[data-primary-action]')).not.toBeNull();
+    expect(shadowRoot?.querySelector('[data-force-clear]')).not.toBeNull();
+    toggle?.click();
+    expect(content?.hidden).toBe(false);
+    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
+  });
+
   it('generates once and removes the obsolete primary action in the real Shadow DOM workflow', async () => {
     let generationCount = 0;
     const pendingGeneration = new Promise<typeof generationResult>((resolve) => {

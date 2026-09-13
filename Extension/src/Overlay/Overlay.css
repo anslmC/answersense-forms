@@ -114,6 +114,52 @@
   align-items: stretch;
 }
 
+.configuration-section {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid #d1d5db;
+}
+
+.configuration-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #1f2937;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.configuration-toggle span:last-child {
+  min-width: 20px;
+  font-size: 18px;
+  line-height: 1;
+  text-align: center;
+}
+
+.configuration-guidance {
+  margin: 0 0 4px;
+  color: #4b5563;
+  font-size: 11px;
+}
+
+.configuration-content {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.configuration-content[hidden] {
+  display: none;
+}
+
 .status-panel,
 .configuration-panel,
 .credential-panel,

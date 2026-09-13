@@ -85,6 +85,22 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
         <p class="status" data-status>Checking this page...</p>
         <p class="detail" data-detail></p>
       </section>
+      <section class="configuration-section" aria-labelledby="configuration-section-heading">
+        <button
+          type="button"
+          class="configuration-toggle"
+          data-configuration-toggle
+          aria-expanded="false"
+          aria-controls="configuration-content"
+          aria-label="Expand Configuration"
+        >
+          <span id="configuration-section-heading">Configuration</span>
+          <span aria-hidden="true" data-configuration-toggle-icon>►</span>
+        </button>
+        <p class="configuration-guidance" data-configuration-guidance>
+          Configure the extension before generating.
+        </p>
+        <div id="configuration-content" class="configuration-content" data-configuration-content hidden>
       <section class="credential-panel" aria-labelledby="credential-heading">
         <h2 id="credential-heading">API Keys</h2>
         <div class="actions">
@@ -173,6 +189,8 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           Validate configuration
         </button>
         <p class="message" data-validation-message hidden></p>
+      </section>
+        </div>
       </section>
       <section class="generation-panel" aria-labelledby="generation-heading">
         <h2 id="generation-heading">Generate &amp; Auto-Fill</h2>
@@ -404,6 +422,29 @@ export async function mountOverlay(
   header.addEventListener('pointerdown', onPointerDown);
 
   buildWorkflowAppScaffold(body);
+
+  const configurationToggle = body.querySelector<HTMLButtonElement>(
+    '[data-configuration-toggle]'
+  );
+  const configurationContent = body.querySelector<HTMLElement>(
+    '[data-configuration-content]'
+  );
+  const configurationToggleIcon = body.querySelector<HTMLElement>(
+    '[data-configuration-toggle-icon]'
+  );
+  configurationToggle?.addEventListener('click', () => {
+    if (!configurationContent) return;
+    const expanded = configurationContent.hidden;
+    configurationContent.hidden = !expanded;
+    configurationToggle.setAttribute('aria-expanded', String(expanded));
+    configurationToggle.setAttribute(
+      'aria-label',
+      `${expanded ? 'Collapse' : 'Expand'} Configuration`
+    );
+    if (configurationToggleIcon) {
+      configurationToggleIcon.textContent = expanded ? '▼' : '►';
+    }
+  });
 
   const handle = mountAnswerSenseApp({ root: body, surface: 'overlay' });
 

@@ -230,6 +230,9 @@ export function mountAnswerSenseApp(
   }
 
   function renderConfiguration(): void {
+    const configurationGuidance = element<HTMLElement>(
+      '[data-configuration-guidance]'
+    );
     const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
     const modelSelect = element<HTMLSelectElement>('[data-model-select]');
     const credentialSelect = element<HTMLSelectElement>(
@@ -295,6 +298,11 @@ export function mountAnswerSenseApp(
     credentialStatus.textContent = configurationState.credentials.length
       ? `${configurationState.credentials.length} API key${configurationState.credentials.length === 1 ? '' : 's'} stored.`
       : 'Add an API key to configure a provider.';
+    if (configurationGuidance) {
+      configurationGuidance.textContent =
+        validGenerationMessage(configurationState) ??
+        'Configure the extension before generating.';
+    }
     validationStatusElement.textContent = authorizationStatus(
       configurationState,
       validating,
