@@ -23,7 +23,7 @@ export interface PopupQuestion {
   existingInput: { hasValue: boolean } | null;
 }
 
-export function filledSupportedQuestions(
+export function filledOverrideCandidates(
   page: PageSummary
 ): readonly PopupQuestion[] {
   return (page.questions ?? []).filter(
@@ -47,7 +47,7 @@ export function overrideQuestionLabel(
 
 export function createAllOverrideIntent(page: PageSummary): GenerationIntent {
   return createOverrideFilledIntent(
-    filledSupportedQuestions(page).map((question) => question.id as string)
+    filledOverrideCandidates(page).map((question) => question.id as string)
   );
 }
 
@@ -140,6 +140,32 @@ export type UiState =
   | { name: 'GENERATING'; page: PageSummary }
   | { name: 'REVIEW'; page: PageSummary; result: UiGenerationResult }
   | { name: 'ERROR'; page: PageSummary | null; message: string };
+
+function pageWithFilledOutcomes(
+  page: PageSummary,
+  result: GeneratedUiResult
+): PageSummary {
+  const filledQuestionIds = new Set(
+    result.fillReport.outcomes
+      .filter(
+        (outcome) =>
+          (outcome.status === 'FILLED' ||
+            outcome.status === 'PRESERVED_EXISTING' ||
+            outcome.status === 'PARTIAL_FILL') &&
+          typeof outcome.questionId === 'string'
+      )
+      .map((outcome) => outcome.questionId as string)
+  );
+  if (!page.questions || filledQuestionIds.size === 0) return page;
+  return {
+    ...page,
+    questions: page.questions.map((question) =>
+      question.id !== null && filledQuestionIds.has(question.id)
+        ? { ...question, existingInput: { hasValue: true } }
+        : question
+    ),
+  };
+}
 
 export function unsupportedState(
   message = "This page isn't supported."
@@ -245,9 +271,13 @@ export class PopupStateMachine {
     if (!isUiGenerationResult(result)) {
       return this.failGeneration(token, 'Generation returned an invalid result.');
     }
+    const page =
+      'status' in result
+        ? this.current.page
+        : pageWithFilledOutcomes(this.current.page, result);
     this.current = {
       name: 'REVIEW',
-      page: this.current.page,
+      page,
       result,
     };
     return this.current;

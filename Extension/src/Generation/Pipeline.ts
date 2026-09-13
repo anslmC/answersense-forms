@@ -13,6 +13,15 @@ import {
 import { createGenerationReport, type GenerationReport } from './Report';
 import { validateGenerationResponse } from './Validation';
 
+function isOperableQuestion(question: Question): boolean {
+  return (
+    question.supported &&
+    question.id !== null &&
+    question.text !== null &&
+    question.type !== null
+  );
+}
+
 export function selectGenerationCandidates(
   page: NormalizedActivePage,
   intent: GenerationIntent = GENERATE_UNANSWERED
@@ -21,17 +30,18 @@ export function selectGenerationCandidates(
     intent.type === 'OVERRIDE_FILLED'
       ? new Set(intent.selectedQuestionIds)
       : null;
-  return page.form.questions.filter(
-    (question) =>
-      question.supported &&
-      question.id !== null &&
-      question.text !== null &&
-      question.type !== null &&
-      (selectedQuestionIds === null
-        ? question.existingInput?.hasValue !== true
-        : selectedQuestionIds.has(question.id) &&
-          question.existingInput?.hasValue === true)
-  );
+  return page.form.questions.filter((question) => {
+    if (!isOperableQuestion(question)) return false;
+    if (selectedQuestionIds === null) {
+      return question.existingInput?.hasValue !== true;
+    }
+    const questionId = question.id;
+    if (questionId === null) return false;
+    return (
+      selectedQuestionIds.has(questionId) &&
+      question.existingInput?.hasValue === true
+    );
+  });
 }
 
 function createRequest(

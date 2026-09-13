@@ -11,7 +11,7 @@ import { createBrowserPopupWorkflow } from './Workflow';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
-  filledSupportedQuestions,
+  filledOverrideCandidates,
   overrideQuestionLabel,
   type UiState,
   type WorkflowSnapshot,
@@ -61,6 +61,18 @@ export function mountAnswerSenseApp(
   let primaryAction: HTMLButtonElement | null = null;
   let primaryActionContainer: HTMLElement | null = null;
 
+  function resetOverrideFlow(): void {
+    const flow = element<HTMLElement>('[data-override-flow]');
+    if (flow) flow.hidden = true;
+    pendingOverrideIntent = null;
+    pendingAllQuestionIds = null;
+    selectedSpecificQuestionIds = [];
+    element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
+    element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
+    const overrideMessage = element<HTMLElement>('[data-override-message]');
+    if (overrideMessage) overrideMessage.textContent = '';
+  }
+
   function renderGeneration(state: UiState): void {
     const status = element<HTMLElement>('[data-status]');
     const detail = element<HTMLElement>('[data-detail]');
@@ -95,7 +107,8 @@ export function mountAnswerSenseApp(
     }
 
     if (overrideAction) {
-      const hideOverride = state.name !== 'REVIEW';
+      const hideOverride =
+        state.name !== 'REVIEW' || 'status' in state.result;
       overrideAction.toggleAttribute('hidden', hideOverride);
       overrideAction.disabled = state.name === 'GENERATING';
     }
@@ -177,6 +190,9 @@ export function mountAnswerSenseApp(
       const filledCount = outcomes.filter(
         ({ status }) => status === 'FILLED'
       ).length;
+      const alreadyFilledCount = outcomes.filter(
+        ({ status }) => status === 'PRESERVED_EXISTING'
+      ).length;
       const failedCount = outcomes.filter(
         ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
       ).length;
@@ -186,8 +202,15 @@ export function mountAnswerSenseApp(
 
       const summary = createElement('p');
       summary.className = 'result-summary';
-      summary.textContent = `${filledCount} filled · ${failedCount} failed · ${skippedCount} skipped`;
+      summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped`;
       results.append(summary);
+      if (state.name === 'REVIEW' && !('status' in state.result)) {
+        const note = createElement('p');
+        note.className = 'result-note';
+        note.textContent =
+          'All answers are already filled. Override is available if you want to replace them. Using Override will make another API call.';
+        results.append(note);
+      }
       results.hidden = false;
     }
   }
@@ -373,7 +396,7 @@ export function mountAnswerSenseApp(
     const list = element<HTMLElement>('[data-override-specific-list]');
     const state = controller.state;
     if (!list || state.name === 'UNSUPPORTED' || !state.page) return;
-    const filledQuestions = filledSupportedQuestions(state.page);
+    const filledQuestions = filledOverrideCandidates(state.page);
     list.replaceChildren();
     for (const [index, question] of filledQuestions.entries()) {
       const label = createElement('label');
@@ -703,7 +726,9 @@ export function mountAnswerSenseApp(
   });
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;
+    resetOverrideFlow();
     renderAll(await controller.forceClear());
+    resetOverrideFlow();
     forceClear.disabled = false;
   });
   chrome.runtime.onMessage.addListener((message) => {
@@ -715,6 +740,7 @@ export function mountAnswerSenseApp(
   });
 
   async function refresh(): Promise<void> {
+    resetOverrideFlow();
     await Promise.all([
       reloadConfiguration(),
       controller.discover().then((state) => {

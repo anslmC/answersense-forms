@@ -175,6 +175,14 @@ function isNextNavigationButton(button: HTMLElement): boolean {
 }
 
 function observeNextIntent(): void {
+  const captureCurrentAnswers = (): void => {
+    if (!lifecycle) return;
+    lifecycle.captureCurrentAnswers(document);
+    void publishLifecycleSnapshot().catch(recordLifecyclePublicationFailure);
+  };
+
+  document.addEventListener('input', captureCurrentAnswers);
+  document.addEventListener('change', captureCurrentAnswers);
   document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {

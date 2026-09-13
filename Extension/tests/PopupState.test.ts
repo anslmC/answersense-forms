@@ -5,7 +5,7 @@ import { PopupController } from '../src/Popup/Controller';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
-  filledSupportedQuestions,
+  filledOverrideCandidates,
   overrideQuestionLabel,
   PopupStateMachine,
   type UiGenerationResult,
@@ -87,8 +87,8 @@ const overridePage = {
 };
 
 describe('P6 popup state machine', () => {
-  it('filters Override choices to filled supported valid questions', () => {
-    expect(filledSupportedQuestions(overridePage).map((question) => question.id)).toEqual([
+  it('treats every filled operable question as an Override candidate', () => {
+    expect(filledOverrideCandidates(overridePage).map((question) => question.id)).toEqual([
       'first',
       'third',
     ]);
@@ -98,6 +98,23 @@ describe('P6 popup state machine', () => {
     expect(overrideQuestionLabel(overridePage.questions[2], 2)).toBe(
       'Q3 — Third answer'
     );
+  });
+
+  it('treats AI-filled and manually filled answers identically', () => {
+    const candidates = filledOverrideCandidates({
+      pageId: 'page-provenance-agnostic',
+      questionCount: 3,
+      questions: [
+        { ...overridePage.questions[0], id: 'ai-filled' },
+        { ...overridePage.questions[2], id: 'manual-filled' },
+        { ...overridePage.questions[1], id: 'unanswered' },
+      ],
+    });
+
+    expect(candidates.map((question) => question.id)).toEqual([
+      'ai-filled',
+      'manual-filled',
+    ]);
   });
 
   it('freezes All and Specific concrete question IDs', () => {
@@ -129,7 +146,7 @@ describe('P6 popup state machine', () => {
     expect(markup).toContain('Specific question(s)');
     expect(markup).toContain('data-override-cancel');
     expect(markup).toContain('data-override-confirm');
-    expect(source).toContain('state.name !== \'REVIEW\' || filledQuestions.length === 0;');
+    expect(source).toContain('const filledQuestions = filledOverrideCandidates(state.page);');
     expect(source).toContain('publishOverrideIntent');
   });
 
@@ -273,7 +290,7 @@ describe('P6 popup workflow boundary', () => {
     });
   });
 
-  it('keeps the completed bar and omits preserved answers from the summary', () => {
+  it('keeps the completed bar and includes preserved answers in the summary', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/Popup/WorkflowApp.ts'),
       'utf8'
@@ -281,8 +298,8 @@ describe('P6 popup workflow boundary', () => {
 
     expect(source).toContain("progress.classList.add('is-complete');");
     expect(source).toContain("progressFill.style.width = '100%';");
-    expect(source).not.toContain('alreadyFilledCount');
-    expect(source).not.toContain('already filled');
+    expect(source).toContain('alreadyFilledCount');
+    expect(source).toContain('already filled');
     expect(result.fillReport.outcomes).toContainEqual(
       expect.objectContaining({ status: 'PRESERVED_EXISTING' })
     );

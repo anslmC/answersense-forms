@@ -5,6 +5,7 @@ import {
   normalizeDiscoveredActivePage,
 } from '../Forms/Normalization';
 import type { FinalizedPageHandoff } from '../Fill/Handoff';
+import { snapshotAnswer } from '../Fill/Handoff';
 import {
   capturePendingPageAtSettlement,
   commitPendingPageAfterSuccessfulTransition,
@@ -156,6 +157,28 @@ export class PageLifecycle {
     return this.pending;
   }
 
+  captureCurrentAnswers(document: Document): NormalizedActivePage {
+    const questions = this.activePage.form.questions.map((question) => {
+      if (!question.supported || question.id === null) return question;
+      const answer = snapshotAnswer(document, this.activePage.form, question.id);
+      const value = answer?.value ?? null;
+      const selectedValues = new Set(Array.isArray(value) ? value : value === null ? [] : [value]);
+      return {
+        ...question,
+        existingInput: { value, hasValue: value !== null },
+        options: question.options.map((option) => ({
+          ...option,
+          selected: selectedValues.has(option.label),
+        })),
+      };
+    });
+    this.activePage = {
+      ...this.activePage,
+      form: { ...this.activePage.form, questions },
+    };
+    return this.activePage;
+  }
+
   beginNext(document?: Document): void {
     this.oldPageDocument =
       document ??
@@ -299,15 +322,38 @@ export class PageLifecycle {
     document: Document
   ): NormalizedActivePage {
     if (this.pending) {
+      const sourceDocument = this.oldPageDocument ?? document;
       const settledPending = capturePendingPageAtSettlement(
-        this.oldPageDocument ?? document,
+        sourceDocument,
         this.activePage.form,
         this.pending
       );
-      const settledPage = commitPendingPageAfterSuccessfulTransition(
-        settledPending,
-        { nextAcceptedAndTransitioned: true }
+      const committedPage = commitPendingPageAfterSuccessfulTransition(
+          settledPending,
+          { nextAcceptedAndTransitioned: true }
+        );
+      const answersById = new Map(
+        committedPage.answers.map((answer) => [answer.answer?.questionId, answer])
       );
+      for (const question of this.activePage.form.questions) {
+        if (question.id === null) continue;
+        const answer = snapshotAnswer(sourceDocument, this.activePage.form, question.id);
+        if (answer) {
+          answersById.set(question.id, {
+            answer,
+            questionText:
+              answersById.get(question.id)?.questionText ?? question.text ?? '',
+          });
+        }
+      }
+      const settledPage = {
+        ...committedPage,
+        answers: [...answersById.values()].filter(
+          (entry): entry is (typeof committedPage.answers)[number] & {
+            answer: NonNullable<(typeof entry)['answer']>;
+          } => entry.answer !== null
+        ),
+      };
       const existingIndex = this.settledPages.findIndex(
         (page) => page.pageId === settledPage.pageId
       );
@@ -341,10 +387,46 @@ export class PageLifecycle {
     this.oldPageDocument = null;
     this.generation.invalidate();
     this.activeCycle = this.generation.beginCycle();
-    this.activePage = normalizeDiscoveredActivePage(
+    const normalizedPage = normalizeDiscoveredActivePage(
       discovered,
       this.activeCycle.cycleId
     );
+    const settledPage = this.settledPages.find(
+      (page) => page.pageId === normalizedPage.form.activePageId
+    );
+    if (settledPage) {
+      const answersById = new Map(
+        settledPage.answers.flatMap(({ answer }) =>
+          answer ? [[answer.questionId, answer]] : []
+        )
+      );
+      const questions = normalizedPage.form.questions.map((question) => {
+        const answer = question.id === null ? undefined : answersById.get(question.id);
+        return answer && question.existingInput?.hasValue !== true
+          ? {
+              ...question,
+              existingInput: {
+                value: Array.isArray(answer.value)
+                  ? [...answer.value]
+                  : answer.value,
+                hasValue: true,
+              },
+            }
+          : question;
+      });
+      this.activePage = {
+        ...normalizedPage,
+        form: { ...normalizedPage.form, questions },
+        questionResults: questions.map((question) => ({
+          questionId: question.id,
+          status: question.supported ? 'ready' : 'unsupported',
+          answer: null,
+          reason: question.unsupportedReason,
+        })),
+      };
+    } else {
+      this.activePage = normalizedPage;
+    }
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
     this.visits[this.visits.length - 1].status = 'abandoned';
     this.visits.push({

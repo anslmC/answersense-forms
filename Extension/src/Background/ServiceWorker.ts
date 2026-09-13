@@ -462,10 +462,10 @@ export async function handleMessage(
       ...(message.reset ? { result: null, error: null } : {}),
       ...(message.reset ? { generationOperationId: null } : {}),
     });
-    if (message.reset) {
-      const snapshot = await stateStore.get(tabId);
-      if (snapshot) {
-        await notifyPopup({ type: 'p7-state-updated', snapshot });
+    const snapshot = await stateStore.get(tabId);
+    if (snapshot) {
+      await notifyPopup({ type: 'p7-state-updated', snapshot });
+      if (message.reset) {
         return { status: 'snapshot-stored', snapshot };
       }
     }

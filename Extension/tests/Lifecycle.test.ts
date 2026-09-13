@@ -6,6 +6,8 @@ import type {
   SupportedQuestionType,
 } from '../src/Models/Logical';
 import { createFinalizedPageHandoff } from '../src/Fill/Handoff';
+import { fillReviewedAnswers } from '../src/Fill/Filler';
+import { acceptGeneratedAnswer } from '../src/Review/Decisions';
 import { GenerationCoordinator } from '../src/Generation/Pipeline';
 import type {
   GenerationInterface,
@@ -301,6 +303,48 @@ describe('P5 page lifecycle', () => {
     expect(result).toBe('unchanged');
     expect(lifecycle.currentCycle.cycleId).toBe(cycleId);
     expect(lifecycle.currentPage.form.activePageId).toBe('page-1');
+    expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
+  });
+
+  it('captures filled answers immediately without rediscovery', () => {
+    const lifecycle = createLifecycle();
+    const document = createDocument();
+    (document.querySelector('input') as HTMLInputElement).value = 'Ada';
+
+    lifecycle.captureCurrentAnswers(document);
+
+    expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
+  });
+
+  it('captures answers filled by the existing fill path for Override state', async () => {
+    const lifecycle = createLifecycle();
+    const document = createDocument();
+    await fillReviewedAnswers(
+      document,
+      lifecycle.currentPage.form,
+      {
+        cycleId: lifecycle.currentCycle.cycleId,
+        status: 'complete',
+        results: [
+          {
+            questionId: 'name',
+            status: 'GENERATED',
+            answer: { questionId: 'name', value: 'Ada' },
+            reason: null,
+          },
+        ],
+      },
+      [acceptGeneratedAnswer('name', { questionId: 'name', value: 'Ada' })]
+    );
+
+    lifecycle.captureCurrentAnswers(document);
+
     expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
       value: 'Ada',
       hasValue: true,
@@ -645,6 +689,24 @@ describe('P5 page lifecycle', () => {
     expect(revisited?.form.activePageId).toBe('page-1');
     expect(lifecycle.currentRevisitStatus).toBe('UNCHANGED_REVISIT');
     expect(lifecycle.pendingPage).toBeNull();
+  });
+
+  it('restores filled answers from settled page state on revisit', () => {
+    const lifecycle = createLifecycle();
+    const pageOneDocument = createDocument('page-1');
+    (pageOneDocument.querySelector('input') as HTMLInputElement).value = 'Ada';
+    lifecycle.acceptFinalizedHandoff(
+      createHandoff(pageOneDocument, 'Ada', lifecycle.currentCycle.cycleId)
+    );
+    lifecycle.beginNext(pageOneDocument);
+    lifecycle.confirmTransition(createDocument('page-2'));
+
+    const revisited = lifecycle.handlePreviousOrBack(createDocument('page-1'));
+
+    expect(revisited?.form.questions[0]?.existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
   });
 
   it('classifies a changed actual revisit for reprocessing', () => {

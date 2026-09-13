@@ -986,4 +986,52 @@ describe('Service Worker lifecycle reset durability', () => {
     });
     expect(state.sessionValues).toBeDefined();
   });
+
+  it('forwards normal filled lifecycle snapshots to the live UI projection', async () => {
+    const state: ChromeTestState = { values: {}, sessionValues: {}, queryCount: 0 };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const snapshot: LifecycleSnapshot = {
+      activePage: {
+        form: {
+          formId: 'form-1',
+          activePageId: 'entry:0-3',
+          questions: [
+            {
+              id: 'name',
+              text: 'Name',
+              type: 'short-text',
+              required: false,
+              options: [],
+              existingInput: { value: 'Ada', hasValue: true },
+              supported: true,
+              unsupportedReason: null,
+            },
+          ],
+        },
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-1' },
+      },
+      activeCycle: { cycleId: 'cycle-1' },
+      pending: null,
+      settledPages: [],
+      visits: [{ pageId: 'entry:0-3', cycleId: 'cycle-1', status: 'active' }],
+      navigation: null,
+      documentPathname: '/viewform',
+    };
+
+    await handleMessage(
+      { type: 'lifecycle-snapshot', snapshot },
+      sender(activeTabId)
+    );
+
+    expect(
+      (globalThis as typeof globalThis & {
+        chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
+      }).chrome.runtime.sendMessage
+    ).toHaveBeenCalledWith({
+      type: 'p7-state-updated',
+      snapshot: expect.objectContaining({ lifecycle: snapshot }),
+    });
+  });
 });
