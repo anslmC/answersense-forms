@@ -490,12 +490,14 @@ describe('P5 page lifecycle', () => {
     expect(lifecycle.currentPage).toBe(before);
   });
 
-  it('force clears every settled page and cycle, including a revisited Page 3', () => {
+  it('force clears only the active settled page and preserves other page answers', () => {
     const generation = new GenerationCoordinator(() => 'cycle-reset');
-    const pageThree = {
+    const pageTwoFingerprint = normalizeDiscoveredActivePage(
+      discoveredPage('page-2', 1, 1, 'next')
+    ).form.pageFingerprint;
+    const pageOne = {
       ...page,
-      form: { ...form, activePageId: 'page-3' },
-      processingCycle: { cycleId: 'cycle-3' },
+      processingCycle: { cycleId: 'cycle-1' },
       questionResults: [
         {
           questionId: 'name',
@@ -505,39 +507,57 @@ describe('P5 page lifecycle', () => {
         },
       ],
     };
-    const lifecycle = new PageLifecycle(pageThree, generation, {
-      activePage: pageThree,
-      activeCycle: { cycleId: 'cycle-3' },
+    const lifecycle = new PageLifecycle(pageOne, generation, {
+      activePage: pageOne,
+      activeCycle: { cycleId: 'cycle-1' },
       pending: null,
       settledPages: [
         {
           pageId: 'page-1',
           pageFingerprint: 'page-1-fingerprint',
-          answers: [],
+          answers: [
+            {
+              answer: { questionId: 'name', value: 'Page A answer' },
+              questionText: 'name',
+            },
+          ],
         },
         {
           pageId: 'page-2',
-          pageFingerprint: 'page-2-fingerprint',
-          answers: [],
-        },
-        {
-          pageId: 'page-3',
-          pageFingerprint: 'page-3-fingerprint',
-          answers: [],
+          pageFingerprint: pageTwoFingerprint,
+          answers: [
+            {
+              answer: { questionId: 'next', value: 'Page B answer' },
+              questionText: 'next',
+            },
+          ],
         },
       ],
       visits: [
         { pageId: 'page-1', cycleId: 'cycle-1', status: 'settled' },
-        { pageId: 'page-2', cycleId: 'cycle-2', status: 'abandoned' },
-        { pageId: 'page-3', cycleId: 'cycle-3', status: 'active' },
+        { pageId: 'page-2', cycleId: 'cycle-2', status: 'settled' },
+        { pageId: 'page-1', cycleId: 'cycle-3', status: 'active' },
       ],
       navigation: null,
     });
 
     lifecycle.forceClear();
 
-    expect(lifecycle.context).toEqual([]);
-    expect(lifecycle.settledPageStates).toEqual([]);
+    expect(lifecycle.settledPageStates).toEqual([
+      {
+        pageId: 'page-2',
+        pageFingerprint: pageTwoFingerprint,
+        answers: [
+          {
+            answer: { questionId: 'next', value: 'Page B answer' },
+            questionText: 'next',
+          },
+        ],
+      },
+    ]);
+    expect(lifecycle.context).toEqual([
+      { questionId: 'next', questionText: 'next', answer: 'Page B answer' },
+    ]);
     expect(lifecycle.currentRevisitStatus).toBe('NEW');
     expect(lifecycle.currentPage.questionResults[0]).toMatchObject({
       status: 'ready',
@@ -545,12 +565,26 @@ describe('P5 page lifecycle', () => {
     });
     expect(lifecycle.pageVisits).toEqual([
       {
-        pageId: 'page-3',
+        pageId: 'page-2',
+        cycleId: 'cycle-2',
+        status: 'settled',
+      },
+      {
+        pageId: 'page-1',
         cycleId: 'cycle-reset',
         status: 'active',
       },
     ]);
     expect(lifecycle.currentCycle.cycleId).toBe('cycle-reset');
+
+    const revisitedPageB = lifecycle.handlePreviousOrBack(createDocument('page-2'));
+
+    expect(revisitedPageB?.form.activePageId).toBe('page-2');
+    expect(lifecycle.currentRevisitStatus).toBe('UNCHANGED_REVISIT');
+    expect(revisitedPageB?.form.questions[0]?.existingInput).toEqual({
+      value: 'Page B answer',
+      hasValue: true,
+    });
   });
 
   it('keeps pending and context unchanged after rejected Next, then settles after change', () => {

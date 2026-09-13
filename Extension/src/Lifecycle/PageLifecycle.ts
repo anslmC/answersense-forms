@@ -232,12 +232,23 @@ export class PageLifecycle {
   }
 
   forceClear(): ProcessingCycle {
+    const activePageId = this.activePage.form.activePageId;
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
     this.revisitStatus = 'NEW';
-    this.settledPages.length = 0;
-    this.visits.length = 0;
+    const remainingSettledPages = this.settledPages.filter(
+      (settledPage) => settledPage.pageId !== activePageId
+    );
+    this.settledPages.splice(
+      0,
+      this.settledPages.length,
+      ...remainingSettledPages
+    );
+    const remainingVisits = this.visits.filter(
+      (visit) => visit.pageId !== activePageId
+    );
+    this.visits.splice(0, this.visits.length, ...remainingVisits);
     this.generation.invalidate();
     this.activeCycle = this.generation.beginCycle();
     this.activePage = {

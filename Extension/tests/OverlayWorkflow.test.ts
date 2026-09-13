@@ -360,7 +360,7 @@ describe('live Overlay generation workflow', () => {
       expect(visibleOverrideActions).toHaveLength(1);
       expect(visibleOverrideActions[0]?.textContent?.trim()).toBe('Override Filled Answer(s)');
       expect(forceClear()?.tagName).toBe('BUTTON');
-      expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle All');
+      expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle This Page');
       expect(forceClear()?.hidden).toBe(false);
       expect(
         [...(shadowRoot?.querySelectorAll('button') ?? [])].some(
@@ -518,7 +518,7 @@ describe('live Overlay generation workflow', () => {
       expect(shadowRoot?.querySelector('button[data-filled-status]')).toBeNull();
       const forceClear = shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
       expect(forceClear?.tagName).toBe('BUTTON');
-      expect(forceClear?.textContent?.trim()).toBe('Force Unsettle All');
+      expect(forceClear?.textContent?.trim()).toBe('Force Unsettle This Page');
       expect(forceClear?.hidden).toBe(false);
       expect(forceClearDisplay()).not.toBe('none');
       expect(overrideAction()?.hidden).toBe(true);

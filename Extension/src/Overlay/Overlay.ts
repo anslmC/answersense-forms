@@ -237,7 +237,7 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
             Override Filled Answer(s)
           </button>
           <button type="button" class="secondary" data-force-clear hidden>
-            Force Unsettle All
+            Force Unsettle This Page
           </button>
         </div>
         <div class="override-flow" data-override-flow hidden>
