@@ -81,6 +81,7 @@ export function waitForInitialDiscovery(
   return new Promise((resolve) => {
     let attempts = 0;
     let settled = false;
+    let stabilizationScheduled = false;
     const target = document.documentElement ?? document;
     const observer = new MutationObserver(attempt);
     const timeoutId = setTimeout(() => finish(null), timeoutMs);
@@ -104,7 +105,27 @@ export function waitForInitialDiscovery(
       attempts += 1;
       const page = discoverPage();
       if (page) {
-        finish(page);
+        if (stabilizationScheduled) {
+          return;
+        }
+        stabilizationScheduled = true;
+        const stabilize = () => {
+          stabilizationScheduled = false;
+          if (settled) {
+            return;
+          }
+          const currentPage = discoverPage();
+          if (currentPage) {
+            finish(currentPage);
+          } else {
+            attempt();
+          }
+        };
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(stabilize);
+        } else {
+          queueMicrotask(stabilize);
+        }
       } else if (attempts >= maxAttempts) {
         finish(null);
       }

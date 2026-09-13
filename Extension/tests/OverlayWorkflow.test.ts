@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { mountOverlay, type OverlayHandle } from '../src/Overlay/Overlay';
+import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
+import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
+import { waitForInitialDiscovery } from '../src/Content/Navigation';
 
 const configurationState = {
   providers: [
@@ -37,6 +40,10 @@ const configurationState = {
     status: 'VALID' as const,
     validatedAt: '2026-09-12T00:00:00.000Z',
   },
+};
+
+type TestConfigurationState = Omit<typeof configurationState, 'validation'> & {
+  validation: typeof configurationState.validation | null;
 };
 
 const generationResult = {
@@ -128,7 +135,7 @@ describe('live Overlay generation workflow', () => {
   });
 
   it('keeps configuration collapsed until opened and preserves its controls', async () => {
-    let currentConfigurationState = {
+    let currentConfigurationState: TestConfigurationState = {
       ...configurationState,
       validation: null,
     };
@@ -342,18 +349,47 @@ describe('live Overlay generation workflow', () => {
     expect(overrideFlow()?.hidden).toBe(false);
     expect(overrideAction()?.textContent?.trim()).toBe('Override Filled Answer(s)');
     expect(overrideFlow()?.querySelector('h3')).toBeNull();
+    expect(shadowRoot?.querySelector('[data-override-specific]')).toBeNull();
+    const openedCandidates = shadowRoot?.querySelectorAll<HTMLInputElement>(
+      '[data-override-specific-list] input[type="checkbox"]'
+    );
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')?.hidden
+    ).toBe(false);
+    expect(openedCandidates).toHaveLength(4);
+    expect([...openedCandidates ?? []].every((checkbox) => !checkbox.checked)).toBe(true);
+    openedCandidates?.[1]?.click();
+    expect(openedCandidates?.[1]?.checked).toBe(true);
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(false);
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
     overrideAction()?.click();
     expect(overrideFlow()?.hidden).toBe(true);
     overrideAction()?.click();
     expect(overrideFlow()?.hidden).toBe(false);
     expect(shadowRoot?.querySelector('[data-override-all]')).not.toBeNull();
-    expect(shadowRoot?.querySelector('[data-override-specific]')).not.toBeNull();
+    expect(shadowRoot?.querySelector('[data-override-specific-state]')).toBeNull();
+    expect(shadowRoot?.querySelector('[data-override-uncheck]')?.textContent?.trim()).toBe(
+      'Uncheck All'
+    );
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    expect(
+      [...(shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input') ?? [])]
+        .every((checkbox) => checkbox.checked)
+    ).toBe(true);
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')).toHaveLength(1);
     expect(
       shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation-text]')?.textContent
     ).toBe('Override 4 filled answers?');
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-uncheck]')?.click();
+    expect(
+      [...(shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input') ?? [])]
+        .every((checkbox) => !checkbox.checked)
+    ).toBe(true);
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(true);
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]')?.click();
+    shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input')[1]?.click();
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(false);
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
     expect(shadowRoot?.querySelector('span[data-filled-status]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
     expect(
@@ -500,6 +536,221 @@ describe('live Overlay generation workflow', () => {
     expect(
       sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
     ).toHaveLength(1);
+  });
+
+  it('keeps normal filled counts and appends only successful Override replacements', async () => {
+    const overrideResult = {
+      report: { cycleId: 'cycle-override', status: 'complete' as const, results: [] },
+      fillReport: {
+        cycleId: 'cycle-override',
+        outcomes: [
+          { questionId: 'question-1', status: 'FILLED' as const },
+          { questionId: 'question-2', status: 'FILLED' as const },
+          { questionId: 'question-3', status: 'FILLED' as const },
+          { questionId: 'question-4', status: 'FILL_FAILED' as const },
+        ],
+      },
+    };
+    let generationCalls = 0;
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') {
+        generationCalls += 1;
+        return generationCalls === 1 ? generationResult : overrideResult;
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const summary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toBe('4 filled · 0 already filled · 0 failed · 0 skipped')
+    );
+    overrideAction()?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toBe(
+        '4 filled · 0 already filled · 0 failed · 0 skipped · 3 overrided'
+      )
+    );
+    const overrideFlow = shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
+    expect(overrideFlow?.hidden).toBe(true);
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')?.hidden).toBe(true);
+    expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
+    expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden).toBe(false);
+    expect(summary()?.textContent).toContain('4 filled');
+    expect(summary()?.textContent).toContain('3 overrided');
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.click();
+    expect(overrideFlow?.hidden).toBe(false);
+    expect(shadowRoot?.querySelectorAll('[data-override-specific-list] input')).toHaveLength(4);
+  });
+
+  it('does not append an Override count for cancellation or failed Override', async () => {
+    let generationCalls = 0;
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') {
+        generationCalls += 1;
+        return generationCalls === 1 ? generationResult : { error: 'Override failed.' };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const summary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toBe('4 filled · 0 already filled · 0 failed · 0 skipped')
+    );
+    overrideAction()?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
+    expect(summary()?.textContent).not.toContain('overrided');
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+    await vi.waitFor(() => expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe("Couldn't generate answers."));
+    expect(shadowRoot?.querySelector('.result-summary')).toBeNull();
+  });
+
+  it('keeps an answer discovered after structural readiness through zero-result REVIEW into Override', async () => {
+    document.body.innerHTML = `
+      <main>
+        <section data-page-id="page-ready-sync" data-answersense-active-page="true">
+          <div
+            role="listitem"
+            data-question-id="already-filled"
+            data-question-text="Already filled question"
+            data-question-type="short-text"
+          >
+            <input type="text" value="">
+          </div>
+        </section>
+      </main>
+    `;
+    const input = document.querySelector<HTMLInputElement>('input[type="text"]');
+    const discovery = waitForInitialDiscovery(
+      document,
+      () => discoverActiveGoogleFormsPage(document),
+      { timeoutMs: 1000 }
+    );
+    input!.value = 'Existing answer';
+    const discovered = await discovery;
+    const normalized = normalizeDiscoveredActivePage(discovered!, 'cycle-ready-sync');
+    const readyQuestion = normalized.form.questions[0];
+    expect(readyQuestion).toMatchObject({
+      id: 'already-filled',
+      supported: true,
+      type: 'short-text',
+      existingInput: { value: 'Existing answer', hasValue: true },
+    });
+
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') {
+        return {
+          supported: true,
+          uiState: 'READY' as const,
+          page: { pageId: normalized.form.activePageId, questionCount: 1 },
+          lifecycle: {
+            activePage: {
+              form: {
+                questions: normalized.form.questions.map((question) => ({
+                  id: question.id,
+                  text: question.text,
+                  type: question.type,
+                  supported: question.supported,
+                  existingInput: question.existingInput
+                    ? { hasValue: question.existingInput.hasValue }
+                    : null,
+                })),
+              },
+            },
+          },
+          result: null,
+          error: null,
+        };
+      }
+      if (message.type === 'p7-generate') {
+        return {
+          report: { cycleId: 'cycle-zero-skipped', status: 'complete' as const, results: [] },
+          fillReport: {
+            cycleId: 'cycle-zero-skipped',
+            outcomes: [{ questionId: 'unanswered', status: 'SKIPPED' as const }],
+          },
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() => {
+      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent).toBe(
+        '0 filled · 0 already filled · 0 failed · 1 skipped'
+      );
+      expect(overrideAction()?.hidden).toBe(false);
+    });
+    overrideAction()?.click();
+    expect(
+      shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input')
+    ).toHaveLength(1);
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation-text]')?.textContent
+    ).toBe('Override 1 filled answer?');
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')).toHaveLength(1);
   });
 
   it('does not show the all-answers-filled note when generation fails', async () => {
@@ -725,6 +976,80 @@ describe('live Overlay generation workflow', () => {
       type: 'p7-generate',
       intent: { type: 'OVERRIDE_FILLED', selectedQuestionIds: ['question-2'] },
     });
+  });
+
+  it('collapses long Override question text and toggles the complete display', async () => {
+    const longText =
+      'The Renaissance began in ______ (country) in the 14th century and marked a revival of interest in classical Greek and Roman art and learning. One of its most iconic works, the Mona Lisa, remains widely studied today.';
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') {
+        const snapshot = createSnapshot();
+        return {
+          ...snapshot,
+          lifecycle: {
+            ...snapshot.lifecycle,
+            activePage: {
+              ...snapshot.lifecycle.activePage,
+              form: {
+                ...snapshot.lifecycle.activePage.form,
+                questions: snapshot.lifecycle.activePage.form.questions.map((question, index) =>
+                  index === 0 ? { ...question, text: longText } : question
+                ),
+              },
+            },
+          },
+        };
+      }
+      if (message.type === 'p7-generate') return generationResult;
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() => expect(overrideAction()?.hidden).toBe(false));
+    overrideAction()?.click();
+
+    const candidateLabels = shadowRoot?.querySelectorAll<HTMLLabelElement>('[data-override-specific-list] label');
+    expect(candidateLabels).toHaveLength(4);
+    const longLabel = candidateLabels?.[0];
+    const toggle = longLabel?.querySelector<HTMLButtonElement>('[data-question-toggle]');
+    const questionSpans = longLabel?.querySelectorAll<HTMLSpanElement>('span');
+    const overlayCss = readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.textContent).toBe('►');
+    expect(overlayCss).toMatch(
+      /\.override-question-toggle\s*\{[\s\S]*display: inline-flex;[\s\S]*align-items: center;[\s\S]*justify-content: center;/
+    );
+    expect(longLabel?.textContent).toContain('...');
+    expect(questionSpans?.[0]?.hidden).toBe(false);
+    expect(questionSpans?.[1]?.hidden).toBe(true);
+    toggle?.click();
+    expect(toggle?.textContent).toBe('▼');
+    expect(questionSpans?.[0]?.hidden).toBe(true);
+    expect(questionSpans?.[1]?.hidden).toBe(false);
+    expect(questionSpans?.[1]?.textContent).toBe(longText);
+    toggle?.click();
+    expect(toggle?.textContent).toBe('►');
+    expect(questionSpans?.[0]?.hidden).toBe(false);
+    expect(questionSpans?.[1]?.hidden).toBe(true);
+    expect(candidateLabels?.[1]?.textContent).toBe('Q2 — Question 2');
   });
 
 });

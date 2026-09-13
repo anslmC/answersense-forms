@@ -13,6 +13,7 @@ import {
   createSpecificOverrideIntent,
   filledOverrideCandidates,
   overrideQuestionLabel,
+  type GeneratedUiResult,
   type UiState,
   type WorkflowSnapshot,
 } from './State';
@@ -60,6 +61,10 @@ export function mountAnswerSenseApp(
   const controller = new PopupController(createBrowserPopupWorkflow());
   let primaryAction: HTMLButtonElement | null = null;
   let primaryActionContainer: HTMLElement | null = null;
+  let overridePresentation: {
+    normalResult: GeneratedUiResult;
+    overrideResult: GeneratedUiResult;
+  } | null = null;
 
   function resetOverrideFlow(): void {
     const flow = element<HTMLElement>('[data-override-flow]');
@@ -187,22 +192,32 @@ export function mountAnswerSenseApp(
           : 'Review answers before clicking Next in Google Forms.';
       primary.hidden = true;
       const outcomes = state.result.fillReport.outcomes;
-      const filledCount = outcomes.filter(
+      const summaryOutcomes =
+        overridePresentation && state.result === overridePresentation.overrideResult
+          ? overridePresentation.normalResult.fillReport.outcomes
+          : outcomes;
+      const filledCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILLED'
       ).length;
-      const alreadyFilledCount = outcomes.filter(
+      const alreadyFilledCount = summaryOutcomes.filter(
         ({ status }) => status === 'PRESERVED_EXISTING'
       ).length;
-      const failedCount = outcomes.filter(
+      const failedCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
       ).length;
-      const skippedCount = outcomes.filter(
+      const skippedCount = summaryOutcomes.filter(
         ({ status }) => status === 'SKIPPED'
       ).length;
+      const overridedCount =
+        overridePresentation && state.result === overridePresentation.overrideResult
+          ? overridePresentation.overrideResult.fillReport.outcomes.filter(
+              ({ status }) => status === 'FILLED'
+            ).length
+          : 0;
 
       const summary = createElement('p');
       summary.className = 'result-summary';
-      summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped`;
+      summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped${overridedCount > 0 ? ` · ${overridedCount} overrided` : ''}`;
       results.append(summary);
       if (state.name === 'REVIEW' && !('status' in state.result)) {
         const note = createElement('p');
@@ -384,7 +399,7 @@ export function mountAnswerSenseApp(
 
   const overrideAction = element<HTMLButtonElement>('[data-override-action]');
   const overrideAll = element<HTMLButtonElement>('[data-override-all]');
-  const overrideSpecific = element<HTMLButtonElement>('[data-override-specific]');
+  const overrideUncheck = element<HTMLButtonElement>('[data-override-uncheck]');
   const overrideConfirmation = element<HTMLElement>('[data-override-confirmation]');
   const overrideConfirmationText = element<HTMLElement>('[data-override-confirmation-text]');
   const overrideCancel = element<HTMLButtonElement>('[data-override-cancel]');
@@ -400,6 +415,45 @@ export function mountAnswerSenseApp(
     options.onOverrideIntent?.(frozenIntent);
   }
 
+  function appendOverrideQuestionLabel(
+    label: HTMLElement,
+    question: Parameters<typeof overrideQuestionLabel>[0],
+    index: number
+  ): void {
+    const text = question.text ?? '';
+    const questionPrefix = document.createTextNode(`Q${index + 1} — `);
+    label.append(questionPrefix);
+    if (text.length <= 180) {
+      label.append(text);
+      return;
+    }
+
+    const preview = createElement('span');
+    const fullText = createElement('span');
+    const toggle = createElement('button') as HTMLButtonElement;
+    const shortened = `${text.slice(0, 180).trimEnd()}...`;
+    preview.textContent = shortened;
+    fullText.textContent = text;
+    fullText.hidden = true;
+    toggle.type = 'button';
+    toggle.className = 'override-question-toggle';
+    toggle.setAttribute('data-question-toggle', '');
+    toggle.textContent = '►';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Expand question');
+    toggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const expanded = fullText.hidden;
+      preview.hidden = expanded;
+      fullText.hidden = !expanded;
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} question`);
+      toggle.textContent = expanded ? '▼' : '►';
+    });
+    label.append(preview, fullText, toggle);
+  }
+
   function renderSpecificQuestions(): void {
     const list = element<HTMLElement>('[data-override-specific-list]');
     const state = controller.state;
@@ -413,6 +467,7 @@ export function mountAnswerSenseApp(
       checkbox.value = question.id as string;
       checkbox.checked = selectedSpecificQuestionIds.includes(checkbox.value);
       checkbox.addEventListener('change', () => {
+        pendingAllQuestionIds = null;
         selectedSpecificQuestionIds = selectedSpecificQuestionIds.filter(
           (questionId) => questionId !== checkbox.value
         );
@@ -431,7 +486,8 @@ export function mountAnswerSenseApp(
           overrideConfirmation?.setAttribute('hidden', '');
         }
       });
-      label.append(checkbox, overrideQuestionLabel(question, index));
+      label.append(checkbox);
+      appendOverrideQuestionLabel(label, question, index);
       list.append(label);
     }
     list.removeAttribute('hidden');
@@ -445,8 +501,9 @@ export function mountAnswerSenseApp(
     if (shouldOpen) {
       pendingAllQuestionIds = null;
       pendingOverrideIntent = null;
+      selectedSpecificQuestionIds = [];
       element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
-      element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
+      renderSpecificQuestions();
       if (overrideMessage) overrideMessage.textContent = '';
     }
   });
@@ -455,6 +512,12 @@ export function mountAnswerSenseApp(
     const intent = createAllOverrideIntent(controller.state.page);
     if (intent.type !== 'OVERRIDE_FILLED') return;
     const selected = [...intent.selectedQuestionIds];
+    selectedSpecificQuestionIds = selected;
+    element<HTMLElement>('[data-override-specific-list]')
+      ?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+      .forEach((checkbox) => {
+        checkbox.checked = selected.includes(checkbox.value);
+      });
     pendingAllQuestionIds = selected;
     if (overrideConfirmationText) {
       overrideConfirmationText.textContent =
@@ -462,7 +525,17 @@ export function mountAnswerSenseApp(
     }
     overrideConfirmation?.removeAttribute('hidden');
   });
-  overrideSpecific?.addEventListener('click', renderSpecificQuestions);
+  overrideUncheck?.addEventListener('click', () => {
+    selectedSpecificQuestionIds = [];
+    pendingAllQuestionIds = null;
+    pendingOverrideIntent = null;
+    element<HTMLElement>('[data-override-specific-list]')
+      ?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+      .forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+    overrideConfirmation?.setAttribute('hidden', '');
+  });
   overrideCancel?.addEventListener('click', () => {
     pendingOverrideIntent = null;
     pendingAllQuestionIds = null;
@@ -477,11 +550,23 @@ export function mountAnswerSenseApp(
     } else {
       return;
     }
-    publishOverrideIntent(intent);
+    const normalResult =
+      controller.state.name === 'REVIEW' && !('status' in controller.state.result)
+        ? controller.state.result
+        : null;
     pendingAllQuestionIds = null;
     overrideConfirmation?.setAttribute('hidden', '');
     if (overrideMessage) overrideMessage.textContent = 'Override selection ready.';
-    void controller.generate(renderAll, intent).then((state) => renderAll(state));
+    publishOverrideIntent(intent);
+    void controller.generate(renderAll, intent).then((state) => {
+      if (normalResult && state.name === 'REVIEW' && !('status' in state.result)) {
+        overridePresentation = { normalResult, overrideResult: state.result };
+        resetOverrideFlow();
+      } else {
+        overridePresentation = null;
+      }
+      renderAll(state);
+    });
   });
 
   if (
@@ -730,10 +815,12 @@ export function mountAnswerSenseApp(
   }
   primary.addEventListener('click', () => {
     if (!isCurrentValidationValid(configurationState)) return;
+    overridePresentation = null;
     void controller.generate(renderAll).then((state) => renderAll(state));
   });
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;
+    overridePresentation = null;
     resetOverrideFlow();
     renderAll(await controller.forceClear());
     resetOverrideFlow();
@@ -742,12 +829,14 @@ export function mountAnswerSenseApp(
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'p7-state-updated' && message.snapshot) {
       const state = controller.restore(message.snapshot as WorkflowSnapshot);
+      overridePresentation = null;
       options.onState?.(state);
       renderAll(state);
     }
   });
 
   async function refresh(): Promise<void> {
+    overridePresentation = null;
     resetOverrideFlow();
     await Promise.all([
       reloadConfiguration(),

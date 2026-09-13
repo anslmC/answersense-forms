@@ -526,6 +526,21 @@ select {
   margin-top: 0;
 }
 
+.override-question-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
+}
+
 .override-confirmation {
   margin-top: 4px;
 }
