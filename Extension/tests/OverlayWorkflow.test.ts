@@ -323,8 +323,22 @@ describe('live Overlay generation workflow', () => {
         '4 filled · 0 already filled · 0 failed · 0 skipped'
       );
       expect(shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent).toBe(
-        'All answers are already filled. Override is available if you want to replace them. Using Override will make another API call.'
+        "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call. Recommended: don't override every time to avoid rate limiting, unless the key was not limiting you to."
       );
+      expect(shadowRoot?.querySelector<HTMLElement>('.all-filled-note')).not.toBeNull();
+      expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
+        '.result-note.all-filled-note'
+      );
+      const overlayStyles = readFileSync(
+        resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+        'utf8'
+      );
+      expect(overlayStyles).toContain('margin: 4px;');
+      expect(overlayStyles).toContain('padding: 6px;');
+      expect(overlayStyles).toContain('border: 2px solid #9ca3af;');
+      expect(overlayStyles).toContain('background: #f8fafc;');
+      expect(overlayStyles).toContain('font-size: 12.5px;');
+      expect(overlayStyles).toContain('opacity: 0.95;');
       const visibleOverrideActions = [...(shadowRoot?.querySelectorAll<HTMLButtonElement>('[data-override-action]') ?? [])]
         .filter((button) => !button.hidden);
       expect(visibleOverrideActions).toHaveLength(1);
@@ -528,7 +542,7 @@ describe('live Overlay generation workflow', () => {
         '0 filled · 0 already filled · 0 failed · 0 skipped'
       );
       expect(shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent).toBe(
-        'All answers are already filled. Override is available if you want to replace them. Using Override will make another API call.'
+        "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call. Recommended: don't override every time to avoid rate limiting, unless the key was not limiting you to."
       );
       expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
     });
@@ -547,11 +561,16 @@ describe('live Overlay generation workflow', () => {
           { questionId: 'question-1', status: 'FILLED' as const },
           { questionId: 'question-2', status: 'FILLED' as const },
           { questionId: 'question-3', status: 'FILLED' as const },
-          { questionId: 'question-4', status: 'FILL_FAILED' as const },
+          {
+            questionId: 'question-4',
+            status: 'FILL_FAILED' as const,
+            reason: 'The question was empty. Consider manually entering an answer or using Auto-Generate.',
+          },
         ],
       },
     };
     let generationCalls = 0;
+    const onRefresh = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async (message: { type?: string }) => {
       if (message.type === 'configuration-state') return configurationState;
       if (message.type === 'p7-discover') return createSnapshot();
@@ -573,7 +592,7 @@ describe('live Overlay generation workflow', () => {
       return option;
     });
 
-    overlay = await mountOverlay();
+    overlay = await mountOverlay({ onRefresh });
     const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
     const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
@@ -589,15 +608,41 @@ describe('live Overlay generation workflow', () => {
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
     await vi.waitFor(() =>
       expect(summary()?.textContent).toBe(
-        '4 filled · 0 already filled · 0 failed · 0 skipped · 3 overrided'
+        '3 filled · 0 already filled · 1 failed · 0 skipped · 3 overrided'
       )
+    );
+    const failureHeader = shadowRoot?.querySelector<HTMLElement>('.override-failure');
+    expect(failureHeader?.textContent).toBe('Override failed for Q4. ↻');
+    const inlineRefresh = failureHeader?.querySelector<HTMLButtonElement>(
+      '.override-failure-refresh'
+    );
+    expect(inlineRefresh?.textContent).toBe('↻');
+    expect(inlineRefresh?.getAttribute('aria-label')).toBe('Refresh');
+    expect(inlineRefresh?.title).toBe('Refresh');
+    expect(inlineRefresh?.tagName).toBe('BUTTON');
+    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
+      'color: #c2410c;'
+    );
+    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).not.toContain(
+      'color: #9a3412;'
+    );
+    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.ts'), 'utf8')).toContain(
+      'const MIN_REFRESH_DURATION_MS = 500;'
+    );
+    shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
+    await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 520));
+    inlineRefresh?.click();
+    await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(2));
+    expect(shadowRoot?.querySelector<HTMLElement>('.override-failure-detail')?.textContent).toBe(
+      'Q4 was empty. Consider manually entering an answer or using Auto-Generate.'
     );
     const overrideFlow = shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
     expect(overrideFlow?.hidden).toBe(true);
     expect(shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')?.hidden).toBe(true);
     expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
     expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden).toBe(false);
-    expect(summary()?.textContent).toContain('4 filled');
+    expect(summary()?.textContent).toContain('3 filled');
     expect(summary()?.textContent).toContain('3 overrided');
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.click();
     expect(overrideFlow?.hidden).toBe(false);

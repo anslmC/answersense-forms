@@ -7,6 +7,7 @@ import { createAcceptedReviewDecisions } from '../Review/Decisions';
 import {
   createSkipDiagnostics,
   fillReviewedAnswers,
+  type FillOutcome,
 } from '../Fill/Filler';
 import { createFinalizedPageHandoff } from '../Fill/Handoff';
 import { PageLifecycle } from '../Lifecycle/PageLifecycle';
@@ -28,8 +29,10 @@ import type {
   GenerationResponse,
 } from '../Generation/Contract';
 import {
-  assertValidOverrideSelection,
+  createOverrideFilledIntent,
   parseGenerationIntent,
+  validOverrideQuestionIds,
+  validateOverrideSelection,
   type GenerationIntent,
 } from '../Generation/Intent';
 import type { DiscoveredPage } from '../Forms/Discovery';
@@ -412,8 +415,14 @@ async function handleRequest(request: {
       throw new Error('Override generation requires a synchronized current page.');
     }
     const intent = parseGenerationIntent(request.intent);
-    assertValidOverrideSelection(ensureLifecycle().currentPage, intent);
-    return { status: 'valid' };
+    const validation = validateOverrideSelection(
+      ensureLifecycle().currentPage,
+      intent
+    );
+    if (intent.type === 'OVERRIDE_FILLED' && intent.selectedQuestionIds.length === 0) {
+      throw new Error('Override selection is invalid: <empty-selection>');
+    }
+    return { status: 'valid', invalidQuestionIds: validation.invalidQuestionIds };
   }
 
   if (request.type === 'generate-current-page') {
@@ -435,7 +444,18 @@ async function handleRequest(request: {
     const intent: GenerationIntent = request.intent
       ? parseGenerationIntent(request.intent)
       : { type: 'GENERATE_UNANSWERED' };
-    assertValidOverrideSelection(pageLifecycle.currentPage, intent);
+    let executionIntent = intent;
+    let invalidOverrideQuestionIds: readonly string[] = [];
+    if (intent.type === 'OVERRIDE_FILLED') {
+      const validation = validateOverrideSelection(pageLifecycle.currentPage, intent);
+      if (intent.selectedQuestionIds.length === 0) {
+        throw new Error('Override selection is invalid: <empty-selection>');
+      }
+      invalidOverrideQuestionIds = validation.invalidQuestionIds;
+      executionIntent = createOverrideFilledIntent(
+        validOverrideQuestionIds(pageLifecycle.currentPage, intent)
+      );
+    }
     if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {
       return {
         status: 'reused',
@@ -450,18 +470,42 @@ async function handleRequest(request: {
         request.configurationRevision
       ),
       pageLifecycle.currentCycle,
-      intent
+      executionIntent
     );
     if (!report) {
       throw new Error('Generation response was stale or invalidated.');
     }
-    const fillReport = await fillReviewedAnswers(
+    const filledReport = await fillReviewedAnswers(
       document,
       pageLifecycle.currentPage.form,
       report,
       createAcceptedReviewDecisions(report),
-      intent.type === 'OVERRIDE_FILLED'
+      executionIntent.type === 'OVERRIDE_FILLED'
     );
+    const invalidOutcomes: FillOutcome[] = invalidOverrideQuestionIds.map(
+      (questionId) => {
+        const question = pageLifecycle?.currentPage.form.questions.find(
+          (candidate) => candidate.id === questionId
+        );
+        const isEmpty = question?.existingInput?.hasValue !== true;
+        return {
+          questionId,
+          status: 'FILL_FAILED',
+          answer: null,
+          reason: isEmpty
+            ? 'The question was empty. Consider manually entering an answer or using Auto-Generate.'
+            : 'The question could not be validated for Override.',
+          code: 'OVERRIDE_VALIDATION_FAILED',
+        };
+      }
+    );
+    const fillReport = {
+      cycleId: filledReport.cycleId,
+      outcomes: Object.freeze([
+        ...filledReport.outcomes,
+        ...invalidOutcomes,
+      ]),
+    };
     const handoff = createFinalizedPageHandoff(
       document,
       pageLifecycle.currentPage.form,

@@ -87,6 +87,19 @@ export function validateOverrideSelection(
   };
 }
 
+export function validOverrideQuestionIds(
+  page: NormalizedActivePage,
+  intent: GenerationIntent
+): readonly string[] {
+  if (intent.type !== 'OVERRIDE_FILLED') return [];
+  const invalidQuestionIds = new Set(
+    validateOverrideSelection(page, intent).invalidQuestionIds
+  );
+  return intent.selectedQuestionIds.filter(
+    (questionId) => !invalidQuestionIds.has(questionId)
+  );
+}
+
 export function assertValidOverrideSelection(
   page: NormalizedActivePage,
   intent: GenerationIntent

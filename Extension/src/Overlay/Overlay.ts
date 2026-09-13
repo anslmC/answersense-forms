@@ -14,7 +14,7 @@ export interface OverlayOptions {
   onRefresh?: () => void | Promise<void>;
 }
 
-const MIN_REFRESH_DURATION_MS = 1000;
+const MIN_REFRESH_DURATION_MS = 500;
 
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
 
@@ -373,7 +373,7 @@ export async function mountOverlay(
     refresh.textContent = isRefreshing ? 'Refreshing...' : 'Refresh';
   };
 
-  refresh.addEventListener('click', async () => {
+  const runRefresh = async (): Promise<void> => {
     if (refreshing) {
       return;
     }
@@ -410,6 +410,10 @@ export async function mountOverlay(
     }
     refreshing = false;
     setRefreshState(false);
+  };
+
+  refresh.addEventListener('click', () => {
+    void runRefresh();
   });
 
   close.addEventListener('click', (event) => {
@@ -446,7 +450,11 @@ export async function mountOverlay(
     }
   });
 
-  const handle = mountAnswerSenseApp({ root: body, surface: 'overlay' });
+  const handle = mountAnswerSenseApp({
+    root: body,
+    onRefresh: runRefresh,
+    surface: 'overlay',
+  });
 
   return {
     refresh: () => handle.refresh(),

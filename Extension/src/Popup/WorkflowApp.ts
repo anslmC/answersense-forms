@@ -26,6 +26,7 @@ export interface WorkflowAppOptions {
   root?: ParentNode;
   onState?: (state: UiState) => void;
   onOverrideIntent?: (intent: GenerationIntent) => void;
+  onRefresh?: () => void | Promise<void>;
   surface?: 'popup' | 'overlay';
 }
 
@@ -192,10 +193,19 @@ export function mountAnswerSenseApp(
           : 'Review answers before clicking Next in Google Forms.';
       primary.hidden = true;
       const outcomes = state.result.fillReport.outcomes;
-      const summaryOutcomes =
+      const activeOverridePresentation =
         overridePresentation && state.result === overridePresentation.overrideResult
-          ? overridePresentation.normalResult.fillReport.outcomes
-          : outcomes;
+          ? overridePresentation
+          : null;
+      const isOverrideResult = activeOverridePresentation !== null;
+      const summaryOutcomes = isOverrideResult
+        ? activeOverridePresentation.normalResult.fillReport.outcomes.map((outcome) => {
+            const overrideOutcome = activeOverridePresentation.overrideResult.fillReport.outcomes.find(
+              (candidate) => candidate.questionId === outcome.questionId
+            );
+            return overrideOutcome ?? outcome;
+          })
+        : outcomes;
       const filledCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILLED'
       ).length;
@@ -219,11 +229,46 @@ export function mountAnswerSenseApp(
       summary.className = 'result-summary';
       summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped${overridedCount > 0 ? ` · ${overridedCount} overrided` : ''}`;
       results.append(summary);
+      if (isOverrideResult) {
+        const failedOverrides = activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
+          (outcome) =>
+            outcome.status === 'FILL_FAILED' &&
+            typeof outcome.questionId === 'string'
+        );
+        if (failedOverrides.length > 0) {
+          const labels = failedOverrides.map(({ questionId }) => {
+            const questionIndex = state.page.questions?.findIndex(
+              (question) => question.id === questionId
+            );
+            return questionIndex !== undefined && questionIndex >= 0
+              ? `Q${questionIndex + 1}`
+              : questionId as string;
+          });
+          const failureNote = createElement('p');
+          failureNote.className = 'result-note override-failure';
+          failureNote.append(`Override failed for ${labels.join(', ')}. `);
+          const inlineRefresh = createElement('button') as HTMLButtonElement;
+          inlineRefresh.type = 'button';
+          inlineRefresh.className = 'override-failure-refresh';
+          inlineRefresh.textContent = '↻';
+          inlineRefresh.title = 'Refresh';
+          inlineRefresh.setAttribute('aria-label', 'Refresh');
+          inlineRefresh.addEventListener('click', () => {
+            void options.onRefresh?.();
+          });
+          failureNote.append(inlineRefresh);
+          results.append(failureNote);
+          const failureDetail = createElement('p');
+          failureDetail.className = 'result-note override-failure-detail';
+          failureDetail.textContent = `${labels.join(' and ')} ${labels.length === 1 ? 'was' : 'were'} empty. Consider manually entering ${labels.length === 1 ? 'an answer' : 'answers'} or using Auto-Generate.`;
+          results.append(failureDetail);
+        }
+      }
       if (state.name === 'REVIEW' && !('status' in state.result)) {
         const note = createElement('p');
-        note.className = 'result-note';
+        note.className = 'result-note all-filled-note';
         note.textContent =
-          'All answers are already filled. Override is available if you want to replace them. Using Override will make another API call.';
+          "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call. Recommended: don't override every time to avoid rate limiting, unless the key was not limiting you to.";
         results.append(note);
       }
       results.hidden = false;

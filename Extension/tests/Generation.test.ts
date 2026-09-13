@@ -14,6 +14,7 @@ import {
 } from '../src/Generation/Pipeline';
 import {
   createOverrideFilledIntent,
+  validOverrideQuestionIds,
   validateOverrideSelection,
 } from '../src/Generation/Intent';
 import { createGenerationReport } from '../src/Generation/Report';
@@ -382,6 +383,42 @@ describe('Settled context and pending page state', () => {
 });
 
 describe('Generation cycles and reports', () => {
+  it.each([
+    [['name', 'language', 'topics'], ['name', 'language', 'topics']],
+    [['name', 'language'], ['name', 'language']],
+    [['name', 'language'], ['name']],
+    [['name', 'language'], ['language']],
+    [['name', 'language', 'topics'], []],
+  ])(
+    'partitions Override selection independently for %j selected IDs',
+    (selectedIds, validIds) => {
+      const filledPage = {
+        ...page,
+        form: {
+          ...form,
+          questions: form.questions.map((question) => ({
+            ...question,
+            existingInput: {
+              value: selectedIds.includes(question.id as string) &&
+                (validIds as string[]).includes(question.id as string)
+                ? 'Existing'
+                : null,
+              hasValue:
+                selectedIds.includes(question.id as string) &&
+                (validIds as string[]).includes(question.id as string),
+            },
+          })),
+        },
+      };
+      expect(
+        validOverrideQuestionIds(
+          filledPage,
+          createOverrideFilledIntent(selectedIds)
+        )
+      ).toEqual(validIds);
+    }
+  );
+
   it('validates an exact non-empty override selection', () => {
     const filledPage = {
       ...page,

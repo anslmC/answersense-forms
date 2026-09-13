@@ -23,7 +23,8 @@ export type FillFailureCode =
   | 'TYPE_MISMATCH'
   | 'TARGET_NOT_FOUND'
   | 'INVALID_OPTION'
-  | 'INVALID_ANSWER';
+  | 'INVALID_ANSWER'
+  | 'OVERRIDE_VALIDATION_FAILED';
 
 export interface FillOutcome {
   questionId: string | null;
@@ -228,6 +229,15 @@ async function fillSingleChoice(
       },
       answer
     );
+  }
+  if (isOptionSelected(option)) {
+    return {
+      questionId: target.questionId,
+      status: 'FILLED',
+      answer,
+      reason: null,
+      code: null,
+    };
   }
   activateOption(option);
   if (!(await verifyChoiceSelection(() => isOptionSelected(option)))) {

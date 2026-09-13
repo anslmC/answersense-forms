@@ -252,7 +252,7 @@
 
 .workflow-progress.is-error .workflow-progress-fill {
   width: 100%;
-  background: #b91c1c;
+  background: #991b1b;
 }
 
 @keyframes workflow-scrub {
@@ -467,6 +467,43 @@ select {
   color: #4b5563;
   font-size: 13px;
   font-weight: 600;
+}
+
+.result-note.all-filled-note {
+  margin: 4px;
+  padding: 6px;
+  background: #f8fafc;
+  color: #111111;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 1;
+}
+
+.result-note.override-failure {
+  margin: 4px 0 0;
+  color: #c2410c;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.result-note.override-failure-detail {
+  margin: 1px 0 0;
+  color: #c2410c;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.override-failure-refresh {
+  min-height: 0;
+  margin-left: 2px;
+  padding: 0 2px;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: baseline;
 }
 
 .actions {

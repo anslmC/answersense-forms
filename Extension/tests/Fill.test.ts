@@ -532,6 +532,56 @@ describe('P4 sequential filling and preservation', () => {
     expect(paragraph.value).toBe('Existing paragraph');
   });
 
+  it('fills single-choice options without toggling an already-selected target', async () => {
+    const cases = [
+      { current: 'Beta', target: 'Beta', expected: 'Beta' },
+      { current: 'Beta', target: 'Alpha', expected: 'Alpha' },
+      { current: null, target: 'Beta', expected: 'Beta' },
+    ] as const;
+
+    for (const testCase of cases) {
+      const document = createDocument();
+      const current = testCase.current
+        ? document.querySelector<HTMLElement>(
+            `[data-question-id="choice"] [aria-label="${testCase.current}"]`
+          )
+        : null;
+      current?.setAttribute('aria-checked', 'true');
+      let clickCount = 0;
+      if (current && testCase.current === testCase.target) {
+        current.click = () => {
+          clickCount += 1;
+        };
+      }
+      const report = reportFor([
+        { questionId: 'choice', value: testCase.target },
+      ]);
+
+      const result = await fillReviewedAnswers(
+        document,
+        form,
+        report,
+        [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+        true
+      );
+
+      expect(result.outcomes[0]).toMatchObject({
+        questionId: 'choice',
+        status: 'FILLED',
+      });
+      if (testCase.current === testCase.target) {
+        expect(clickCount).toBe(0);
+      }
+      expect(
+        document
+          .querySelector(
+            `[data-question-id="choice"] [aria-label="${testCase.expected}"]`
+          )
+          ?.getAttribute('aria-checked')
+      ).toBe('true');
+    }
+  });
+
   it('supports edited and skipped review decisions', async () => {
     const document = createDocument();
     const report = reportFor([
