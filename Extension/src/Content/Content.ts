@@ -49,6 +49,7 @@ let lifecycle: PageLifecycle | null = null;
 let lifecycleInitialization: Promise<void> | null = null;
 let lifecyclePublicationError: string | null = null;
 let overlayHandle: OverlayHandle | null = null;
+let overlayMount: Promise<OverlayHandle> | null = null;
 const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
@@ -66,7 +67,10 @@ async function ensureOverlay(): Promise<OverlayHandle | null> {
   if (!supportedPage || !document.body || overlayHandle) {
     return overlayHandle;
   }
-  overlayHandle = await mountOverlay({
+  if (overlayMount) {
+    return overlayMount;
+  }
+  overlayMount = mountOverlay({
     onClose: () => {
       overlayHandle = null;
     },
@@ -74,8 +78,15 @@ async function ensureOverlay(): Promise<OverlayHandle | null> {
       await resynchronizeCurrentPage();
       await overlayHandle?.refresh();
     },
+  }).then((handle) => {
+    overlayHandle = handle;
+    return handle;
   });
-  return overlayHandle;
+  try {
+    return await overlayMount;
+  } finally {
+    overlayMount = null;
+  }
 }
 
 function publishLifecycleSnapshot(): Promise<void> {
@@ -160,7 +171,6 @@ function publishTransition(
   } satisfies LifecyclePublicationMessage);
   return publication.then(() => {
     lifecyclePublicationError = null;
-    overlayHandle?.refresh();
   });
 }
 
@@ -318,8 +328,7 @@ const hydration = waitForInitialDiscovery(document, discoverPage)
 void hydration.catch(recordLifecyclePublicationFailure);
 void hydration.then(async () => {
   if (await readOverlayPreference()) {
-    const mountedOverlay = await ensureOverlay();
-    mountedOverlay?.refresh();
+    await ensureOverlay();
   }
 });
 

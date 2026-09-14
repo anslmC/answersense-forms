@@ -99,4 +99,30 @@ describe('browser-action overlay toggle', () => {
     expect(mountOverlay).toHaveBeenCalledTimes(1);
     expect(set).toHaveBeenCalledWith({ 'answersense-overlay-opened': true });
   });
+
+  it('shares one in-flight mount across concurrent open requests', async () => {
+    testState.supported = true;
+    const { set } = installChrome();
+    let releaseMount!: (handle: Awaited<ReturnType<typeof mountOverlay>>) => void;
+    mountOverlay.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseMount = resolve))
+    );
+    await loadContent();
+
+    const firstOpen = dispatchToggle();
+    const secondOpen = dispatchToggle();
+    await Promise.resolve();
+
+    expect(mountOverlay).toHaveBeenCalledTimes(1);
+    releaseMount({
+      refresh: vi.fn(async () => undefined),
+      close: vi.fn(),
+    });
+
+    await expect(Promise.all([firstOpen, secondOpen])).resolves.toEqual([
+      { status: 'opened', supported: true },
+      { status: 'opened', supported: true },
+    ]);
+    expect(set).toHaveBeenCalledTimes(2);
+  });
 });

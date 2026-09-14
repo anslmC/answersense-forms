@@ -32,6 +32,7 @@ export interface WorkflowAppOptions {
 
 export interface WorkflowAppHandle {
   refresh: () => Promise<void>;
+  ready: Promise<void>;
 }
 
 export function mountAnswerSenseApp(
@@ -419,11 +420,13 @@ export function mountAnswerSenseApp(
     return response ?? {};
   }
 
-  async function reloadConfiguration(): Promise<void> {
+  async function reloadConfiguration(shouldRender = true): Promise<void> {
     configurationState = (await send({
       type: 'configuration-state',
     })) as unknown as ConfigurationState;
-    renderAll(controller.state);
+    if (shouldRender) {
+      renderAll(controller.state);
+    }
   }
 
   function showMessage(selector: string, text: string): void {
@@ -459,7 +462,9 @@ export function mountAnswerSenseApp(
   const replaceCredentialButton = element<HTMLButtonElement>(
     '[data-replace-credential]'
   );
-  if (!primary || !forceClear) return { refresh: async () => undefined };
+  if (!primary || !forceClear) {
+    return { refresh: async () => undefined, ready: Promise.resolve() };
+  }
 
   const overrideAction = element<HTMLButtonElement>('[data-override-action]');
   const overrideAll = element<HTMLButtonElement>('[data-override-all]');
@@ -903,15 +908,15 @@ export function mountAnswerSenseApp(
     overridePresentation = null;
     resetOverrideFlow();
     await Promise.all([
-      reloadConfiguration(),
+      reloadConfiguration(false),
       controller.discover().then((state) => {
       options.onState?.(state);
-      renderAll(state);
       }),
     ]);
+    renderAll(controller.state);
   }
 
-  void refresh();
+  const ready = refresh();
 
-  return { refresh };
+  return { refresh, ready };
 }

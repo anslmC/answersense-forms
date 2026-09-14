@@ -317,13 +317,18 @@ export async function mountOverlay(
   const host = document.createElement('div');
   host.id = OVERLAY_HOST_ID;
   host.style.position = 'fixed';
-  host.style.top = '16px';
-  host.style.right = '16px';
-  host.style.left = 'auto';
+  if (storedPosition) {
+    applyDragPosition(host, storedPosition.left, storedPosition.top);
+  } else {
+    host.style.top = '16px';
+    host.style.right = '16px';
+    host.style.left = 'auto';
+  }
   host.style.width = '360px';
   host.style.maxWidth = 'calc(100vw - 32px)';
   host.style.maxHeight = 'calc(100vh - 32px)';
   host.style.zIndex = '2147483647';
+  host.style.visibility = 'hidden';
   (document.documentElement ?? document.body ?? document).append(host);
   const root = host.attachShadow({ mode: 'open' });
 
@@ -485,6 +490,13 @@ export async function mountOverlay(
     onRefresh: runRefresh,
     surface: 'overlay',
   });
+  try {
+    await handle.ready;
+    host.style.visibility = 'visible';
+  } catch (error) {
+    host.remove();
+    throw error;
+  }
 
   return {
     refresh: () => handle.refresh(),

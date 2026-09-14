@@ -4,9 +4,10 @@ import { resolve } from 'node:path';
 import { mountOverlay } from '../src/Overlay/Overlay';
 
 const workflowRefresh = vi.fn(async () => undefined);
+const mountAnswerSenseApp = vi.hoisted(() => vi.fn());
 
 vi.mock('../src/Workflow/WorkflowApp', () => ({
-  mountAnswerSenseApp: vi.fn(() => ({
+  mountAnswerSenseApp: mountAnswerSenseApp.mockImplementation(() => ({
     refresh: workflowRefresh,
   })),
 }));
@@ -59,6 +60,41 @@ describe('overlay refresh operation', () => {
     expect(header?.children[2]).toBe(github);
     expect(header?.children[3]).toBe(header?.querySelector('.overlay-refresh'));
     expect(header?.children[4]).toBe(header?.querySelector('.overlay-close'));
+  });
+
+  it('applies the remembered position before appending the host', async () => {
+    const append = vi.spyOn(document.documentElement, 'append');
+    const chromeMock = (globalThis as unknown as {
+      chrome: {
+        storage: { local: { get: (key: string) => Promise<unknown> } };
+      };
+    }).chrome;
+    vi.mocked(chromeMock.storage.local.get).mockResolvedValue({
+      'answersense-overlay-position': { left: 240, top: 180 },
+    });
+
+    await mountOverlay();
+
+    const host = append.mock.calls
+      .map(([node]) => node)
+      .find(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement && node.id === 'answersense-overlay-host'
+      );
+    expect(host?.style.left).toBe('240px');
+    expect(host?.style.top).toBe('180px');
+    expect(host?.style.right).toBe('auto');
+    append.mockRestore();
+  });
+
+  it('removes the host when initial workflow readiness fails', async () => {
+    mountAnswerSenseApp.mockImplementationOnce(() => ({
+      refresh: workflowRefresh,
+      ready: Promise.reject(new Error('Initial workflow failed.')),
+    }));
+
+    await expect(mountOverlay()).rejects.toThrow('Initial workflow failed.');
+    expect(document.querySelector('#answersense-overlay-host')).toBeNull();
   });
 
   it('renders the approved AnswerSense logo beside the title', async () => {
