@@ -1,60 +1,58 @@
 # AnswerSense: Forms
 
-An AI-assisted Chromium browser extension for supported Google Forms.
+AnswerSense: Forms is a Chromium browser extension that helps answer supported Google Forms pages with AI. It works one page at a time: discover the active page, generate answers, fill supported controls, and let you review and submit the form yourself.
 
-## Development Status
+## Providers
 
-**Current phase:** Direct-BYOK runtime verification and follow-up remediation
+AnswerSense uses an AI provider abstraction that allows additional providers to be integrated in the future. Gemini is the currently supported and recommended provider for the current savepoint.
 
-The direct-BYOK runtime is implemented and the canonical architecture reference is available at [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
+## Get Started
 
-The production processing flow is implemented incrementally under the canonical architecture.
+[Extension store link placeholder]
 
-## Current Architecture Baseline
+## Recommended Provider: Google Gemini
 
-- Process only the currently active Google Forms page.
-- Do not crawl the full form upfront or automatically navigate ahead.
-- Process one page at a time.
-- Send one batched generation request per active page.
-- Include all prior settled question/answer context in later requests.
-- Omit unanswered optional or skipped questions from accumulated context.
-- Treat the current user-edited value as authoritative once a page settles.
-- A page settles only after Next is accepted and an actual page transition is observed.
-- Keep required-field validation under Google Forms control.
-- Recognize and re-check previously settled pages when revisited.
-- Reprocess changed pages and reuse unchanged state where appropriate.
-- Do not automatically regenerate downstream settled pages after upstream changes.
-- Use deterministic answer-to-question matching.
-- Do not use fuzzy, semantic, or heuristic dependency matching.
-- Keep logical form state separate from DOM state.
-- Prevent stale generation responses from modifying current processing state.
+Gemini is currently the easiest way to get started with AnswerSense because the project directly supports Gemini and users can create and manage their own key through [Google AI Studio](https://aistudio.google.com/).
 
-## Architecture & Technology
+Google's current API-key guidance is available in the official [Gemini API key documentation](https://ai.google.dev/gemini-api/docs/api-key). To create a key, open Google AI Studio, sign in if required, and use the API-key creation flow described there. Google may require selecting or creating a Google Cloud project and may show additional setup or billing choices depending on the account and current service policies.
 
-- **Extension:** TypeScript, Manifest V3, Vite, Chromium/Edge/Brave
-- **Testing:** Vitest
-- **Tooling:** ESLint, Prettier, npm workspaces
+Treat the key as a secret. Do not publish it, commit it to a repository, put it in screenshots, or share it in issue reports. Gemini availability, limits, quotas, and pricing are controlled by Google and may change. Google AI Studio and the [official Gemini API documentation](https://ai.google.dev/gemini-api/docs/api-key) are authoritative for current terms and usage options.
 
-The repository currently provides the implementation foundation. Feature and processing logic will be added incrementally while following the canonical architecture.
+## Configure an API Key
 
-## TnS Runtime Modes
+1. Open a supported Google Form in respondent view.
+2. Open the AnswerSense overlay.
+3. Expand **Configuration** and choose **Add API key**.
+4. Enter a label if requested, then enter the Gemini key in the native browser prompt. The key is not placed in the Google Forms page DOM.
+5. Select Gemini, select its available model, choose the stored key, save the configuration, and validate it.
 
-End-user generation uses this direct BYOK path:
+The extension uses the key for direct requests to Google's Gemini API. It does not send the key to an AnswerSense server.
 
-```text
-Content Script -> Service Worker -> Gemini Provider -> Gemini API
-```
+## Basic Usage
 
-The user configures a Gemini API key in the extension. The key is stored in local extension storage, and only the service worker reads it for provider requests. The key is never sent to an AnswerSense backend, page content, or content scripts. Provider requests are sent directly from the extension service worker to Gemini; there is no AnswerSense backend in the production architecture.
+1. Navigate to a supported Google Form page.
+2. Open the AnswerSense overlay and configure a validated provider credential.
+3. Choose **Generate & Auto-Fill** for the current page.
+4. Review and edit the generated answers.
+5. Use the form's own navigation controls to continue. A page enters settled context only after Google Forms accepts Next and a page transition is observed.
+6. Submit the form manually when you are satisfied with the answers.
 
-## Product Identity
+## Privacy and Security
 
-The official product identity is **AnswerSense: Forms**. Licensing controls software permissions; it does not grant permission to represent a modified build as an official AnswerSense release. Official releases are published through the project owner's designated repository and release channels. Unofficial forks and modified builds should clearly identify themselves as unofficial, for example, “unofficial fork of AnswerSense”. This notice does not technically prevent copying, forking, or rebranding.
+- Generation follows the direct path `Google Forms -> content script -> Shadow DOM overlay -> service worker -> AI provider -> provider API`.
+- The service worker owns provider credential access and sends provider requests directly to the provider API.
+- Configuration state is stored in `chrome.storage.local` and encrypted with AES-GCM.
+- The non-extractable AES-GCM CryptoKey is stored in IndexedDB database `answersense-credential-security`, object store `keys`.
+- UI credential records are redacted; the raw secret is not returned in configuration state or runtime messages to page content.
+- API-key entry uses a native browser prompt rather than an API-key input in the page DOM.
+- Form content is treated as untrusted data and sent as normalized logical data rather than raw HTML or DOM references.
 
-## Untrusted Form Content
+Browser-local encryption reduces exposure of persisted state but does not make a browser-held API key a server-side secret. Keep your browser profile and API key secure.
 
-Google Forms question text, option labels, existing answers, settled context, and page identifiers are untrusted data. The extension sends normalized generation data rather than raw HTML or DOM references. Prompt-injection detection is not complete and is not the credential-security boundary; generated answers remain subject to validation, user review, and manual submission.
+## Architecture
+
+See the canonical production architecture in [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
 
 ## License
 
-This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE) for the license text. The root workspace and Extension package use the same license declaration. The license and the AnswerSense product identity are separate concerns.
+This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE) for the license text.

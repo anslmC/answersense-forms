@@ -2,248 +2,216 @@
 
 ## Scope
 
-This is the canonical architecture reference for AnswerSense: Forms.
+This document describes the current production architecture of AnswerSense: Forms.
 
-It reflects the latest locked decisions and defines the system behavior, data boundaries, and processing flow that implementation must follow.
+The production implementation is an extension-only, direct BYOK design for supported Google Forms respondent pages.
 
----
+AI provider integration is represented as an extension boundary. Gemini is the currently implemented provider; additional providers can be integrated through the same boundary.
 
-## Core Constraints
+Possible Android device support is a future consideration and is not part of the current implementation.
 
-- Google Forms only.
-- Process only the currently active page.
-- Do not crawl the full form upfront.
-- Do not automatically navigate ahead.
-- Process one page at a time.
-- Batch the current page into one generation request.
-- Carry all prior settled Q&A into later generation requests.
-- Omit unanswered optional/skipped questions from context.
-- User-edited values are authoritative once settled.
-- A page settles only after **Next + successful page transition is observed**.
-- Google Forms controls required-field validation.
-- Revisited pages are recognized and re-checked.
-- Changed pages are reprocessed; unchanged pages may reuse existing state.
-- Do not automatically regenerate downstream settled pages after upstream changes.
-- Do not use heuristic dependency detection.
-- Multi-provider routing/fallback remains deferred.
+## Production Flow
 
----
+```text
+Google Forms
+  -> Content Script
+  -> Shadow DOM Overlay
+  -> Service Worker
+  -> AI Provider
+  -> Provider API
+```
 
-## General Processing Flow
+Current provider path:
 
-The system follows this lifecycle:
+```text
+AI Provider
+  -> GeminiProvider
+  -> Google Gemini API
+```
 
-**Discover → Normalize → Generate → Validate → Fill → Review → Settle → Accumulate Context → Continue**
+Provider requests are sent directly from the service worker to the configured provider API. There is no AnswerSense backend workspace or server in the current production architecture.
 
-### 1. Discover
+## Google Forms Integration
 
-Identify the supported Google Form and inspect only the currently active page.
+The content script provides the Google Forms integration layer. It:
 
-Extract:
+- detects the active respondent page
+- discovers questions on the active page
+- normalizes question and control data
+- observes navigation and lifecycle transitions
+- resolves current form controls
+- fills supported answers
 
-- questions
-- question types
-- options
-- required state
-- existing inputs
-- page identity/state information
+The processing lifecycle is:
 
-Do not inspect future pages.
+**Discover -> Normalize -> Generate -> Validate -> Fill -> Review -> Settle -> Accumulate Context -> Continue**
 
-### 2. Normalize
+Processing is limited to the active page. The extension does not crawl the full form in advance or automatically navigate between pages.
 
-Convert discovered DOM information into the normalized logical model.
+A page settles only after the user selects Next, Google Forms accepts the page, and an actual page transition is observed. Required-field validation remains controlled by Google Forms.
 
-The logical model must not contain raw DOM references.
+After settlement, subsequent generation requests may receive the prior settled question/answer context. Unanswered optional or skipped questions are omitted. User-edited values are authoritative when a page settles.
 
-Core concepts include:
+Revisited pages are re-checked. Changed pages are reprocessed; unchanged state may be reused. Downstream settled pages are not automatically regenerated after an upstream edit.
 
-- `Form`
-- `Question`
-- `Answer`
-- `ExistingInput`
-- `QuestionResult`
-- `ProcessingCycle`
-- `GenerationReport`
+## Shadow DOM Overlay
 
-DOM nodes and page-specific mappings remain in the DOM layer.
+The production UI is the content-script-mounted overlay implemented in `Extension/src/Overlay/Overlay.ts`.
 
-### 3. Generate
+The overlay:
 
-Send the current page as one batched generation request.
+- creates the overlay host on the Google Forms page
+- attaches an open Shadow DOM root
+- injects the overlay stylesheet
+- mounts the workflow application inside the shadow root
 
-The request contains:
+The Shadow DOM Overlay is the production UI and source of truth for:
 
-- current page questions
-- all prior settled Q&A
+- configuration
+- credential management
+- validation
+- generation
+- review
+- fill state
 
-Context is logical only:
+The shadow root isolates overlay markup and styling from the surrounding page. The content script continues to interact with Google Forms controls outside the shadow root.
 
-- question text
-- settled answer
+## Service Worker
 
-Do not send raw HTML, DOM references, or unnecessary browser state.
+The Manifest V3 service worker provides privileged coordination and provider access.
 
-Unanswered optional/skipped questions are omitted.
+It:
 
-### 4. Validate
+- receives messages from the content script and extension UI
+- maintains integration and lifecycle state
+- authorizes the active configuration
+- validates configuration revisions
+- reads credential secrets from encrypted local state
+- resolves the configured provider, model, and adapter
+- performs provider generation and credential validation
+- sanitizes provider failures before returning them
+- prevents raw credentials from being returned to page content
 
-Validate the generation response against the expected structured contract.
+Generation requests from the content script pass through the service worker. The service worker resolves the selected provider adapter, supplies the authorized credential, and returns the application-level generation result.
 
-Answer-to-question matching is deterministic.
+## AI Provider Boundary
 
-Do not use:
+Provider metadata and adapter resolution are defined by the provider registry.
 
-- fuzzy matching
-- semantic matching
-- heuristic question matching
+A provider definition identifies:
 
-Generation results are represented by a materialized, frozen `GenerationReport`.
+- provider identity
+- supported models
+- endpoint metadata
+- credential requirements
+- validation support
 
-### 5. Fill
+The adapter factory receives the authorized credential and provides the shared generation interface.
 
-Resolve normalized questions to their current DOM inputs and apply valid answers.
+The provider boundary isolates provider-specific transport and response handling from the Google Forms workflow. Additional providers can implement the existing provider contract without changing the Google Forms processing model.
 
-The normalized model remains independent of the DOM.
+### Current Gemini Implementation
 
-Existing user answers may be preserved according to the processing rules.
+The registry currently contains Gemini as its implemented provider.
 
-### 6. Review
+`GeminiProvider`:
 
-The user reviews and may edit generated answers.
+- sends structured generation requests directly to the Google Gemini API
+- uses the configured Gemini model endpoint
+- authenticates with the `x-goog-api-key` request header
+- requests JSON output
+- validates returned data against the generation contract
+- classifies authentication, quota, rate-limit, availability, and malformed-output failures
 
-The extension does not submit the form automatically.
+Credential validation calls the Gemini model information endpoint directly using the same `x-goog-api-key` header.
 
-The current value in the form becomes authoritative when the page settles, regardless of whether it originated from AI or the user.
+No AnswerSense API or backend proxy is involved.
 
-### 7. Settle
+## Configuration and Generation
 
-Generation or filling success does not settle a page.
+The extension UI obtains provider configuration from the service worker.
 
-Settlement requires:
+The returned configuration contains provider, model, and redacted credential metadata. Credential secrets are not returned as UI state.
 
-1. User clicks Next.
-2. Google Forms accepts the page.
-3. An actual page transition is observed.
+Credentials are added or replaced through a native browser `window.prompt`. The entered value is passed through the extension message path without being rendered into the Google Forms page DOM or overlay markup.
 
-Until then:
+The UI saves the credential, selects the provider/model/credential, and validates the configuration before generation.
 
-- the page remains editable
-- its answers are not added to accumulated context
+For generation:
 
-Required-field validation remains entirely controlled by Google Forms.
+1. The content script discovers and normalizes the active page.
+2. The content script sends the logical generation request to the service worker.
+3. The service worker resolves the configured provider adapter.
+4. The provider generates the structured result.
+5. The extension validates the result.
+6. Supported controls are filled.
+7. The user reviews the generated values before continuing or submitting the form.
 
-### 8. Accumulate Context
+The extension does not submit forms automatically.
 
-After successful settlement, the page's settled Q&A becomes part of the logical form context.
+Each operation carries a processing cycle identifier. Responses associated with obsolete cycles are rejected or ignored to prevent stale provider results from modifying current page state.
 
-Later pages receive all accumulated settled context.
+## Credential Ownership and Security
 
-Context is read-only input to later generation and does not modify earlier settled results.
+Credentials are owned by the extension service worker and extension storage boundary.
 
-### 9. Continue / Revisit
+Persisted credential state uses:
 
-After settlement, the next active page is discovered and processed.
+- `chrome.storage.local` for encrypted configuration state
+- AES-GCM for credential-state encryption
+- a non-extractable AES-GCM Web Crypto `CryptoKey`
+- IndexedDB for the encryption key
 
-If the user navigates back to a previously settled page:
+IndexedDB details:
 
-- recognize it as the same page/state
-- re-check/re-extract it
-- reuse existing state if unchanged
-- reprocess if changed
+```text
+Database: answersense-credential-security
+Object store: keys
+```
 
-Changes to an earlier settled page do not automatically regenerate downstream settled pages.
+Credential records exposed to UI state are redacted and do not contain the secret.
 
----
+The service worker reads the credential secret when resolving an authorized provider request.
 
-## Processing Cycle & Stale Responses
+The encryption implementation uses a fresh initialization vector with each encrypted state envelope.
 
-Each processing operation belongs to a `ProcessingCycle` identified by a `cycleId`.
+This protects persisted configuration state from plaintext storage. It does not provide the security properties of a server-side secret and does not protect against a compromised browser profile or compromised extension context with access to the encryption key.
 
-A response belonging to an obsolete cycle must be rejected or ignored so stale generation results cannot modify current state.
+Google Forms text, options, existing answers, settled context, and page identifiers are treated as untrusted input.
 
----
+The extension operates on normalized logical data rather than transmitting raw page HTML or DOM references to the provider.
 
-## Implementation Boundaries
+Generated answers are validated before filling and remain subject to user review.
 
-### Extension Layer
+## Runtime Boundaries
 
-Responsible for:
+The production repository contains an Extension-only workspace.
 
-- extension runtime
-- Google Forms detection
-- page discovery
-- DOM extraction
-- DOM resolution/filling
-- page/form interaction lifecycle
-- generation coordination
-- response validation
-- user interaction and review flow
-- requesting provider work through the service worker
-- never receiving the raw provider credential
+The relevant structure is:
 
-### Service Worker Layer
+- root workspace: npm tooling and shared checks
+- `Extension`: TypeScript Manifest V3 extension package
+- content entry: `Extension/src/Content/Content.ts`
+- service worker entry: `Extension/src/Background/ServiceWorker.ts`
+- production UI: runtime-mounted Shadow DOM Overlay
 
-Responsible for:
+Vite produces the extension artifacts under `Extension/dist`.
 
-- provider credential access
-- provider transport
-- selecting and using the configured provider adapter
-- sending provider requests directly to Gemini
-- never exposing the raw credential through runtime messages
+The generated content script and service worker are loaded by the extension manifest.
 
-### Provider Adapter Layer
+## Current Architectural Constraints
 
-Responsible for:
+The current production architecture does not include:
 
-- Gemini-specific API interaction
-- normalizing provider behavior into the established provider interface
-- validating provider response structure before returning it
-- preserving the application-level `GenerationResponse` contract
-
-### Shared Logical Layer
-
-Responsible for:
-
-- normalized models
-- logical page/context state
-- processing-cycle coordination
-- extension data contracts
-
----
-
-## Architectural Boundary
-
-Keep these concerns separate:
-
-**DOM state**
-→ discovery, extraction, resolution, filling
-
-**Logical state**
-→ questions, answers, settled context, processing state
-
-**Generation**
-→ structured request/response
-
-**User state**
-→ review, edits, and manual submission
-
-The logical model must remain independent of browser DOM objects.
-
----
-
-## Non-Goals
-
-The current architecture does not include:
-
+- an AnswerSense backend workspace or server
+- automatic form submission
 - full-form upfront crawling
 - automatic future-page discovery
-- automatic submission
-- fuzzy/semantic matching
+- fuzzy, semantic, or heuristic question matching
 - heuristic dependency detection
 - automatic downstream regeneration
 - automatic retries
-- multi-provider fallback/routing
+- multi-provider routing or fallback
 - persistent answer storage
 - analytics
-- UI frameworks
+- a UI framework
