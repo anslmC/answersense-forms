@@ -6,7 +6,6 @@
   "description": "AnswerSense shared tooling workspace",
   "main": "eslint.config.js",
   "workspaces": [
-    "Backend",
     "Extension"
   ],
   "directories": {

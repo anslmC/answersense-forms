@@ -32,21 +32,8 @@ The production processing flow is implemented incrementally under the canonical 
 ## Architecture & Technology
 
 - **Extension:** TypeScript, Manifest V3, Vite, Chromium/Edge/Brave
-- **Backend:** Node.js, TypeScript, Zod
 - **Testing:** Vitest
 - **Tooling:** ESLint, Prettier, npm workspaces
-
-## Developer/Local Backend Configuration
-
-The Backend package is developer/local infrastructure for mock generation, local API/provider testing, provider validation, and deliberate smoke tests. It is not part of the end-user BYOK generation path. Copy `Backend/.env.example` to a backend-only environment file or export these variables in the shell running the backend:
-
-- `GEMINI_API_KEY` - Gemini API key; never commit or expose it.
-- `GEMINI_MODEL` - backend-selected Gemini model identifier.
-- `GEMINI_TIMEOUT_MS` - positive request timeout in milliseconds.
-
-The repository ignores local `.env` files. These backend credentials remain local development credentials and are never used as an end-user fallback.
-
-The deliberate real-API smoke test is separate from normal tests. After configuring the backend environment, run `npm run smoke --workspace Backend`; this is not part of `npm test`, CI, or the normal integration path.
 
 The repository currently provides the implementation foundation. Feature and processing logic will be added incrementally while following the canonical architecture.
 
@@ -58,9 +45,7 @@ End-user generation uses this direct BYOK path:
 Content Script -> Service Worker -> Gemini Provider -> Gemini API
 ```
 
-The user configures a Gemini API key in the extension. The key is stored in local extension storage, and only the service worker reads it for provider requests. The key is never sent to the AnswerSense backend, page content, or content scripts. Local `.env` values are development-only and are not a fallback for a missing end-user credential.
-
-The Backend package remains available for local development, mock generation, API testing, provider validation, and deliberate smoke tests. It is not required for the end-user BYOK workflow.
+The user configures a Gemini API key in the extension. The key is stored in local extension storage, and only the service worker reads it for provider requests. The key is never sent to an AnswerSense backend, page content, or content scripts. Provider requests are sent directly from the extension service worker to Gemini; there is no AnswerSense backend in the production architecture.
 
 ## Product Identity
 
@@ -72,4 +57,4 @@ Google Forms question text, option labels, existing answers, settled context, an
 
 ## License
 
-This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE) for the license text. The root workspace, Backend, and Extension packages use the same license declaration. The license and the AnswerSense product identity are separate concerns.
+This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE) for the license text. The root workspace and Extension package use the same license declaration. The license and the AnswerSense product identity are separate concerns.

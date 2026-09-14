@@ -201,17 +201,6 @@ Responsible for:
 - validating provider response structure before returning it
 - preserving the application-level `GenerationResponse` contract
 
-### Backend Layer
-
-Responsible for:
-
-- developer/local `.env` configuration
-- local API/provider testing
-- request and response validation for backend tests
-- mock generation and deliberate smoke tests
-
-The backend is not part of the end-user BYOK runtime generation path.
-
 ### Shared Logical Layer
 
 Responsible for:
@@ -219,7 +208,7 @@ Responsible for:
 - normalized models
 - logical page/context state
 - processing-cycle coordination
-- extension/backend data contracts
+- extension data contracts
 
 ---
 
