@@ -79,6 +79,19 @@ export function mountAnswerSenseApp(
     if (overrideMessage) overrideMessage.textContent = '';
   }
 
+  function appendRefreshAction(container: HTMLElement): void {
+    const refresh = createElement('button') as HTMLButtonElement;
+    refresh.type = 'button';
+    refresh.className = 'override-failure-refresh';
+    refresh.textContent = '↻';
+    refresh.title = 'Refresh';
+    refresh.setAttribute('aria-label', 'Refresh');
+    refresh.addEventListener('click', () => {
+      void options.onRefresh?.();
+    });
+    container.append(refresh);
+  }
+
   function renderGeneration(state: UiState): void {
     const status = element<HTMLElement>('[data-status]');
     const detail = element<HTMLElement>('[data-detail]');
@@ -173,6 +186,8 @@ export function mountAnswerSenseApp(
       status.textContent = "Couldn't generate answers.";
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
       message.textContent = state.message;
+      message.append(document.createTextNode(' '));
+      appendRefreshAction(message);
       message.hidden = false;
       primary.hidden = true;
     } else {
@@ -236,6 +251,7 @@ export function mountAnswerSenseApp(
       summary.className = 'result-summary';
       summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped${overridedCount > 0 ? ` · ${overridedCount} overrided` : ''}`;
       results.append(summary);
+      let hasFailureAction = false;
       if (isOverrideResult) {
         const failedOverrides = activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
           (outcome) =>
@@ -254,22 +270,18 @@ export function mountAnswerSenseApp(
           const failureNote = createElement('p');
           failureNote.className = 'result-note override-failure';
           failureNote.append(`Override failed for ${labels.join(', ')}. `);
-          const inlineRefresh = createElement('button') as HTMLButtonElement;
-          inlineRefresh.type = 'button';
-          inlineRefresh.className = 'override-failure-refresh';
-          inlineRefresh.textContent = '↻';
-          inlineRefresh.title = 'Refresh';
-          inlineRefresh.setAttribute('aria-label', 'Refresh');
-          inlineRefresh.addEventListener('click', () => {
-            void options.onRefresh?.();
-          });
-          failureNote.append(inlineRefresh);
+          appendRefreshAction(failureNote);
+          hasFailureAction = true;
           results.append(failureNote);
           const failureDetail = createElement('p');
           failureDetail.className = 'result-note override-failure-detail';
           failureDetail.textContent = `${labels.join(' and ')} ${labels.length === 1 ? 'was' : 'were'} empty. Consider manually entering ${labels.length === 1 ? 'an answer' : 'answers'} or using Auto-Generate.`;
           results.append(failureDetail);
         }
+      }
+      if (failedCount > 0 && !hasFailureAction) {
+        summary.append(document.createTextNode(' '));
+        appendRefreshAction(summary);
       }
       if (state.name === 'REVIEW' && !('status' in state.result)) {
         const note = createElement('p');

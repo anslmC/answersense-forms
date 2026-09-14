@@ -42,6 +42,8 @@ log(`${EXTENSION_NAME} content script initialized.`);
 const supportedPage = isSupportedGoogleFormsPage(window.location);
 const generation = new GenerationCoordinator(() => crypto.randomUUID());
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
+const UNSUPPORTED_PAGE_ALERT =
+  'Page not supported\nPlease open a Google Form in respondent view to use AnswerSense.';
 
 let lifecycle: PageLifecycle | null = null;
 let lifecycleInitialization: Promise<void> | null = null;
@@ -349,6 +351,7 @@ async function handleRequest(request: {
 }): Promise<unknown> {
   if (request.type === 'toggle-overlay') {
     if (!supportedPage || !document.body) {
+      window.alert(UNSUPPORTED_PAGE_ALERT);
       return { status: 'unsupported-page', supported: false };
     }
     if (overlayHandle) {

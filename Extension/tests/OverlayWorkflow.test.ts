@@ -1159,4 +1159,43 @@ describe('live Overlay generation workflow', () => {
     expect(candidateLabels?.[1]?.textContent).toBe('Q2 — Question 2');
   });
 
+  it('offers refresh recovery after a provider failure without retrying generation', async () => {
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') return { error: '503 Service Unavailable' };
+      return {};
+    });
+    const onRefresh = vi.fn(async () => undefined);
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay({ onRefresh });
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const message = () => shadowRoot?.querySelector<HTMLElement>('[data-message]');
+    const refresh = () => message()?.querySelector<HTMLButtonElement>('.override-failure-refresh');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() => expect(message()?.hidden).toBe(false));
+
+    expect(message()?.textContent).toContain('503 Service Unavailable');
+    expect(refresh()).not.toBeNull();
+    expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
+
+    refresh()?.click();
+    await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+    expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
+  });
+
 });

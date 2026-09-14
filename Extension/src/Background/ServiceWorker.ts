@@ -38,6 +38,7 @@ import {
   serviceWorkerErrorResponse,
 } from './ServiceWorkerResponse';
 import { isUiGenerationResult } from '../Workflow/State';
+import { isSupportedGoogleFormsPage } from '../Forms/Detection';
 import {
   IntegrationStateStore,
   reconcileContentState,
@@ -67,6 +68,12 @@ interface WorkerMessage {
 }
 
 const stateStore = new IntegrationStateStore(chrome.storage.session);
+const UNSUPPORTED_PAGE_ALERT =
+  'Page not supported\nPlease open a Google Form in respondent view to use AnswerSense.';
+
+function showUnsupportedPageAlert(message: string): void {
+  window.alert(message);
+}
 
 async function activeTabId(): Promise<number> {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -90,11 +97,24 @@ const actionApi = (chrome as unknown as {
 }).action;
 if (actionApi?.onClicked?.addListener) {
   actionApi.onClicked.addListener((tab) => {
-    if (!tab.id) {
+    if (tab.id === undefined) {
+      return;
+    }
+    if (
+      typeof tab.url !== 'string' ||
+      !isSupportedGoogleFormsPage(tab.url)
+    ) {
+      void chrome.scripting
+        .executeScript({
+          target: { tabId: tab.id },
+          func: showUnsupportedPageAlert,
+          args: [UNSUPPORTED_PAGE_ALERT],
+        })
+        .catch(() => undefined);
       return;
     }
     void chrome.tabs.sendMessage(tab.id, { type: 'toggle-overlay' }).catch(() => {
-      // The page may not be a supported AnswerSense form page; close silently.
+      // The content script may not be ready yet on a supported form page.
     });
   });
 }

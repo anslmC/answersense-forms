@@ -3,7 +3,7 @@
   "name": "AnswerSense: Forms",
   "version": "0.1.0",
   "description": "AI-assisted Chromium browser extension for supported Google Forms.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://docs.google.com/forms/*",
     "https://generativelanguage.googleapis.com/*"
