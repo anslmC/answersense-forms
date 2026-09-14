@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  encryptCredentialState,
+  isEncryptedCredentialState,
+} from '../src/Generation/EncryptedCredentialStorage';
 import {
   CONFIGURATION_STATE_STORAGE_KEY,
+  chromeCredentialStorage,
   deleteGeminiCredential,
   deleteCredential,
   configurationIdentity,
@@ -33,6 +38,105 @@ function storage(): CredentialStorage {
 }
 
 describe('BYOK credential storage', () => {
+  it('encrypts plaintext configuration state immediately on load', async () => {
+    const plaintext = {
+      revision: 1,
+      credentials: [
+        {
+          credentialId: 'credential-1',
+          providerId: 'gemini',
+          label: 'Primary',
+          secret: 'migration-secret',
+          createdAt: '2026-09-15T00:00:00.000Z',
+          updatedAt: '2026-09-15T00:00:00.000Z',
+        },
+      ],
+      activeConfiguration: null,
+      validations: [],
+    };
+    const values: Record<string, unknown> = {
+      [CONFIGURATION_STATE_STORAGE_KEY]: plaintext,
+    };
+    const set = vi.fn(async (next: Record<string, unknown>) => {
+      Object.assign(values, next);
+    });
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async (key: string) => ({ [key]: values[key] })),
+          set,
+          remove: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    try {
+      await expect(
+        chromeCredentialStorage.get(CONFIGURATION_STATE_STORAGE_KEY)
+      ).resolves.toEqual({ [CONFIGURATION_STATE_STORAGE_KEY]: plaintext });
+      expect(set).toHaveBeenCalledOnce();
+      expect(isEncryptedCredentialState(values[CONFIGURATION_STATE_STORAGE_KEY])).toBe(
+        true
+      );
+      expect(JSON.stringify(values[CONFIGURATION_STATE_STORAGE_KEY])).not.toContain(
+        'migration-secret'
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('preserves plaintext configuration state when encrypted persistence fails', async () => {
+    const plaintext = { revision: 0, credentials: [], activeConfiguration: null, validations: [] };
+    const set = vi.fn(async () => {
+      throw new Error('storage unavailable');
+    });
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ [CONFIGURATION_STATE_STORAGE_KEY]: plaintext })),
+          set,
+          remove: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    try {
+      await expect(
+        chromeCredentialStorage.get(CONFIGURATION_STATE_STORAGE_KEY)
+      ).rejects.toThrow('storage unavailable');
+      expect(set).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not rewrite already-encrypted configuration state', async () => {
+    const encrypted = await encryptCredentialState({
+      revision: 0,
+      credentials: [],
+      activeConfiguration: null,
+      validations: [],
+    });
+    const set = vi.fn(async () => undefined);
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ [CONFIGURATION_STATE_STORAGE_KEY]: encrypted })),
+          set,
+          remove: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    try {
+      await chromeCredentialStorage.get(CONFIGURATION_STATE_STORAGE_KEY);
+      expect(set).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('stores, replaces, reads, and deletes only the local credential', async () => {
     const local = storage();
 

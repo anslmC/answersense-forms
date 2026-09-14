@@ -153,13 +153,6 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
             autocomplete="off"
             data-credential-label
           />
-          <label for="credential-secret">API key</label>
-          <input
-            id="credential-secret"
-            type="password"
-            autocomplete="new-password"
-            data-credential-secret
-          />
           <div class="actions">
             <button type="button" data-save-add-credential>Save</button>
             <button type="button" class="secondary" data-cancel-add-credential>
@@ -174,13 +167,6 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
             id="replace-credential-select"
             data-replace-credential-select
           ></select>
-          <label for="replace-credential-secret">New API Key</label>
-          <input
-            id="replace-credential-secret"
-            type="password"
-            autocomplete="new-password"
-            data-replace-credential-secret
-          />
           <div class="actions">
             <button type="button" data-save-replace-credential>Replace</button>
             <button type="button" class="secondary" data-cancel-replace-credential>

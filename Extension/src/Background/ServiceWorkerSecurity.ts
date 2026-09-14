@@ -1,6 +1,7 @@
 export interface MessageSenderLike {
   id?: string;
   tab?: unknown;
+  frameId?: unknown;
 }
 
 export function isTrustedExtensionSender(
@@ -25,7 +26,13 @@ export function isTrustedContentSender(
     return false;
   }
   const tabId = (sender.tab as { id?: unknown }).id;
-  return typeof tabId === 'number' && Number.isInteger(tabId) && tabId >= 0;
+  const frameId = (sender as { frameId?: unknown }).frameId;
+  return (
+    typeof tabId === 'number' &&
+    Number.isInteger(tabId) &&
+    tabId >= 0 &&
+    (frameId === undefined || frameId === 0)
+  );
 }
 
 export function isTrustedContentTabSender(

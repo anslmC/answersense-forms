@@ -60,7 +60,6 @@ describe('popup configuration state', () => {
       'data-model-select',
       'data-credential-select',
       'data-credential-label',
-      'data-credential-secret',
       'data-save-configuration',
       'data-delete-credential',
       'data-validate-configuration',
@@ -79,6 +78,8 @@ describe('popup configuration state', () => {
     ]) {
       expect(overlaySource).toContain(token);
     }
+    expect(overlaySource).not.toContain('data-credential-secret');
+    expect(overlaySource).not.toContain('data-replace-credential-secret');
   });
 
   it('keeps generation interactive only through the authorized flow', () => {
@@ -109,6 +110,7 @@ describe('popup configuration state', () => {
     expect(popupSource).toContain(
       'if (!isCurrentValidationValid(configurationState)) return;'
     );
+    expect(popupSource).toContain('window.prompt(promptText)');
     expect(contentSource).toContain(
       'if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {'
     );

@@ -288,10 +288,13 @@ const fetchTransport: GeminiTransport = {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
       response = await fetch(
-        `${GEMINI_GENERATE_URL}?key=${encodeURIComponent(apiKey)}`,
+        GEMINI_GENERATE_URL,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
           body: JSON.stringify(body),
           signal: controller.signal,
         }
@@ -372,7 +375,8 @@ export async function validateGeminiCredential(apiKey: string): Promise<void> {
   let response: Response;
   try {
     response = await fetch(
-      `${GEMINI_MODEL_INFO_URL}?key=${encodeURIComponent(apiKey)}`
+      GEMINI_MODEL_INFO_URL,
+      { headers: { 'x-goog-api-key': apiKey } }
     );
   } catch {
     throw new GeminiProviderError(

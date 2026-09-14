@@ -93,5 +93,13 @@ describe('Service Worker sender provenance', () => {
     expect(
       isTrustedContentTabSender({ id: extensionId, tab: { id: 7 } }, extensionId, 8)
     ).toBe(false);
+    const subframeSender = {
+      id: extensionId,
+      tab: { id: 7 },
+      frameId: 2,
+    };
+      expect(
+      isTrustedContentSender(subframeSender, extensionId)
+      ).toBe(false);
   });
 });

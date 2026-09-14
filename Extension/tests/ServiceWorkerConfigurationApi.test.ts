@@ -192,9 +192,9 @@ describe('Service Worker configuration API boundary', () => {
       (popupState as { credentials: Array<Record<string, unknown>> })
         .credentials
     ).toEqual([expect.objectContaining({ label: 'Replacement' })]);
-    expect(JSON.stringify(await storedState(state))).toContain(
-      'replacement-secret'
-    );
+    const persisted = JSON.stringify(await storedState(state));
+    expect(persisted).not.toContain('replacement-secret');
+    expect(persisted).toContain('ciphertext');
   });
 
   it('accepts compiled registry combinations and rejects unsupported values', async () => {

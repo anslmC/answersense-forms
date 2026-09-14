@@ -18,7 +18,6 @@ import {
   waitForInitialDiscovery,
 } from '../src/Content/Navigation';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
-import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 
 function createQuestion(id: string, text = id): Question {
   return {
@@ -80,7 +79,6 @@ function settleInitialPage(lifecycle: PageLifecycle, document: Document): void {
   lifecycle.acceptFinalizedHandoff(
     createFinalizedPageHandoff(document, initialForm, {
       cycleId: lifecycle.currentCycle.cycleId,
-      pageId: 'page-1',
       outcomes: [
         {
           questionId: 'name',
@@ -314,7 +312,7 @@ describe('Content navigation runtime adapter', () => {
 
     const result = await observe(lifecycle, createDocument('page-1'));
     const backend: GenerationInterface = {
-      generate: vi.fn(async (request): Promise<GenerationResponse> => ({
+      generate: vi.fn(async (request: Parameters<GenerationInterface['generate']>[0]): Promise<GenerationResponse> => ({
         cycleId: request.cycleId,
         results: request.questions.map((question) => ({
           questionId: question.questionId,
@@ -354,7 +352,7 @@ describe('Content navigation runtime adapter', () => {
       createDocument('page-1', 'Changed question')
     );
     const backend: GenerationInterface = {
-      generate: vi.fn(async (request): Promise<GenerationResponse> => ({
+      generate: vi.fn(async (request: Parameters<GenerationInterface['generate']>[0]): Promise<GenerationResponse> => ({
         cycleId: request.cycleId,
         results: request.questions.map((question) => ({
           questionId: question.questionId,

@@ -220,13 +220,14 @@ describe('live Overlay generation workflow', () => {
     expect(content?.querySelector('[data-add-credential-form]')?.textContent).toContain(
       'Key Name'
     );
-    expect(content?.querySelector('[data-credential-secret]')).not.toBeNull();
+    expect(content?.querySelector('[data-credential-secret]')).toBeNull();
     expect(content?.querySelector('[data-replace-credential-select]')).not.toBeNull();
-    expect(content?.querySelector('[data-replace-credential-secret]')).not.toBeNull();
+    expect(content?.querySelector('[data-replace-credential-secret]')).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
     expect(content?.querySelector('[data-unsaved-configuration]')?.textContent).toContain(
       'Save the configuration before validating'
     );
-    expect(content?.querySelector('[data-unsaved-configuration]')?.hidden).toBe(true);
+    expect(content?.querySelector<HTMLElement>('[data-unsaved-configuration]')?.hidden).toBe(true);
 
     const addCredential = content?.querySelector<HTMLButtonElement>('[data-add-credential]');
     const addCredentialForm = content?.querySelector<HTMLElement>('[data-add-credential-form]');

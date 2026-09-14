@@ -437,6 +437,18 @@ export function mountAnswerSenseApp(
     }
   }
 
+  function promptForCredentialSecret(action: 'add' | 'replace'): string | null {
+    const promptText =
+      action === 'add'
+        ? 'Enter the API key. It will be sent directly to the extension service worker.'
+        : 'Enter the replacement API key. It will be sent directly to the extension service worker.';
+    const secret = window.prompt(promptText);
+    if (secret === null || !secret.trim()) {
+      return null;
+    }
+    return secret;
+  }
+
   const primary = element<HTMLButtonElement>('[data-primary-action]');
   const forceClear = element<HTMLButtonElement>('[data-force-clear]');
   const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
@@ -448,12 +460,6 @@ export function mountAnswerSenseApp(
     '[data-replace-credential-select]'
   );
   const credentialLabel = element<HTMLInputElement>('[data-credential-label]');
-  const credentialSecret = element<HTMLInputElement>(
-    '[data-credential-secret]'
-  );
-  const replaceCredentialSecret = element<HTMLInputElement>(
-    '[data-replace-credential-secret]'
-  );
   const addCredentialForm = element<HTMLElement>('[data-add-credential-form]');
   const replaceCredentialForm = element<HTMLElement>(
     '[data-replace-credential-form]'
@@ -643,8 +649,6 @@ export function mountAnswerSenseApp(
     modelSelect &&
     credentialSelect &&
     credentialLabel &&
-    credentialSecret &&
-    replaceCredentialSecret &&
     replaceCredentialSelect &&
     addCredentialForm &&
     replaceCredentialForm &&
@@ -655,8 +659,6 @@ export function mountAnswerSenseApp(
     const addCredentialFormElement = addCredentialForm;
     const replaceCredentialFormElement = replaceCredentialForm;
     const credentialLabelElement = credentialLabel;
-    const credentialSecretElement = credentialSecret;
-    const replaceCredentialSecretElement = replaceCredentialSecret;
     const replaceCredentialSelectElement = replaceCredentialSelect;
     const providerSelectElement = providerSelect;
 
@@ -664,8 +666,6 @@ export function mountAnswerSenseApp(
       addCredentialFormElement.hidden = true;
       replaceCredentialFormElement.hidden = true;
       credentialLabelElement.value = '';
-      credentialSecretElement.value = '';
-      replaceCredentialSecretElement.value = '';
       replaceCredentialSelectElement.replaceChildren();
       replaceCredentialSelectElement.disabled = false;
       replaceCredentialSelectElement.value = '';
@@ -744,13 +744,16 @@ export function mountAnswerSenseApp(
       'click',
       async () => {
         try {
+          const secret = promptForCredentialSecret('add');
+          if (secret === null) {
+            return;
+          }
           await send({
             type: 'credential-create',
             providerId: providerSelect.value,
             label: credentialLabel.value,
-            secret: credentialSecret.value,
+            secret,
           });
-          credentialSecret.value = '';
           credentialLabel.value = '';
           hideCredentialForms();
           await reloadConfiguration();
@@ -784,14 +787,17 @@ export function mountAnswerSenseApp(
           const selectedCredential = configurationState.credentials.find(
             (credential) => credential.credentialId === selectedCredentialId
           );
+          const secret = promptForCredentialSecret('replace');
+          if (secret === null) {
+            return;
+          }
           await send({
             type: 'credential-replace',
             credentialId: selectedCredentialId,
             providerId: providerSelect.value,
             label: selectedCredential?.label || 'Unnamed API key',
-            secret: replaceCredentialSecret.value,
+            secret,
           });
-          replaceCredentialSecret.value = '';
           credentialLabel.value = '';
           hideCredentialForms();
           await reloadConfiguration();

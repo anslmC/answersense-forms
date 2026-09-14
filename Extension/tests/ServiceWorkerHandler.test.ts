@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  chromeCredentialStorage,
   createCredential,
   replaceCredential,
   saveValidation,
@@ -42,10 +43,25 @@ vi.mock('../src/Generation/ProviderRegistry', async () => {
 
 const extensionId = 'extension-id';
 const activeTabId = 17;
+const nativeGenerateKey = crypto.subtle.generateKey.bind(crypto.subtle);
+let stableFallbackKey: ReturnType<SubtleCrypto['generateKey']> | null = null;
+
+vi.spyOn(crypto.subtle, 'generateKey').mockImplementation(
+  (algorithm, extractable, keyUsages) => {
+    if (typeof indexedDB !== 'undefined') {
+      return nativeGenerateKey(algorithm, extractable, keyUsages);
+    }
+    stableFallbackKey ??= nativeGenerateKey(
+      algorithm,
+      extractable,
+      keyUsages
+    );
+    return stableFallbackKey;
+  }
+);
 
 type Handler = Awaited<ReturnType<typeof loadHandler>>;
 type HandlerSender = Parameters<Handler>[1];
-type ChromeTestGlobal = { chrome: { storage: { local: CredentialStorage } } };
 
 type ChromeTestState = {
   values: Record<string, unknown>;
@@ -109,7 +125,7 @@ function sender(tabId: number): HandlerSender {
 }
 
 function testStorage(): CredentialStorage {
-  return (globalThis as unknown as ChromeTestGlobal).chrome.storage.local;
+  return chromeCredentialStorage;
 }
 
 async function authorizedState(storage: CredentialStorage) {

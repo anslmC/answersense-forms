@@ -153,8 +153,9 @@ describe('direct Gemini provider', () => {
   });
 
   it('uses the same production model for credential validation', async () => {
-    const fetchMock = vi.fn(async (input: string | URL) => {
-      expect(String(input)).toBe(`${GEMINI_MODEL_INFO_URL}?key=test-key`);
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(GEMINI_MODEL_INFO_URL);
+      expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('test-key');
       return new Response('{}', { status: 200 });
     });
     vi.stubGlobal('fetch', fetchMock);

@@ -1,3 +1,9 @@
+import {
+  encryptCredentialState,
+  getEncryptedCredentialState,
+  isEncryptedCredentialState,
+} from './EncryptedCredentialStorage';
+
 export const GEMINI_API_KEY_STORAGE_KEY = 'geminiApiKey';
 export const CONFIGURATION_STATE_STORAGE_KEY = 'answerSenseConfigurationState';
 
@@ -50,8 +56,32 @@ export interface CredentialStorage {
 }
 
 export const chromeCredentialStorage: CredentialStorage = {
-  get: (key) => chrome.storage.local.get(key),
-  set: (values) => chrome.storage.local.set(values),
+  get: async (key) => {
+    const values = await chrome.storage.local.get(key);
+    if (key !== CONFIGURATION_STATE_STORAGE_KEY) {
+      return values;
+    }
+    const storedState = values[key];
+    if (storedState !== undefined && !isEncryptedCredentialState(storedState)) {
+      const encryptedState = await encryptCredentialState(storedState);
+      await chrome.storage.local.set({ [key]: encryptedState });
+    }
+    return {
+      [key]: await getEncryptedCredentialState(storedState),
+    };
+  },
+  set: async (values) => {
+    if (!(CONFIGURATION_STATE_STORAGE_KEY in values)) {
+      await chrome.storage.local.set(values);
+      return;
+    }
+    await chrome.storage.local.set({
+      ...values,
+      [CONFIGURATION_STATE_STORAGE_KEY]: await encryptCredentialState(
+        values[CONFIGURATION_STATE_STORAGE_KEY]
+      ),
+    });
+  },
   remove: (key) => chrome.storage.local.remove(key),
 };
 
