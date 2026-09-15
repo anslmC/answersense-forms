@@ -1,29 +1,5 @@
 <div align="center">
-	<svg width="100%" viewBox="0 0 960 320" role="img" aria-labelledby="answersense-hero-title answersense-hero-description" xmlns="http://www.w3.org/2000/svg">
-		<title id="answersense-hero-title">AnswerSense: Forms</title>
-		<desc id="answersense-hero-description">Generate, AutoFill — Smarter Forms, Less Work</desc>
-		<defs>
-			<pattern id="answersense-freckle" width="137" height="113" patternUnits="userSpaceOnUse">
-				<circle cx="17" cy="23" r="0.8" fill="#858585" opacity="0.18" />
-				<circle cx="91" cy="17" r="0.55" fill="#747474" opacity="0.15" />
-				<circle cx="62" cy="76" r="0.7" fill="#929292" opacity="0.12" />
-				<circle cx="119" cy="96" r="0.45" fill="#6f6f6f" opacity="0.18" />
-				<circle cx="29" cy="101" r="0.5" fill="#888888" opacity="0.14" />
-			</pattern>
-		</defs>
-		<rect width="960" height="320" fill="#050505" />
-		<rect width="960" height="320" fill="url(#answersense-freckle)" />
-		<g transform="translate(0 32)">
-		<g transform="translate(20 0) scale(17)" fill="#f3f0e8" aria-hidden="true">
-			<path d="M16,13H8a3,3,0,0,1-3-3V6A3,3,0,0,1,8,3h8a3,3,0,0,1,3,3v4A3,3,0,0,1,16,13ZM8,5A1,1,0,0,0,7,6v4a1,1,0,0,0,1,1h8a1,1,0,0,0,1-1V6a1,1,0,0,0-1-1Z" />
-			<path d="M10,9a1.05,1.05,0,0,1-.71-.29A1,1,0,0,1,10.19,7a.6.6,0,0,1,.19.06.56.56,0,0,1,.17.09l.16.12A1,1,0,0,1,10,9Z" />
-			<path d="M14,9a1,1,0,0,1-.71-1.71,1,1,0,0,1,1.42,1.42,1,1,0,0,1-.16.12.56.56,0,0,1-.17.09.6.6,0,0,1-.19.06Z" />
-			<path d="M12,4a1,1,0,0,1-1-1V2a1,1,0,0,1,2,0V3A1,1,0,0,1,12,4Z" />
-		</g>
-		<text x="410" y="146" fill="#f3f0e8" font-family="Comic Sans MS, Comic Sans, cursive" font-size="48" font-style="italic" font-weight="700" letter-spacing="0">AnswerSense: Forms</text>
-		<text x="414" y="194" fill="#a7a39b" font-family="Comic Sans MS, Comic Sans, cursive" font-size="22" letter-spacing="0">Generate, AutoFill — Smarter Forms, Less Work</text>
-		</g>
-	</svg>
+	<img src="assets/answersense-readme-header.png" alt="AnswerSense: Forms — Generate, AutoFill — Smarter Forms, Less Work" width="960" />
 </div>
 
 <br />
