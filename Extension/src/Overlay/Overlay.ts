@@ -73,7 +73,7 @@ function buildShell(): {
   refresh.setAttribute('aria-label', 'Refresh');
   const github = document.createElement('a');
   github.className = 'overlay-github';
-  github.href = 'https://example.com';
+  github.href = 'https://github.com/anslmC/answersense-forms';
   github.target = '_blank';
   github.rel = 'noopener noreferrer';
   github.title = 'GitHub';

@@ -4,11 +4,9 @@ AnswerSense: Forms is a Chromium browser extension that helps answer supported G
 
 ## Providers
 
-AnswerSense uses an AI provider abstraction that allows additional providers to be integrated in the future. Gemini is the currently supported and recommended provider for the current savepoint.
+AnswerSense uses an AI provider abstraction that allows additional providers to be integrated in the future. Gemini is the currently supported and recommended provider.
 
 ## Get Started
-
-[Extension store link placeholder]
 
 ## Recommended Provider: Google Gemini
 

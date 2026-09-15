@@ -46,7 +46,9 @@ describe('overlay refresh operation', () => {
     expect(github).not.toBeNull();
     expect(github?.getAttribute('aria-label')).toBe('GitHub');
     expect(github?.getAttribute('title')).toBe('GitHub');
-    expect(github?.getAttribute('href')).toBe('https://example.com');
+    expect(github?.getAttribute('href')).toBe(
+      'https://github.com/anslmC/answersense-forms'
+    );
     expect(github?.target).toBe('_blank');
     const githubIcon = github?.querySelector('svg');
     expect(githubIcon).not.toBeNull();
