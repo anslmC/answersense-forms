@@ -32,3 +32,6 @@ Thumbs.db
 
 # Temporary
 *.tmp
+
+# Release packages
+*.zip

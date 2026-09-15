@@ -1,6 +1,6 @@
 # AnswerSense: Forms Privacy Policy
 
-**Effective Date: [DATE OF PUBLICATION]**
+**Effective Date: September 15, 2026**
 
 ## Introduction
 

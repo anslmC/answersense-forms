@@ -21,7 +21,7 @@ Treat the key as a secret. Do not publish it, commit it to a repository, put it 
 1. Open a supported Google Form in respondent view.
 2. Open the AnswerSense overlay.
 3. Expand **Configuration** and choose **Add API key**.
-4. Enter a label if requested, then enter the Gemini key in the native browser prompt. The key is not placed in the Google Forms page DOM.
+4. Enter a label if requested, then enter the Gemini key in the native browser prompt. The key is not rendered into the Google Forms page or overlay DOM.
 5. Select Gemini, select its available model, choose the stored key, save the configuration, and validate it.
 
 The extension uses the key for direct requests to Google's Gemini API. It does not send the key to an AnswerSense server.
@@ -38,11 +38,11 @@ The extension uses the key for direct requests to Google's Gemini API. It does n
 ## Privacy and Security
 
 - Generation follows the direct path `Google Forms -> content script -> Shadow DOM overlay -> service worker -> AI provider -> provider API`.
-- The service worker owns provider credential access and sends provider requests directly to the provider API.
+- The service worker owns provider credential access and sends Gemini requests directly to Google's Gemini API, using the API key for provider authentication. AnswerSense has no backend or proxy.
 - Configuration state is stored in `chrome.storage.local` and encrypted with AES-GCM.
 - The non-extractable AES-GCM CryptoKey is stored in IndexedDB database `answersense-credential-security`, object store `keys`.
-- UI credential records are redacted; the raw secret is not returned in configuration state or runtime messages to page content.
-- API-key entry uses a native browser prompt rather than an API-key input in the page DOM.
+- UI credential records are redacted; raw API keys are not exposed through UI configuration state or runtime messages.
+- API-key entry uses a native browser prompt rather than an API-key input rendered in the page or overlay DOM.
 - Form content is treated as untrusted data and sent as normalized logical data rather than raw HTML or DOM references.
 
 Browser-local encryption reduces exposure of persisted state but does not make a browser-held API key a server-side secret. Keep your browser profile and API key secure.
