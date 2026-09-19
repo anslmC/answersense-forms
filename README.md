@@ -12,6 +12,8 @@ AnswerSense uses an AI provider abstraction that allows additional providers to 
 
 ## Get Started
 
+Install AnswerSense: Forms from the [Chrome Web Store](https://chromewebstore.google.com/detail/ghcpcngmjpamhghcjablpamdncolblbn?utm_source=item-share-cb).
+
 ## Recommended Provider: Google Gemini
 
 Gemini is currently the easiest way to get started with AnswerSense because the project directly supports Gemini and users can create and manage their own key through [Google AI Studio](https://aistudio.google.com/).
@@ -39,17 +41,9 @@ The extension uses the key for direct requests to Google's Gemini API. It does n
 5. Use the form's own navigation controls to continue. A page enters settled context only after Google Forms accepts Next and a page transition is observed.
 6. Submit the form manually when you are satisfied with the answers.
 
-## Privacy and Security
+## Privacy
 
-- Generation follows the direct path `Google Forms -> content script -> Shadow DOM overlay -> service worker -> AI provider -> provider API`.
-- The service worker owns provider credential access and sends Gemini requests directly to Google's Gemini API, using the API key for provider authentication. AnswerSense has no backend or proxy.
-- Configuration state is stored in `chrome.storage.local` and encrypted with AES-GCM.
-- The non-extractable AES-GCM CryptoKey is stored in IndexedDB database `answersense-credential-security`, object store `keys`.
-- UI credential records are redacted; raw API keys are not exposed through UI configuration state or runtime messages.
-- API-key entry uses a native browser prompt rather than an API-key input rendered in the page or overlay DOM.
-- Form content is treated as untrusted data and sent as normalized logical data rather than raw HTML or DOM references.
-
-Browser-local encryption reduces exposure of persisted state but does not make a browser-held API key a server-side secret. Keep your browser profile and API key secure.
+For details about AnswerSense's data handling, privacy practices, and security considerations, see the [Privacy Policy](https://github.com/anslmC/answersense-forms/blob/main/PRIVACY.md).
 
 ## Architecture
 
