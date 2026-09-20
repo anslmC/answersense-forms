@@ -52,3 +52,9 @@ See the canonical production architecture in [`docs/architecture/ARCHITECTURE.md
 ## License
 
 This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE) for the license text.
+
+## Support AnswerSense
+
+Enjoying AnswerSense? Your support helps make new features and improvements possible — and AnswerSense will always remain free to use.
+
+[![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/anslmdevgo)
