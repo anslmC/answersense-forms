@@ -321,15 +321,15 @@ describe('live Overlay generation workflow', () => {
       expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
     });
     await vi.waitFor(() => {
-      expect(guidance?.textContent?.trim()).toBe(
-        'Configuration is valid.'
+      expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Configuration is valid. Need an API key? Get one from Google AI Studio.'
       );
     });
     toggle?.click();
     expect(content?.hidden).toBe(true);
     expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
-    expect(guidance?.textContent?.trim()).toBe(
-      'Configuration is valid.'
+    expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Configuration is valid. Need an API key? Get one from Google AI Studio.'
     );
     expect(shadowRoot?.querySelector('[data-primary-action]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-force-clear]')).not.toBeNull();

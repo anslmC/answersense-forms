@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AnswerSense: Forms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI-assisted Chromium browser extension for supported Google Forms.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
