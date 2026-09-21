@@ -24,6 +24,8 @@ const SAFE_MESSAGES: Record<SafeProviderErrorCode, string> = {
   PROVIDER_FAILURE: 'Provider request failed.',
 };
 
+const SERVER_BUSY_MESSAGE = 'Server was busy. Try again.';
+
 export function sanitizeProviderError(error: unknown): SafeProviderError {
   if (error instanceof GeminiProviderError) {
     const code: SafeProviderErrorCode =
@@ -36,7 +38,13 @@ export function sanitizeProviderError(error: unknown): SafeProviderError {
             : error.code === 'PROVIDER_UNAVAILABLE'
               ? 'PROVIDER_UNAVAILABLE'
               : 'PROVIDER_FAILURE';
-    return { code, message: SAFE_MESSAGES[code] };
+    return {
+      code,
+      message:
+        code === 'PROVIDER_UNAVAILABLE' && error.message === SERVER_BUSY_MESSAGE
+          ? SERVER_BUSY_MESSAGE
+          : SAFE_MESSAGES[code],
+    };
   }
 
   if (error instanceof TypeError) {

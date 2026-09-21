@@ -132,8 +132,14 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <span id="configuration-section-heading">Configuration</span>
           <span aria-hidden="true" data-configuration-toggle-icon>►</span>
         </button>
-        <p class="configuration-guidance" data-configuration-guidance>
-          Configure the extension before generating.
+        <p class="configuration-guidance">
+          <span data-configuration-guidance>Configure the extension before generating.</span>
+          Need an API key? Get one from
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Google AI Studio</a>.
         </p>
         <div id="configuration-content" class="configuration-content" data-configuration-content hidden>
       <section class="credential-panel" aria-labelledby="credential-heading">

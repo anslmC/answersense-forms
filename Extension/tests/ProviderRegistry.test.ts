@@ -29,6 +29,23 @@ describe('compiled provider registry', () => {
     });
   });
 
+  it('registers only the supported stable Gemini 3 text models in selector order', () => {
+    expect(resolveProvider(GEMINI_PROVIDER_ID)?.models).toEqual([
+      {
+        modelId: 'gemini-3.5-flash-lite',
+        displayName: 'Gemini 3.5 Flash-Lite',
+        providerId: GEMINI_PROVIDER_ID,
+        endpointHost: GEMINI_ENDPOINT_HOST,
+      },
+      {
+        modelId: GEMINI_MODEL,
+        displayName: 'Gemini 3.1 Flash-Lite',
+        providerId: GEMINI_PROVIDER_ID,
+        endpointHost: GEMINI_ENDPOINT_HOST,
+      },
+    ]);
+  });
+
   it('resolves a valid provider/model pair and its static adapter', () => {
     const resolved = resolveProviderModel(GEMINI_PROVIDER_ID, GEMINI_MODEL);
     expect(resolved?.provider.providerId).toBe(GEMINI_PROVIDER_ID);

@@ -167,6 +167,50 @@ describe('direct Gemini provider', () => {
     vi.unstubAllGlobals();
   });
 
+  it('uses the selected Gemini model in the generation endpoint', async () => {
+    let capturedUrl = '';
+    const provider = new GeminiProvider(
+      'test-key',
+      {
+        generate: async ({ url }) => {
+          capturedUrl = url;
+          return {
+            status: 200,
+            body: {
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          cycleId: request.cycleId,
+                          results: [
+                            {
+                              questionId: 'name',
+                              status: 'GENERATED',
+                              answer: { questionId: 'name', value: 'Ada' },
+                            },
+                          ],
+                        }),
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          };
+        },
+      },
+      'gemini-3.5-flash'
+    );
+
+    await provider.generate(request);
+
+    expect(capturedUrl).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent'
+    );
+  });
+
   it('rejects missing or mismatched cycleId and non-exhaustive provider results', async () => {
     for (const output of [
       { results: [] },
@@ -223,9 +267,18 @@ describe('direct Gemini provider', () => {
       const provider = new GeminiProvider('test-key', transport(status));
       await expect(provider.generate(request)).rejects.toMatchObject({
         code,
-        message: expect.not.stringContaining('test-key'),
+        message:
+          status === 503
+            ? 'Server was busy. Try again.'
+            : expect.not.stringContaining('test-key'),
       } satisfies Partial<GeminiProviderError>);
     }
+
+    const otherServerFailure = new GeminiProvider('test-key', transport(500));
+    await expect(otherServerFailure.generate(request)).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'Provider unavailable.',
+    });
   });
 
   it('materializes malformed and key-echoing output as safe generation failures', async () => {

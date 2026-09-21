@@ -178,6 +178,12 @@ function classifyStatus(status: number, body?: unknown): GeminiProviderError {
   if (status === 402 || status === 413) {
     return new GeminiProviderError('QUOTA_EXHAUSTED', 'Quota unavailable.');
   }
+  if (status === 503) {
+    return new GeminiProviderError(
+      'PROVIDER_UNAVAILABLE',
+      'Server was busy. Try again.'
+    );
+  }
   if (status >= 500) {
     return new GeminiProviderError(
       'PROVIDER_UNAVAILABLE',
@@ -278,17 +284,18 @@ export interface GeminiTransport {
   generate(request: {
     apiKey: string;
     body: unknown;
+    url: string;
   }): Promise<{ status: number; body: unknown }>;
 }
 
 const fetchTransport: GeminiTransport = {
-  async generate({ apiKey, body }) {
+  async generate({ apiKey, body, url }) {
     let response: Response;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
       response = await fetch(
-        GEMINI_GENERATE_URL,
+        url,
         {
           method: 'POST',
           headers: {
@@ -319,12 +326,14 @@ const fetchTransport: GeminiTransport = {
 export class GeminiProvider implements GenerationInterface {
   constructor(
     private readonly apiKey: string,
-    private readonly transport = fetchTransport
+    private readonly transport = fetchTransport,
+    private readonly modelId = GEMINI_MODEL
   ) {}
 
   async generate(request: GenerationRequest): Promise<GenerationResponse> {
     const result = await this.transport.generate({
       apiKey: this.apiKey,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${this.modelId}:generateContent`,
       body: {
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: [{ role: 'user', parts: [{ text: buildPrompt(request) }] }],

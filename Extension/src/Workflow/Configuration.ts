@@ -77,7 +77,7 @@ export function isCurrentValidationValid(
 }
 
 export const VALID_GENERATION_MESSAGE =
-  'Configuration is valid. Generate is available on a supported page.';
+  'Configuration is valid.';
 
 export function validGenerationMessage(
   state: ConfigurationState

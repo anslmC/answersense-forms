@@ -8,6 +8,7 @@ import {
   type ConfigurationState,
 } from './Configuration';
 import { createBrowserWorkflow } from './Workflow';
+import { GEMINI_MODEL } from '../Generation/GeminiProvider';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
@@ -184,7 +185,10 @@ export function mountAnswerSenseApp(
       progressBar.setAttribute('aria-valuetext', 'Failed');
       progressText.textContent = 'Failed';
       progressFill.style.width = '100%';
-      status.textContent = "Couldn't generate answers.";
+      status.textContent =
+        state.message === 'Server was busy. Try again.'
+          ? state.message
+          : "Couldn't generate answers.";
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
       message.textContent = state.message;
       message.append(document.createTextNode(' '));
@@ -339,12 +343,26 @@ export function mountAnswerSenseApp(
     for (const provider of configurationState.providers) {
       providerSelect.add(new Option(provider.displayName, provider.providerId));
     }
-    if (active?.providerId) providerSelect.value = active.providerId;
+    providerSelect.value =
+      (configurationState.providers.some(
+        (provider) => provider.providerId === active?.providerId
+      )
+        ? active?.providerId
+        : configurationState.providers[0]?.providerId) ?? '';
     const models = modelsForProvider(configurationState, providerSelect.value);
     modelSelect.replaceChildren();
     for (const model of models)
       modelSelect.add(new Option(model.displayName, model.modelId));
-    if (active?.modelId) modelSelect.value = active.modelId;
+    const persistedModelId = models.some(
+      (model) => model.modelId === active?.modelId
+    )
+      ? active?.modelId
+      : undefined;
+    modelSelect.value =
+      persistedModelId ??
+      (models.some((model) => model.modelId === GEMINI_MODEL)
+        ? GEMINI_MODEL
+        : models[0]?.modelId ?? '');
 
     credentialSelect.replaceChildren();
     const providerCredentials = configurationState.credentials.filter(
@@ -708,6 +726,11 @@ export function mountAnswerSenseApp(
           (model) => new Option(model.displayName, model.modelId)
         )
       );
+      const models = modelsForProvider(configurationState, providerSelect.value);
+      modelSelect.value =
+        (models.some((model) => model.modelId === GEMINI_MODEL)
+          ? GEMINI_MODEL
+          : models[0]?.modelId) ?? '';
       const credentials = configurationState.credentials.filter(
         (item) => item.providerId === providerSelect.value
       );

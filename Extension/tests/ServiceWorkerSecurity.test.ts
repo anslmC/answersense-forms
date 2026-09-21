@@ -27,6 +27,17 @@ describe('Service Worker provider error sanitization', () => {
     expect(JSON.stringify(safe)).not.toContain('raw-key');
   });
 
+  it('preserves the sanitized 503 message for the final UI', () => {
+    const safe = sanitizeProviderError(
+      new GeminiProviderError('PROVIDER_UNAVAILABLE', 'Server was busy. Try again.')
+    );
+
+    expect(safe).toEqual({
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'Server was busy. Try again.',
+    });
+  });
+
   it('does not expose bodies, headers, secrets, or stacks for unknown failures', () => {
     const error = new Error('api-key=secret raw provider response');
     error.stack = 'Error at C:\\private\\provider.ts:1';

@@ -42,7 +42,11 @@ const configurationState = {
   },
 };
 
-type TestConfigurationState = Omit<typeof configurationState, 'validation'> & {
+type TestConfigurationState = Omit<
+  typeof configurationState,
+  'activeConfiguration' | 'validation'
+> & {
+  activeConfiguration: typeof configurationState.activeConfiguration | null;
   validation: typeof configurationState.validation | null;
 };
 
@@ -137,6 +141,22 @@ describe('live Overlay generation workflow', () => {
   it('keeps configuration collapsed until opened and preserves its controls', async () => {
     let currentConfigurationState: TestConfigurationState = {
       ...configurationState,
+      providers: [
+        {
+          ...configurationState.providers[0],
+          models: [
+            {
+              modelId: 'gemini-3.5-flash-lite',
+              displayName: 'Gemini 3.5 Flash-Lite',
+            },
+            {
+              modelId: 'gemini-3.1-flash-lite',
+              displayName: 'Gemini 3.1 Flash-Lite',
+            },
+          ],
+        },
+      ],
+      activeConfiguration: null,
       validation: null,
     };
     const sendMessage = vi.fn(async (message: { type?: string }) => {
@@ -163,7 +183,39 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
+    await overlay.refresh();
     const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const modelSelect = shadowRoot?.querySelector<HTMLSelectElement>('[data-model-select]');
+    expect(modelSelect?.options.length).toBe(2);
+    expect(modelSelect?.value).toBe('gemini-3.1-flash-lite');
+    expect(modelSelect?.selectedOptions[0]?.textContent).toBe('Gemini 3.1 Flash-Lite');
+    expect(modelSelect?.value).not.toBe('');
+
+    currentConfigurationState = {
+      ...configurationState,
+      providers: currentConfigurationState.providers,
+      activeConfiguration: {
+        ...configurationState.activeConfiguration,
+        modelId: 'gemini-3.5-flash-lite',
+      },
+      validation: null,
+    };
+    await overlay.refresh();
+    expect(modelSelect?.value).toBe('gemini-3.5-flash-lite');
+
+    currentConfigurationState = {
+      ...configurationState,
+      providers: currentConfigurationState.providers,
+      activeConfiguration: {
+        ...configurationState.activeConfiguration,
+        modelId: 'unsupported-model',
+      },
+      validation: null,
+    };
+    await overlay.refresh();
+    expect(modelSelect?.value).toBe('gemini-3.1-flash-lite');
+    expect(modelSelect?.value).not.toBe('');
+
     const section = shadowRoot?.querySelector<HTMLElement>('[data-configuration-toggle]')
       ?.parentElement;
     const toggle = shadowRoot?.querySelector<HTMLButtonElement>('[data-configuration-toggle]');
@@ -176,8 +228,17 @@ describe('live Overlay generation workflow', () => {
     expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
     const guidance = shadowRoot?.querySelector<HTMLElement>('[data-configuration-guidance]');
     expect(guidance?.textContent?.trim()).toBe('Configure the extension before generating.');
-    expect(guidance?.tagName).toBe('P');
+    expect(guidance?.tagName).toBe('SPAN');
+    expect(guidance?.parentElement?.tagName).toBe('P');
     expect(guidance?.closest('button')).toBeNull();
+    const apiKeyHelp = guidance?.parentElement;
+    const apiKeyLink = apiKeyHelp?.querySelector<HTMLAnchorElement>('a');
+    expect(apiKeyHelp?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Configure the extension before generating. Need an API key? Get one from Google AI Studio.'
+    );
+    expect(apiKeyLink?.href).toBe('https://aistudio.google.com/apikey');
+    expect(apiKeyLink?.target).toBe('_blank');
+    expect(apiKeyLink?.rel).toBe('noopener noreferrer');
     const overlayStyles = readFileSync(
       resolve(process.cwd(), 'src/Overlay/Overlay.css'),
       'utf8'
@@ -261,14 +322,14 @@ describe('live Overlay generation workflow', () => {
     });
     await vi.waitFor(() => {
       expect(guidance?.textContent?.trim()).toBe(
-        'Configuration is valid. Generate is available on a supported page.'
+        'Configuration is valid.'
       );
     });
     toggle?.click();
     expect(content?.hidden).toBe(true);
     expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
     expect(guidance?.textContent?.trim()).toBe(
-      'Configuration is valid. Generate is available on a supported page.'
+      'Configuration is valid.'
     );
     expect(shadowRoot?.querySelector('[data-primary-action]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-force-clear]')).not.toBeNull();
@@ -1164,7 +1225,9 @@ describe('live Overlay generation workflow', () => {
     const sendMessage = vi.fn(async (message: { type?: string }) => {
       if (message.type === 'configuration-state') return configurationState;
       if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'p7-generate') return { error: '503 Service Unavailable' };
+      if (message.type === 'p7-generate') {
+        return { error: 'Server was busy. Try again.' };
+      }
       return {};
     });
     const onRefresh = vi.fn(async () => undefined);
@@ -1190,7 +1253,11 @@ describe('live Overlay generation workflow', () => {
     primary()?.click();
     await vi.waitFor(() => expect(message()?.hidden).toBe(false));
 
-    expect(message()?.textContent).toContain('503 Service Unavailable');
+    expect(message()?.textContent).toContain('Server was busy. Try again.');
+    expect(message()?.textContent).not.toContain("Couldn't generate answers.");
+    expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe(
+      'Server was busy. Try again.'
+    );
     expect(refresh()).not.toBeNull();
     expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
 

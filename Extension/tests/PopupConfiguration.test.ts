@@ -187,7 +187,7 @@ describe('popup configuration state', () => {
     expect(isCurrentValidationValid(validated)).toBe(true);
     expect(authorizationStatus(validated, false)).toBe('VALID');
     expect(validGenerationMessage(validated)).toBe(
-      'Configuration is valid. Generate is available on a supported page.'
+      'Configuration is valid.'
     );
     expect(authorizationStatus(validated, false, true)).toBe(
       'NOT VALIDATED — Save the configuration before validating'

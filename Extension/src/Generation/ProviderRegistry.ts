@@ -27,18 +27,26 @@ export interface ProviderDefinition {
   readonly endpointHost: string;
 }
 
-const geminiModel: ModelDefinition = Object.freeze({
-  modelId: GEMINI_MODEL,
-  displayName: 'Gemini 3.1 Flash-Lite',
-  providerId: GEMINI_PROVIDER_ID,
-  endpointHost: GEMINI_ENDPOINT_HOST,
-});
+const geminiModels: readonly ModelDefinition[] = Object.freeze([
+  Object.freeze({
+    modelId: 'gemini-3.5-flash-lite',
+    displayName: 'Gemini 3.5 Flash-Lite',
+    providerId: GEMINI_PROVIDER_ID,
+    endpointHost: GEMINI_ENDPOINT_HOST,
+  }),
+  Object.freeze({
+    modelId: GEMINI_MODEL,
+    displayName: 'Gemini 3.1 Flash-Lite',
+    providerId: GEMINI_PROVIDER_ID,
+    endpointHost: GEMINI_ENDPOINT_HOST,
+  }),
+]);
 
 const geminiProvider: ProviderDefinition = Object.freeze({
   providerId: GEMINI_PROVIDER_ID,
   displayName: 'Gemini',
   adapterId: GEMINI_ADAPTER_ID,
-  models: Object.freeze([geminiModel]),
+  models: geminiModels,
   credentialRequirements: Object.freeze({ secret: true }),
   supportsValidation: true,
   endpointHost: GEMINI_ENDPOINT_HOST,
@@ -56,12 +64,14 @@ const providersById: Readonly<Record<string, ProviderDefinition>> =
   );
 
 export type ProviderAdapterFactory = (
-  secret: string
+  secret: string,
+  modelId?: string
 ) => GenerationInterface;
 
 const STATIC_ADAPTERS: Readonly<Record<string, ProviderAdapterFactory>> =
   Object.freeze({
-    [GEMINI_ADAPTER_ID]: (secret) => new GeminiProvider(secret),
+    [GEMINI_ADAPTER_ID]: (secret, modelId = GEMINI_MODEL) =>
+      new GeminiProvider(secret, undefined, modelId),
   });
 
 export function resolveProvider(

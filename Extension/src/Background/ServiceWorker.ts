@@ -309,7 +309,7 @@ export async function handleMessage(
     }
     try {
       const result = await resolved
-        .adapter(resolved.secret)
+        .adapter(resolved.secret, resolved.model.modelId)
         .generate(message.request as GenerationRequest);
       return result;
     } catch (error) {
