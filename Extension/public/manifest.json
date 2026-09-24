@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AnswerSense: Forms",
-  "version": "0.1.1",
-  "description": "AI-assisted Chromium browser extension for supported Google Forms.",
+  "name": "AnswerSense: Forms — Generate and Autofill Your Forms",
+  "version": "0.1.2",
+  "description": "Generate and autofill answers for supported Google Forms with AI.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://docs.google.com/forms/*",
