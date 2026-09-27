@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "AnswerSense: Forms — Generate and Autofill Your Forms",
-  "version": "0.1.2",
+  "name": "Generate & Autofill Google Forms — AnswerSense",
+  "version": "0.1.3",
   "description": "Generate and autofill answers for supported Google Forms with AI.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
