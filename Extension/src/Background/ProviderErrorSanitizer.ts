@@ -18,7 +18,7 @@ export interface SafeProviderError {
 const SAFE_MESSAGES: Record<SafeProviderErrorCode, string> = {
   AUTHENTICATION_FAILED: 'Credential invalid.',
   PERMISSION_DENIED:
-    'This API key or project is not permitted to use the selected model. Check the key and project access.',
+    'This key or project doesn’t have access to the selected model. Check your API key and project permissions.',
   INVALID_REQUEST: 'Provider request was invalid.',
   RATE_LIMITED: 'Provider rate limit reached.',
   PROVIDER_UNAVAILABLE: 'Provider unavailable.',

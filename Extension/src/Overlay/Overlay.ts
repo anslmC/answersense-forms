@@ -192,7 +192,10 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
         <select id="provider-select" data-provider-select></select>
         <label for="model-select">Model</label>
         <select id="model-select" data-model-select></select>
-        <label for="credential-select">API Key</label>
+        <div class="credential-label-row">
+          <label for="credential-select">API Key</label>
+          <p class="detail" data-credential-status>Loading configuration...</p>
+        </div>
         <select id="credential-select" data-credential-select>
           <option value="">No API keys added yet</option>
         </select>
@@ -204,9 +207,37 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
             Delete this key
           </button>
         </div>
-        <p class="detail" data-credential-status>Loading configuration...</p>
+        <div class="delete-confirmation" data-delete-confirmation hidden>
+          <p class="delete-confirmation-title">Delete this key?</p>
+          <p class="delete-confirmation-copy" data-delete-confirmation-copy>
+            This will permanently remove the selected API key.
+          </p>
+          <div class="actions">
+            <button type="button" class="secondary" data-cancel-delete>
+              Cancel
+            </button>
+            <button type="button" class="danger" data-confirm-delete>
+              Delete
+            </button>
+          </div>
+        </div>
         <p class="status" data-configuration-status></p>
         <p class="message" data-configuration-message hidden></p>
+      </section>
+      <section class="resources-panel" aria-labelledby="resources-heading">
+        <h2 id="resources-heading">Resources</h2>
+        <a
+          class="resources-link"
+          href="https://aistudio.google.com/app/apikey"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M6 1.5 7.3 5l3.2 1.2-3.2 1.2L6 11 4.8 7.4 1.2 6.2 4.8 5 6 1.5Z" />
+            <path d="m12 8.5.7 1.9 1.8.6-1.8.7L12 13.5l-.7-1.8-1.8-.7 1.8-.6.7-1.9Z" />
+          </svg>
+          <span>Get Gemini API key</span>
+        </a>
       </section>
         </div>
       </section>

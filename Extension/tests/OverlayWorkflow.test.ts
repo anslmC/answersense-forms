@@ -427,6 +427,29 @@ describe('live Overlay generation workflow', () => {
       expect(deleteCredentialSelect.value).toBe('credential-1');
     });
     await vi.waitFor(() => {
+      expect(content?.querySelector<HTMLElement>('[data-configuration-message]')?.textContent).toBe(
+        'API key deleted.'
+      );
+    });
+    const credentialMessage = content?.querySelector<HTMLElement>(
+      '[data-credential-message]'
+    );
+    expect(credentialMessage?.hidden).toBe(true);
+    expect(credentialMessage?.textContent).not.toContain('API key deleted.');
+
+    const configurationMessage = content?.querySelector<HTMLElement>(
+      '[data-configuration-message]'
+    );
+    if (!configurationMessage) throw new Error('Configuration message missing.');
+    configurationMessage.textContent = '';
+    configurationMessage.hidden = true;
+    deleteCredentialSelect.value = '';
+    content?.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    expect(configurationMessage.hidden).toBe(true);
+    expect(configurationMessage.textContent).toBe('');
+    expect(credentialMessage?.hidden).toBe(true);
+
+    await vi.waitFor(() => {
       expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
         'Configuration is valid. Need an API key? Get one from Google AI Studio.'
       );
@@ -460,14 +483,23 @@ describe('live Overlay generation workflow', () => {
     const primaryAction = shadowRoot?.querySelector<HTMLButtonElement>(
       '[data-primary-action]'
     );
-    if (!credentialSelect || !primaryAction) throw new Error('Configuration controls missing.');
+    const resultsContainer = shadowRoot?.querySelector<HTMLElement>('[data-results]');
+    if (!credentialSelect || !primaryAction || !resultsContainer) {
+      throw new Error('Configuration controls missing.');
+    }
+    const replaceResults = vi.spyOn(resultsContainer, 'replaceChildren');
     credentialSelect.value = 'credential-2';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
-      expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
-        'Already validated.'
+      const status = content?.querySelector<HTMLElement>('[data-configuration-status]');
+      expect(status?.textContent).toBe(
+        'Status: Valid — re-save needed Save & Validate to use this configuration.'
+      );
+      expect(status?.querySelector('[data-resave-status]')?.textContent).toBe(
+        'Status: Valid — re-save needed'
       );
     });
+    expect(replaceResults).toHaveBeenCalledOnce();
     expect(primaryAction.disabled).toBe(true);
     primaryAction.click();
     expect(sendMessage).not.toHaveBeenCalledWith(
@@ -489,8 +521,8 @@ describe('live Overlay generation workflow', () => {
     credentialSelect.value = 'credential-1';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
-      expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
-        'Already validated.'
+      expect(content?.querySelector('[data-configuration-status]')?.textContent).toBe(
+        'Status: Valid — re-save needed Save & Validate to use this configuration.'
       );
     });
     content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
@@ -500,8 +532,8 @@ describe('live Overlay generation workflow', () => {
     credentialSelect.value = 'credential-2';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
-      expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
-        'Already validated.'
+      expect(content?.querySelector('[data-configuration-status]')?.textContent).toBe(
+        'Status: Valid — re-save needed Save & Validate to use this configuration.'
       );
     });
     content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
@@ -587,6 +619,14 @@ describe('live Overlay generation workflow', () => {
     const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+    const configurationControls = () =>
+      Array.from(
+        shadowRoot?.querySelectorAll<
+          HTMLButtonElement | HTMLInputElement | HTMLSelectElement
+        >(
+          '[data-configuration-content] button, [data-configuration-content] input, [data-configuration-content] select'
+        ) ?? []
+      );
     const forceClearDisplay = () => {
       const button = forceClear();
       if (!button) return undefined;
@@ -608,7 +648,18 @@ describe('live Overlay generation workflow', () => {
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
     });
+    const validationStatus = shadowRoot?.querySelector<HTMLElement>(
+      '[data-configuration-status]'
+    );
+    expect(validationStatus?.textContent).toBe('Status: Valid');
+    expect(validationStatus?.classList.contains('is-validation-success')).toBe(true);
 
+    const configurationControlStates = configurationControls().map((control) => ({
+      control,
+      disabled: control.disabled,
+      title: control.getAttribute('title'),
+      value: control.value,
+    }));
     primary()?.click();
     await vi.waitFor(() => {
       expect(primary()?.textContent).toBe('Generating...');
@@ -623,6 +674,9 @@ describe('live Overlay generation workflow', () => {
         'animation: overlay-border-gradient 0.7s linear infinite'
       );
     });
+    expect(configurationControlStates.length).toBeGreaterThan(0);
+    expect(configurationControls().every((control) => control.disabled)).toBe(true);
+    expect(configurationControls().every((control) => control.title === 'Generation in progress')).toBe(true);
     resolveGeneration(generationResult);
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Review answers');
@@ -632,6 +686,15 @@ describe('live Overlay generation workflow', () => {
       expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
       expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')).toBeNull();
       expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-right')).toBeNull();
+      expect(
+        configurationControlStates.every(
+          ({ control, disabled, title }) =>
+            control.disabled === disabled && control.getAttribute('title') === title
+        )
+      ).toBe(true);
+      expect(
+        configurationControlStates.every(({ control, value }) => control.value === value)
+      ).toBe(true);
       expect(resultSummary()?.hidden).not.toBe(true);
       expect(resultSummary()?.textContent).toContain(
         '4 filled · 0 already filled · 0 failed · 0 skipped'
@@ -771,6 +834,20 @@ describe('live Overlay generation workflow', () => {
       '[data-credential-select]'
     );
     if (!credentialSelect) throw new Error('API key selector missing.');
+    const actionContainer = shadowRoot?.querySelector('[data-filled-status]')
+      ?.parentElement;
+    if (!actionContainer) throw new Error('Generate action container missing.');
+    const insertedPrimaryLabels: string[] = [];
+    const insertBefore = actionContainer.insertBefore.bind(actionContainer);
+    vi.spyOn(actionContainer, 'insertBefore').mockImplementation((node, reference) => {
+      if (
+        node instanceof HTMLButtonElement &&
+        node.matches('[data-primary-action]')
+      ) {
+        insertedPrimaryLabels.push(node.textContent ?? '');
+      }
+      return insertBefore(node, reference);
+    });
     credentialSelect.value = 'credential-2';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
@@ -783,8 +860,9 @@ describe('live Overlay generation workflow', () => {
       ).toBe(true);
       expect(
         shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-      ).toContain('Already validated.');
+      ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
     });
+    expect(insertedPrimaryLabels).toEqual(['Generate & Auto-Fill']);
     expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(0);
     expect(shadowRoot?.textContent).not.toContain(
       '4 filled · 0 already filled · 0 failed · 0 skipped'
@@ -794,6 +872,7 @@ describe('live Overlay generation workflow', () => {
 
   it('ignores a late generation snapshot after changing the selected API key', async () => {
     const listeners: Array<(message: unknown) => void> = [];
+    let generationCount = 0;
     const pendingGeneration = new Promise<typeof generationResult>((resolve) => {
       resolveGeneration = resolve;
     });
@@ -833,7 +912,10 @@ describe('live Overlay generation workflow', () => {
         return { ...configurationState, credentials };
       }
       if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'p7-generate') return pendingGeneration;
+      if (message.type === 'p7-generate') {
+        generationCount += 1;
+        return generationCount === 1 ? generationResult : pendingGeneration;
+      }
       return {};
     });
 
@@ -869,7 +951,17 @@ describe('live Overlay generation workflow', () => {
 
     await vi.waitFor(() => expect(primary()?.disabled).toBe(false));
     primary()?.click();
-    await vi.waitFor(() => expect(primary()?.textContent).toBe('Generating...'));
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Review answers');
+      expect(overrideAction()?.hidden).toBe(false);
+    });
+    overrideAction()?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+    await vi.waitFor(() => {
+      expect(generationCount).toBe(2);
+      expect(primary()?.textContent).toBe('Generating...');
+    });
 
     const credentialSelect = shadowRoot?.querySelector<HTMLSelectElement>(
       '[data-credential-select]'
@@ -881,16 +973,16 @@ describe('live Overlay generation workflow', () => {
       expect(status()?.textContent).toBe('Ready to configure');
       expect(
         shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-      ).toContain('Already validated.');
+      ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
     });
 
     listeners[0]?.({
       type: 'p7-state-updated',
       snapshot: {
-        uiState: 'REVIEW',
+        uiState: 'ERROR',
         page: { pageId: 'page-1', questionCount: 4 },
-        result: generationResult,
-        error: null,
+        result: null,
+        error: 'Provider request failed.',
         generationOperationId: null,
       },
     });
@@ -898,12 +990,14 @@ describe('live Overlay generation workflow', () => {
     expect(resultSummary()).toBeNull();
     expect(overrideAction()?.hidden).toBe(true);
     expect(overrideFlow()?.hidden).toBe(true);
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-message]')?.hidden).toBe(true);
+    expect(shadowRoot?.textContent).not.toContain('Provider request failed.');
     expect(shadowRoot?.textContent).not.toContain(
       '4 filled · 0 already filled · 0 failed · 0 skipped'
     );
     expect(
       shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-    ).toContain('Already validated.');
+    ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
 
     resolveGeneration(generationResult);
     await vi.waitFor(() => expect(primary()?.textContent).toBe('Generate & Auto-Fill'));
@@ -912,7 +1006,7 @@ describe('live Overlay generation workflow', () => {
     expect(overrideAction()?.hidden).toBe(true);
     expect(
       shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-    ).toContain('Already validated.');
+    ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
   });
 
   it('renders reused answers as a non-interactive settled status', async () => {

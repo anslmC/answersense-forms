@@ -60,6 +60,11 @@ export function mountAnswerSenseApp(
   let selectionLookupSequence = 0;
   let localGenerationSnapshotPending = false;
   let invalidatedGenerationOperationToken: number | null = null;
+  let lockedConfigurationControls: Array<{
+    control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement;
+    disabled: boolean;
+    title: string | null;
+  }> | null = null;
   let pendingOverrideIntent: GenerationIntent | null = null;
   let pendingAllQuestionIds: readonly string[] | null = null;
   let selectedSpecificQuestionIds: string[] = [];
@@ -160,6 +165,48 @@ export function mountAnswerSenseApp(
     container.append(refresh);
   }
 
+  function createValidationFailureInfoTooltip(
+    tooltipText = 'Key was invalid. Please check if you entered the correct key.'
+  ): HTMLElement {
+    const infoTooltip = createElement('span');
+    infoTooltip.className = 'validation-failure-info-tooltip';
+    infoTooltip.dataset.tooltip = tooltipText;
+    infoTooltip.setAttribute('role', 'img');
+    infoTooltip.setAttribute('aria-label', tooltipText);
+    infoTooltip.tabIndex = 0;
+
+    const svgDocument = ownerDocument ?? document;
+    const svgNamespace = 'http://www.w3.org/2000/svg';
+    const infoIcon = svgDocument.createElementNS(svgNamespace, 'svg');
+    infoIcon.classList.add('validation-failure-info');
+    infoIcon.setAttribute('fill', '#000000');
+    infoIcon.setAttribute('viewBox', '0 0 22 22');
+    infoIcon.setAttribute('id', 'memory-tooltip-end-alert');
+    infoIcon.setAttribute('aria-hidden', 'true');
+    infoIcon.setAttribute('focusable', 'false');
+
+    const backgroundCarrier = svgDocument.createElementNS(svgNamespace, 'g');
+    backgroundCarrier.setAttribute('id', 'SVGRepo_bgCarrier');
+    backgroundCarrier.setAttribute('stroke-width', '0');
+
+    const tracerCarrier = svgDocument.createElementNS(svgNamespace, 'g');
+    tracerCarrier.setAttribute('id', 'SVGRepo_tracerCarrier');
+    tracerCarrier.setAttribute('stroke-linecap', 'round');
+    tracerCarrier.setAttribute('stroke-linejoin', 'round');
+
+    const iconCarrier = svgDocument.createElementNS(svgNamespace, 'g');
+    iconCarrier.setAttribute('id', 'SVGRepo_iconCarrier');
+    const alertPath = svgDocument.createElementNS(svgNamespace, 'path');
+    alertPath.setAttribute(
+      'd',
+      'M14 15H12V13H14V15M14 12H12V7H14V12M21 2V20H20V21H6V20H5V15H4V14H3V13H2V12H1V10H2V9H3V8H4V7H5V2H6V1H20V2H21M19 3H7V8H6V9H5V10H4V12H5V13H6V14H7V19H19V3Z'
+    );
+    iconCarrier.append(alertPath);
+    infoIcon.append(backgroundCarrier, tracerCarrier, iconCarrier);
+    infoTooltip.append(infoIcon);
+    return infoTooltip;
+  }
+
   function renderGeneration(state: UiState): void {
     const status = element<HTMLElement>('[data-status]');
     const detail = element<HTMLElement>('[data-detail]');
@@ -193,6 +240,7 @@ export function mountAnswerSenseApp(
     if (overlayPanel) {
       overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');
     }
+    renderConfigurationGenerationLock(state.name === 'GENERATING');
 
     if (overrideAction) {
       const hideOverride =
@@ -208,10 +256,19 @@ export function mountAnswerSenseApp(
     filledStatus.classList.remove('is-settled');
     detail.classList.remove('settled-detail');
     if (forceClearNote) forceClearNote.hidden = true;
+    if (state.name === 'READY') {
+      primary.textContent = 'Generate & Auto-Fill';
+      primary.disabled = !canGenerateCurrentSelection();
+    }
     if (state.name === 'REVIEW') {
       primary.remove();
     } else {
-      primaryActionContainer?.insertBefore(primary, filledStatus);
+      if (
+        primary.parentElement !== primaryActionContainer ||
+        primary.nextElementSibling !== filledStatus
+      ) {
+        primaryActionContainer?.insertBefore(primary, filledStatus);
+      }
       primary.hidden = false;
     }
     filledStatus.hidden = true;
@@ -251,13 +308,27 @@ export function mountAnswerSenseApp(
       progressBar.setAttribute('aria-valuetext', 'Failed');
       progressText.textContent = 'Failed';
       progressFill.style.width = '100%';
+      const modelAccessErrorMessage =
+        'This key or project doesn’t have access to the selected model. Check your API key and project permissions.';
       status.textContent =
         state.message === 'Server was busy. Try again.'
           ? state.message
           : "Couldn't generate answers.";
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
-      message.textContent = state.message;
-      message.append(document.createTextNode(' '));
+      if (state.message === modelAccessErrorMessage) {
+        message.replaceChildren(
+          document.createTextNode(
+            'This key or project doesn’t have access to the selected model.'
+          ),
+          createValidationFailureInfoTooltip(
+            "Tip: Check your API key, account, and provider access. Some providers may restrict access to certain models or require specific permissions. Read the provider's policies to avoid key restrictions."
+          ),
+          document.createTextNode(' Check your API key and project permissions. ')
+        );
+      } else {
+        message.textContent = state.message;
+        message.append(document.createTextNode(' '));
+      }
       appendRefreshAction(message);
       message.hidden = false;
       primary.hidden = true;
@@ -383,6 +454,39 @@ export function mountAnswerSenseApp(
       !credentialSelect.value;
   }
 
+  function renderConfigurationGenerationLock(isGenerating: boolean): void {
+    if (isGenerating) {
+      if (lockedConfigurationControls) return;
+      lockedConfigurationControls = Array.from(
+        scope.querySelectorAll<
+          HTMLButtonElement | HTMLInputElement | HTMLSelectElement
+        >(
+          '[data-configuration-content] button, [data-configuration-content] input, [data-configuration-content] select'
+        )
+      ).map((control) => ({
+        control,
+        disabled: control.disabled,
+        title: control.getAttribute('title'),
+      }));
+      for (const { control } of lockedConfigurationControls) {
+        control.disabled = true;
+        control.title = 'Generation in progress';
+      }
+      return;
+    }
+
+    if (!lockedConfigurationControls) return;
+    for (const { control, disabled, title } of lockedConfigurationControls) {
+      control.disabled = disabled;
+      if (title === null) {
+        control.removeAttribute('title');
+      } else {
+        control.setAttribute('title', title);
+      }
+    }
+    lockedConfigurationControls = null;
+  }
+
   function renderConfiguration(): void {
     const configurationGuidance = element<HTMLElement>(
       '[data-configuration-guidance]'
@@ -489,10 +593,65 @@ export function mountAnswerSenseApp(
           : null) ??
         'Configure the extension before generating.';
     }
-    configurationStatus.textContent = authorizationStatus(
+    const configurationStatusText = authorizationStatus(
       configurationStateForSelection(),
       validating,
       !selectedConfigurationMatchesActive()
+    );
+    const isValidationSuccessful = configurationStatusText === 'Already validated.';
+    const needsResave =
+      configurationStatusText ===
+      'Already validated. Save & Validate to use this configuration.';
+    const isNotValidatedAndNotSaved =
+      configurationStatusText ===
+      'Unsaved changes. Save & Validate to use this configuration.';
+    const isValidationFailure =
+      configurationStatusText ===
+      'Validation failed. Save & Validate to try again.';
+    if (needsResave) {
+      const resaveStatus = createElement('span');
+      resaveStatus.dataset.resaveStatus = '';
+      resaveStatus.textContent = 'Status: Valid — re-save needed';
+      configurationStatus.replaceChildren(
+        resaveStatus,
+        document.createTextNode(' Save & Validate to use this configuration.')
+      );
+    } else if (isNotValidatedAndNotSaved) {
+      const unsavedStatus = createElement('span');
+      unsavedStatus.dataset.unsavedStatus = '';
+      unsavedStatus.textContent = 'Status: Not validated and not saved';
+      configurationStatus.replaceChildren(
+        unsavedStatus,
+        document.createTextNode(' Save & Validate to use this configuration.')
+      );
+    } else if (isValidationFailure) {
+      const failureStatus = createElement('span');
+      failureStatus.dataset.validationFailureStatus = '';
+      failureStatus.textContent = 'Validation failed';
+
+      configurationStatus.replaceChildren(
+        failureStatus,
+        document.createTextNode(' '),
+        createValidationFailureInfoTooltip(),
+        document.createTextNode(' Save & Validate to try again.')
+      );
+    } else {
+      configurationStatus.textContent = isValidationSuccessful
+        ? 'Status: Valid'
+        : configurationStatusText;
+    }
+    configurationStatus.classList.toggle(
+      'is-validation-success',
+      isValidationSuccessful
+    );
+    configurationStatus.classList.toggle('is-resave-warning', needsResave);
+    configurationStatus.classList.toggle(
+      'is-unsaved-warning',
+      isNotValidatedAndNotSaved
+    );
+    configurationStatus.classList.toggle(
+      'is-validation-failure',
+      isValidationFailure
     );
     renderValidationAvailability();
   }
@@ -543,7 +702,6 @@ export function mountAnswerSenseApp(
         selectedValidation: null,
       };
       renderConfiguration();
-      renderGeneration(controller.state);
       return;
     }
     try {
@@ -569,7 +727,6 @@ export function mountAnswerSenseApp(
       };
     }
     renderConfiguration();
-    renderGeneration(controller.state);
   }
 
   function showMessage(selector: string, text: string): void {
@@ -577,6 +734,14 @@ export function mountAnswerSenseApp(
     if (message) {
       message.textContent = text;
       message.hidden = false;
+    }
+  }
+
+  function clearProviderRequestFailureMessage(): void {
+    const message = element<HTMLElement>('[data-configuration-message]');
+    if (message?.textContent === 'Provider request failed.') {
+      message.textContent = '';
+      message.hidden = true;
     }
   }
 
@@ -776,7 +941,9 @@ export function mountAnswerSenseApp(
     overrideConfirmation?.setAttribute('hidden', '');
     if (overrideMessage) overrideMessage.textContent = 'Override selection ready.';
     publishOverrideIntent(intent);
-    void controller.generate(renderAll, intent).then((state) => {
+    const generation = controller.generate(renderAll, intent);
+    localGenerationSnapshotPending = controller.state.name === 'GENERATING';
+    void generation.then((state) => {
       if (normalResult && state.name === 'REVIEW' && !('status' in state.result)) {
         overridePresentation = { normalResult, overrideResult: state.result };
         resetOverrideFlow();
@@ -847,6 +1014,7 @@ export function mountAnswerSenseApp(
     }
 
     providerSelect.addEventListener('change', () => {
+      clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
       modelSelect.replaceChildren(
         ...modelsForProvider(configurationState, providerSelect.value).map(
@@ -872,16 +1040,21 @@ export function mountAnswerSenseApp(
             )
           : [new Option('No API keys added yet', '')])
       );
+      updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();
     });
     modelSelect.addEventListener('change', () => {
+      clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
+      updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();
     });
     credentialSelect.addEventListener('change', () => {
+      clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
+      updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();
     });
@@ -1003,12 +1176,13 @@ export function mountAnswerSenseApp(
         }
       } catch (error) {
         await reloadConfiguration().catch(() => undefined);
-        showMessage(
-          '[data-configuration-message]',
+        const errorMessage =
           error instanceof Error
             ? error.message
-            : 'Configuration could not be validated.'
-        );
+            : 'Configuration could not be validated.';
+        if (errorMessage !== 'Provider request failed.') {
+          showMessage('[data-configuration-message]', errorMessage);
+        }
       } finally {
         validating = false;
         renderConfiguration();
@@ -1020,15 +1194,54 @@ export function mountAnswerSenseApp(
       'click',
       () => void saveAndValidateConfiguration()
     );
+    const deleteConfirmation = element<HTMLElement>(
+      '[data-delete-confirmation]'
+    );
+    const deleteConfirmationCopy = element<HTMLElement>(
+      '[data-delete-confirmation-copy]'
+    );
+    function updateDeleteConfirmationCopy(): void {
+      const selectedCredentialId = credentialSelectElement.value;
+      if (!selectedCredentialId) {
+        if (deleteConfirmation) deleteConfirmation.hidden = true;
+        return;
+      }
+      const selectedCredential = configurationState.credentials.find(
+        (credential) => credential.credentialId === selectedCredentialId
+      );
+      const keyName =
+        selectedCredential?.label ||
+        credentialSelectElement.selectedOptions[0]?.textContent?.trim() ||
+        'Unnamed API key';
+      if (deleteConfirmationCopy) {
+        deleteConfirmationCopy.textContent =
+          `Are you sure you want to delete “${keyName}”?`;
+      }
+    }
     element<HTMLButtonElement>('[data-delete-credential]')?.addEventListener(
       'click',
+      () => {
+        if (!credentialSelectElement.value || !deleteConfirmation) return;
+        updateDeleteConfirmationCopy();
+        deleteConfirmation.hidden = false;
+      }
+    );
+    element<HTMLButtonElement>('[data-cancel-delete]')?.addEventListener(
+      'click',
+      () => {
+        if (deleteConfirmation) deleteConfirmation.hidden = true;
+      }
+    );
+    element<HTMLButtonElement>('[data-confirm-delete]')?.addEventListener(
+      'click',
       async () => {
+        const selectedCredentialId = credentialSelectElement.value;
+        if (!selectedCredentialId) {
+          if (deleteConfirmation) deleteConfirmation.hidden = true;
+          return;
+        }
+        if (deleteConfirmation) deleteConfirmation.hidden = true;
         try {
-          const selectedCredentialId = credentialSelectElement.value;
-          if (!selectedCredentialId) {
-            showMessage('[data-credential-message]', 'Select an API key to delete.');
-            return;
-          }
           await send({
             type: 'credential-delete-selected',
             credentialId: selectedCredentialId,
@@ -1036,10 +1249,10 @@ export function mountAnswerSenseApp(
           await reloadConfiguration();
           renderAll(controller.state);
           await refreshSelectedConfigurationValidation();
-          showMessage('[data-credential-message]', 'API key deleted.');
+          showMessage('[data-configuration-message]', 'API key deleted.');
         } catch (error) {
           showMessage(
-            '[data-credential-message]',
+            '[data-configuration-message]',
             error instanceof Error ? error.message : 'API key could not be deleted.'
           );
         }
