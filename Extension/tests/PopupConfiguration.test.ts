@@ -60,12 +60,10 @@ describe('popup configuration state', () => {
       'data-model-select',
       'data-credential-select',
       'data-credential-label',
-      'data-save-configuration',
+      'data-save-validate-configuration',
       'data-delete-credential',
-      'data-validate-configuration',
-      'data-validation-status',
-      'data-unsaved-configuration',
-      'data-validation-message',
+      'data-configuration-status',
+      'data-configuration-message',
       'data-add-credential',
       'data-replace-credential',
       'data-add-credential-form',
@@ -92,7 +90,7 @@ describe('popup configuration state', () => {
       'utf8'
     );
     expect(popupSource).toContain(
-      'primary.disabled = !isCurrentValidationValid(configurationState);'
+      'primary.disabled = !canGenerateCurrentSelection();'
     );
     expect(popupSource).toContain('renderAll(controller.state);');
     expect(popupSource).toContain(
@@ -108,7 +106,7 @@ describe('popup configuration state', () => {
       "if ('status' in state.result) {"
     );
     expect(popupSource).toContain(
-      'if (!isCurrentValidationValid(configurationState)) return;'
+      'if (!canGenerateCurrentSelection()) return;'
     );
     expect(popupSource).toContain('window.prompt(promptText)');
     expect(contentSource).toContain(
@@ -116,19 +114,19 @@ describe('popup configuration state', () => {
     );
   });
 
-  it('shows the unsaved validation message until configuration is saved', () => {
+  it('shows unsaved selection status and uses one combined configuration action', () => {
     const popupSource = readFileSync(
       resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
     expect(popupSource).toContain(
-      'unsavedConfiguration.hidden = !configurationDirty;'
+      "'[data-save-validate-configuration]'"
     );
-    expect(popupSource).toContain('configurationDirty = false;');
-    expect(popupSource).toContain('validateButton.disabled =');
     expect(popupSource).toContain(
-      'validating || !configurationState.activeConfiguration || configurationDirty;'
+      "if (!isCurrentValidationValid(configurationState)) {"
     );
+    expect(popupSource).toContain("type: 'configuration-validate'");
+    expect(popupSource).toContain('!selectedConfigurationMatchesActive()');
   });
 
   it('clears stale terminal progress state when entering the GENERATING branch', () => {
@@ -169,7 +167,7 @@ describe('popup configuration state', () => {
   it('starts not validated and gates generation until exact validation exists', () => {
     expect(validationStatus(baseState, false)).toBe('NOT_VALIDATED');
     expect(authorizationStatus(baseState, false)).toBe(
-      'NOT VALIDATED — Configuration saved. Validate it before generating.'
+      'Save & Validate to check this configuration.'
     );
     expect(isCurrentValidationValid(baseState)).toBe(false);
     const validated = {
@@ -185,12 +183,12 @@ describe('popup configuration state', () => {
     };
     expect(validationStatus(validated, false)).toBe('VALID');
     expect(isCurrentValidationValid(validated)).toBe(true);
-    expect(authorizationStatus(validated, false)).toBe('VALID');
+    expect(authorizationStatus(validated, false)).toBe('Already validated.');
     expect(validGenerationMessage(validated)).toBe(
       'Configuration is valid.'
     );
     expect(authorizationStatus(validated, false, true)).toBe(
-      'NOT VALIDATED — Save the configuration before validating'
+      'Already validated. Save & Validate to use this configuration.'
     );
   });
 
@@ -203,7 +201,7 @@ describe('popup configuration state', () => {
       validation: null,
     };
     expect(authorizationStatus(initial, false)).toBe(
-      'NOT VALIDATED — Save the configuration before validating'
+      'Select a provider, model, and API key, then Save & Validate.'
     );
     expect(isCurrentValidationValid(initial)).toBe(false);
   });
@@ -222,10 +220,10 @@ describe('popup configuration state', () => {
     };
     const deleted = { ...validated, credentials: [] };
     expect(isCurrentValidationValid(validated)).toBe(true);
-    expect(authorizationStatus(validated, false)).toBe('VALID');
+    expect(authorizationStatus(validated, false)).toBe('Already validated.');
     expect(isCurrentValidationValid(deleted)).toBe(false);
     expect(authorizationStatus(deleted, false)).toBe(
-      'NOT VALIDATED — Save the configuration before validating'
+      'Select a provider, model, and API key, then Save & Validate.'
     );
     expect(validGenerationMessage(deleted)).toBeNull();
     expect(isCurrentValidationValid(deleted)).toBe(false);

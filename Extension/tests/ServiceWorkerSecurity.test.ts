@@ -27,6 +27,19 @@ describe('Service Worker provider error sanitization', () => {
     expect(JSON.stringify(safe)).not.toContain('raw-key');
   });
 
+  it('explains 403 permission failures without exposing raw provider details', () => {
+    const safe = sanitizeProviderError(
+      new GeminiProviderError('PERMISSION_DENIED', 'PERMISSION_DENIED raw body')
+    );
+
+    expect(safe).toEqual({
+      code: 'PERMISSION_DENIED',
+      message:
+        'This API key or project is not permitted to use the selected model. Check the key and project access.',
+    });
+    expect(JSON.stringify(safe)).not.toContain('raw body');
+  });
+
   it('preserves the sanitized 503 message for the final UI', () => {
     const safe = sanitizeProviderError(
       new GeminiProviderError('PROVIDER_UNAVAILABLE', 'Server was busy. Try again.')

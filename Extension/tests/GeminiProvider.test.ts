@@ -260,6 +260,7 @@ describe('direct Gemini provider', () => {
   it('classifies authentication, quota, rate, and availability failures', async () => {
     for (const [status, code] of [
       [401, 'AUTHENTICATION_FAILED'],
+      [403, 'PERMISSION_DENIED'],
       [402, 'QUOTA_EXHAUSTED'],
       [429, 'RATE_LIMITED'],
       [503, 'PROVIDER_UNAVAILABLE'],
@@ -278,6 +279,19 @@ describe('direct Gemini provider', () => {
     await expect(otherServerFailure.generate(request)).rejects.toMatchObject({
       code: 'PROVIDER_UNAVAILABLE',
       message: 'Provider unavailable.',
+    });
+  });
+
+  it('describes 403 permission failures without surfacing provider error codes', async () => {
+    const provider = new GeminiProvider(
+      'test-key',
+      transport(403, JSON.stringify({ error: { status: 'PERMISSION_DENIED' } }))
+    );
+
+    await expect(provider.generate(request)).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+      message:
+        'API key or project does not have permission to use this model.',
     });
   });
 

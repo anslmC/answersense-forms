@@ -42,6 +42,9 @@ export interface ConfigurationState {
   configurationDigest: string | null;
   configurationRevision: number;
   validation: Validation | null;
+  selectedConfiguration?: Configuration | null;
+  selectedConfigurationDigest?: string | null;
+  selectedValidation?: Validation | null;
 }
 
 export type ValidationStatus =
@@ -91,14 +94,25 @@ export function authorizationStatus(
   configurationDirty = false
 ): string {
   if (configurationDirty && !validating) {
-    return 'NOT VALIDATED — Save the configuration before validating';
+    if (isCurrentValidationValid(state)) {
+      return 'Already validated. Save & Validate to use this configuration.';
+    }
+    return state.activeConfiguration
+      ? 'Unsaved changes. Save & Validate to use this configuration.'
+      : 'Select a provider, model, and API key, then Save & Validate.';
   }
   const status = validationStatus(state, validating);
+  if (status === 'VALID') {
+    return 'Already validated.';
+  }
+  if (status === 'INVALID') {
+    return 'Validation failed. Save & Validate to try again.';
+  }
   if (
     status === 'NOT_VALIDATED' &&
     (!state.activeConfiguration || state.credentials.length === 0)
   ) {
-    return 'NOT VALIDATED — Save the configuration before validating';
+    return 'Select a provider, model, and API key, then Save & Validate.';
   }
   if (
     status === 'NOT_VALIDATED' &&
@@ -108,7 +122,7 @@ export function authorizationStatus(
         credential.credentialId === state.activeConfiguration?.credentialId
     )
   ) {
-    return 'NOT VALIDATED — Configuration saved. Validate it before generating.';
+    return 'Save & Validate to check this configuration.';
   }
   return status.replace(/_/g, ' ');
 }

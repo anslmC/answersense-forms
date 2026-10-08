@@ -197,25 +197,16 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <option value="">No API keys added yet</option>
         </select>
         <div class="actions">
-          <button type="button" data-save-configuration>
-            Save configuration
+          <button type="button" data-save-validate-configuration>
+            Save &amp; Validate
           </button>
           <button type="button" class="secondary" data-delete-credential>
             Delete All keys
           </button>
         </div>
         <p class="detail" data-credential-status>Loading configuration...</p>
-      </section>
-      <section class="validation-panel" aria-labelledby="validation-heading">
-        <h2 id="validation-heading">Key Validation</h2>
-        <p class="status" data-validation-status></p>
-        <p class="detail" data-unsaved-configuration hidden>
-          Save the configuration before validating
-        </p>
-        <button type="button" data-validate-configuration>
-          Validate configuration
-        </button>
-        <p class="message" data-validation-message hidden></p>
+        <p class="status" data-configuration-status></p>
+        <p class="message" data-configuration-message hidden></p>
       </section>
         </div>
       </section>

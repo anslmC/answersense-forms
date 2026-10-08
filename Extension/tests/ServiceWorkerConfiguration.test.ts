@@ -169,6 +169,27 @@ describe('Service Worker provider configuration resolution', () => {
     ).rejects.toThrow('Configuration changed during generation');
   });
 
+  it('does not authorize a matching configuration with INVALID validation state', async () => {
+    const local = await configuredStorage();
+    const resolved = await resolveActiveProviderConfiguration(local);
+    await saveValidation(
+      {
+        configurationDigest: resolved.configurationDigest,
+        providerId: resolved.provider.providerId,
+        modelId: resolved.model.modelId,
+        credentialId: resolved.configuration.credentialId,
+        status: 'INVALID',
+        validatedAt: '2026-09-08T00:00:00.000Z',
+        failureCode: 'PERMISSION_DENIED',
+      },
+      local
+    );
+
+    await expect(
+      resolveAuthorizedProviderConfiguration(resolved.configurationDigest, local)
+    ).rejects.toThrow('Configuration is not validated');
+  });
+
   it('rejects an older validation after the active configuration changes', async () => {
     const local = await configuredStorage();
     const first = await resolveActiveProviderConfiguration(local);

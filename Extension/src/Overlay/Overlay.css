@@ -237,7 +237,6 @@
 .status-panel,
 .configuration-panel,
 .credential-panel,
-.validation-panel,
 .generation-panel {
   min-width: 0;
   padding: 4px 0;
@@ -246,7 +245,6 @@
 
 .credential-panel,
 .configuration-panel,
-.validation-panel,
 .generation-panel {
   display: flex;
   flex-direction: column;
@@ -666,11 +664,6 @@ select {
 
 .override-confirmation {
   margin-top: 4px;
-}
-
-.validation-panel [data-validate-configuration] {
-  width: fit-content;
-  align-self: flex-start;
 }
 
 button,

@@ -10,6 +10,7 @@ export const GEMINI_MODEL_INFO_URL = `https://generativelanguage.googleapis.com/
 
 export type ProviderFailureCode =
   | 'AUTHENTICATION_FAILED'
+  | 'PERMISSION_DENIED'
   | 'QUOTA_EXHAUSTED'
   | 'RATE_LIMITED'
   | 'PROVIDER_UNAVAILABLE'
@@ -155,10 +156,16 @@ function failureResponse(
 }
 
 function classifyStatus(status: number, body?: unknown): GeminiProviderError {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     return new GeminiProviderError(
       'AUTHENTICATION_FAILED',
       'Credential invalid.'
+    );
+  }
+  if (status === 403) {
+    return new GeminiProviderError(
+      'PERMISSION_DENIED',
+      'API key or project does not have permission to use this model.'
     );
   }
   if (status === 429) {

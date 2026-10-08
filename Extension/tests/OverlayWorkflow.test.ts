@@ -159,12 +159,77 @@ describe('live Overlay generation workflow', () => {
       activeConfiguration: null,
       validation: null,
     };
-    const sendMessage = vi.fn(async (message: { type?: string }) => {
-      if (message.type === 'configuration-state') return currentConfigurationState;
+    let keyOneValidated = false;
+    const sendMessage = vi.fn(async (message: {
+      type?: string;
+      credentialId?: string;
+      selectedConfiguration?: {
+        providerId: string;
+        modelId: string;
+        credentialId: string;
+      };
+    }) => {
+      if (message.type === 'configuration-state') {
+        const selected = message.selectedConfiguration;
+        if (!selected) return currentConfigurationState;
+        const isBackup = selected.credentialId === 'credential-2';
+        return {
+          ...currentConfigurationState,
+          selectedConfiguration: { ...selected, providerConfig: {} },
+          selectedConfigurationDigest: isBackup ? 'digest-2' : 'digest-1',
+          selectedValidation: isBackup
+            ? {
+                ...configurationState.validation,
+                credentialId: 'credential-2',
+                configurationDigest: 'digest-2',
+              }
+            : configurationState.validation,
+        };
+      }
       if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'configuration-set') return currentConfigurationState;
+      if (message.type === 'configuration-set') {
+        if (!currentConfigurationState.activeConfiguration) {
+          return currentConfigurationState;
+        }
+        const credentialId = message.credentialId ?? 'credential-1';
+        currentConfigurationState = {
+          ...currentConfigurationState,
+          credentials: [
+            ...currentConfigurationState.credentials,
+            ...(credentialId === 'credential-2'
+              ? [
+                  {
+                    credentialId: 'credential-2',
+                    providerId: 'gemini',
+                    label: 'Backup',
+                    createdAt: '2026-09-12T00:00:00.000Z',
+                    updatedAt: '2026-09-12T00:00:00.000Z',
+                  },
+                ]
+              : []),
+          ],
+          activeConfiguration: {
+            ...configurationState.activeConfiguration,
+            credentialId,
+          },
+          configurationDigest:
+            credentialId === 'credential-2' ? 'digest-2' : 'digest-1',
+          validation:
+            credentialId === 'credential-2'
+              ? {
+                  ...configurationState.validation,
+                  credentialId: 'credential-2',
+                  configurationDigest: 'digest-2',
+                }
+              : keyOneValidated
+                ? configurationState.validation
+                : currentConfigurationState.validation,
+        };
+        return currentConfigurationState;
+      }
       if (message.type === 'credential-delete-selected') return {};
       if (message.type === 'configuration-validate') {
+        keyOneValidated = true;
         currentConfigurationState = configurationState;
         return {};
       }
@@ -263,12 +328,11 @@ describe('live Overlay generation workflow', () => {
       '[data-provider-select]',
       '[data-model-select]',
       '[data-credential-select]',
-      '[data-save-configuration]',
+      '[data-save-validate-configuration]',
       '[data-delete-credential]',
       '[data-credential-status]',
-      '[data-validation-status]',
-      '[data-validate-configuration]',
-      '[data-validation-message]',
+      '[data-configuration-status]',
+      '[data-configuration-message]',
     ]) {
       expect(content?.querySelector(selector)).not.toBeNull();
     }
@@ -285,10 +349,10 @@ describe('live Overlay generation workflow', () => {
     expect(content?.querySelector('[data-replace-credential-select]')).not.toBeNull();
     expect(content?.querySelector('[data-replace-credential-secret]')).toBeNull();
     expect(document.querySelector('input[type="password"]')).toBeNull();
-    expect(content?.querySelector('[data-unsaved-configuration]')?.textContent).toContain(
-      'Save the configuration before validating'
+    expect(content?.textContent).toContain('Save & Validate');
+    expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
+      'Save & Validate'
     );
-    expect(content?.querySelector<HTMLElement>('[data-unsaved-configuration]')?.hidden).toBe(true);
 
     const addCredential = content?.querySelector<HTMLButtonElement>('[data-add-credential]');
     const addCredentialForm = content?.querySelector<HTMLElement>('[data-add-credential-form]');
@@ -303,11 +367,18 @@ describe('live Overlay generation workflow', () => {
     content?.querySelector<HTMLButtonElement>('[data-cancel-replace-credential]')?.click();
     expect(replaceCredentialForm?.hidden).toBe(true);
 
-    content?.querySelector<HTMLButtonElement>('[data-save-configuration]')?.click();
+    currentConfigurationState = {
+      ...currentConfigurationState,
+      validation: null,
+    };
+    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'configuration-set' })
       );
+    });
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
     });
     content?.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
     await vi.waitFor(() => {
@@ -315,10 +386,6 @@ describe('live Overlay generation workflow', () => {
         type: 'credential-delete-selected',
         credentialId: 'credential-1',
       });
-    });
-    content?.querySelector<HTMLButtonElement>('[data-validate-configuration]')?.click();
-    await vi.waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
     });
     await vi.waitFor(() => {
       expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
@@ -333,6 +400,74 @@ describe('live Overlay generation workflow', () => {
     );
     expect(shadowRoot?.querySelector('[data-primary-action]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-force-clear]')).not.toBeNull();
+
+    currentConfigurationState = {
+      ...configurationState,
+      credentials: [
+        ...configurationState.credentials,
+        {
+          credentialId: 'credential-2',
+          providerId: 'gemini',
+          label: 'Backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    await overlay.refresh();
+    const credentialSelect = content?.querySelector<HTMLSelectElement>(
+      '[data-credential-select]'
+    );
+    const primaryAction = shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-primary-action]'
+    );
+    if (!credentialSelect || !primaryAction) throw new Error('Configuration controls missing.');
+    credentialSelect.value = 'credential-2';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => {
+      expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
+        'Already validated.'
+      );
+    });
+    expect(primaryAction.disabled).toBe(true);
+    primaryAction.click();
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'p7-generate' })
+    );
+
+    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'configuration-set',
+          credentialId: 'credential-2',
+        })
+      );
+    });
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(1);
+    await vi.waitFor(() => expect(primaryAction.disabled).toBe(false));
+
+    credentialSelect.value = 'credential-1';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => {
+      expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
+        'Already validated.'
+      );
+    });
+    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    await vi.waitFor(() => expect(primaryAction.disabled).toBe(false));
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(1);
+
+    credentialSelect.value = 'credential-2';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => {
+      expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
+        'Already validated.'
+      );
+    });
+    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    await vi.waitFor(() => expect(primaryAction.disabled).toBe(false));
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(1);
     toggle?.click();
     expect(content?.hidden).toBe(false);
     expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
@@ -343,8 +478,45 @@ describe('live Overlay generation workflow', () => {
     const pendingGeneration = new Promise<typeof generationResult>((resolve) => {
       resolveGeneration = resolve;
     });
-    const sendMessage = vi.fn(async (message: { type?: string }) => {
-      if (message.type === 'configuration-state') return configurationState;
+    const sendMessage = vi.fn(async (message: {
+      type?: string;
+      selectedConfiguration?: {
+        providerId: string;
+        modelId: string;
+        credentialId: string;
+      };
+    }) => {
+      if (message.type === 'configuration-state') {
+        const credentials = [
+          ...configurationState.credentials,
+          {
+            credentialId: 'credential-2',
+            providerId: 'gemini',
+            label: 'Backup',
+            createdAt: '2026-09-12T00:00:00.000Z',
+            updatedAt: '2026-09-12T00:00:00.000Z',
+          },
+        ];
+        if (!message.selectedConfiguration) {
+          return { ...configurationState, credentials };
+        }
+        const isBackup =
+          message.selectedConfiguration.credentialId === 'credential-2';
+        return {
+          ...configurationState,
+          credentials,
+          selectedConfiguration: {
+            ...message.selectedConfiguration,
+            providerConfig: {},
+          },
+          selectedConfigurationDigest: isBackup ? 'digest-2' : 'digest-1',
+          selectedValidation: {
+            ...configurationState.validation,
+            credentialId: message.selectedConfiguration.credentialId,
+            configurationDigest: isBackup ? 'digest-2' : 'digest-1',
+          },
+        };
+      }
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'p7-generate') {
         generationCount += 1;
@@ -555,6 +727,153 @@ describe('live Overlay generation workflow', () => {
     expect(generationCount).toBe(3);
     overrideAction()?.click();
     expect(overrideFlow()?.hidden).toBe(false);
+
+    const credentialSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+      '[data-credential-select]'
+    );
+    if (!credentialSelect) throw new Error('API key selector missing.');
+    credentialSelect.value = 'credential-2';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Ready to configure');
+      expect(resultSummary()).toBeNull();
+      expect(overrideAction()?.hidden).toBe(true);
+      expect(overrideFlow()?.hidden).toBe(true);
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.all-filled-note')?.hidden
+      ).toBe(true);
+      expect(
+        shadowRoot?.querySelector('[data-configuration-status]')?.textContent
+      ).toContain('Already validated.');
+    });
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(0);
+    expect(shadowRoot?.textContent).not.toContain(
+      '4 filled · 0 already filled · 0 failed · 0 skipped'
+    );
+    expect(shadowRoot?.textContent).not.toContain('All answers are already filled.');
+  });
+
+  it('ignores a late generation snapshot after changing the selected API key', async () => {
+    const listeners: Array<(message: unknown) => void> = [];
+    const pendingGeneration = new Promise<typeof generationResult>((resolve) => {
+      resolveGeneration = resolve;
+    });
+    const backupCredential = {
+      credentialId: 'credential-2',
+      providerId: 'gemini',
+      label: 'Backup',
+      createdAt: '2026-09-12T00:00:00.000Z',
+      updatedAt: '2026-09-12T00:00:00.000Z',
+    };
+    const sendMessage = vi.fn(async (message: {
+      type?: string;
+      selectedConfiguration?: {
+        providerId: string;
+        modelId: string;
+        credentialId: string;
+      };
+    }) => {
+      if (message.type === 'configuration-state') {
+        const credentials = [...configurationState.credentials, backupCredential];
+        if (message.selectedConfiguration) {
+          return {
+            ...configurationState,
+            credentials,
+            selectedConfiguration: {
+              ...message.selectedConfiguration,
+              providerConfig: {},
+            },
+            selectedConfigurationDigest: 'digest-2',
+            selectedValidation: {
+              ...configurationState.validation,
+              credentialId: 'credential-2',
+              configurationDigest: 'digest-2',
+            },
+          };
+        }
+        return { ...configurationState, credentials };
+      }
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') return pendingGeneration;
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+      },
+      runtime: {
+        sendMessage,
+        onMessage: {
+          addListener: (listener: (message: unknown) => void) =>
+            listeners.push(listener),
+        },
+      },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const status = () => shadowRoot?.querySelector<HTMLElement>('[data-status]');
+    const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const overrideFlow = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+
+    await vi.waitFor(() => expect(primary()?.disabled).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() => expect(primary()?.textContent).toBe('Generating...'));
+
+    const credentialSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+      '[data-credential-select]'
+    );
+    if (!credentialSelect) throw new Error('API key selector missing.');
+    credentialSelect.value = 'credential-2';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => {
+      expect(status()?.textContent).toBe('Ready to configure');
+      expect(
+        shadowRoot?.querySelector('[data-configuration-status]')?.textContent
+      ).toContain('Already validated.');
+    });
+
+    listeners[0]?.({
+      type: 'p7-state-updated',
+      snapshot: {
+        uiState: 'REVIEW',
+        page: { pageId: 'page-1', questionCount: 4 },
+        result: generationResult,
+        error: null,
+        generationOperationId: null,
+      },
+    });
+    expect(status()?.textContent).toBe('Ready to configure');
+    expect(resultSummary()).toBeNull();
+    expect(overrideAction()?.hidden).toBe(true);
+    expect(overrideFlow()?.hidden).toBe(true);
+    expect(shadowRoot?.textContent).not.toContain(
+      '4 filled · 0 already filled · 0 failed · 0 skipped'
+    );
+    expect(
+      shadowRoot?.querySelector('[data-configuration-status]')?.textContent
+    ).toContain('Already validated.');
+
+    resolveGeneration(generationResult);
+    await vi.waitFor(() => expect(primary()?.textContent).toBe('Generate & Auto-Fill'));
+    expect(status()?.textContent).toBe('Ready to configure');
+    expect(resultSummary()).toBeNull();
+    expect(overrideAction()?.hidden).toBe(true);
+    expect(
+      shadowRoot?.querySelector('[data-configuration-status]')?.textContent
+    ).toContain('Already validated.');
   });
 
   it('renders reused answers as a non-interactive settled status', async () => {

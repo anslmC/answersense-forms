@@ -56,7 +56,10 @@ export function mountAnswerSenseApp(
     validation: null,
   };
   let validating = false;
-  let configurationDirty = false;
+  let preserveConfigurationDraft = false;
+  let selectionLookupSequence = 0;
+  let localGenerationSnapshotPending = false;
+  let invalidatedGenerationOperationToken: number | null = null;
   let pendingOverrideIntent: GenerationIntent | null = null;
   let pendingAllQuestionIds: readonly string[] | null = null;
   let selectedSpecificQuestionIds: string[] = [];
@@ -69,6 +72,54 @@ export function mountAnswerSenseApp(
     overrideResult: GeneratedUiResult;
   } | null = null;
 
+  function selectedConfigurationMatchesActive(): boolean {
+    const active = configurationState.activeConfiguration;
+    return Boolean(
+      active &&
+      element<HTMLSelectElement>('[data-provider-select]')?.value ===
+        active.providerId &&
+      element<HTMLSelectElement>('[data-model-select]')?.value === active.modelId &&
+      element<HTMLSelectElement>('[data-credential-select]')?.value ===
+        active.credentialId
+    );
+  }
+
+  function canGenerateCurrentSelection(): boolean {
+    return (
+      !validating &&
+      selectedConfigurationMatchesActive() &&
+      isCurrentValidationValid(configurationState)
+    );
+  }
+
+  function configurationStateForSelection(): ConfigurationState {
+    if (selectedConfigurationMatchesActive()) return configurationState;
+
+    const selected = configurationState.selectedConfiguration;
+    const selectionMatches = Boolean(
+      selected &&
+      element<HTMLSelectElement>('[data-provider-select]')?.value ===
+        selected.providerId &&
+      element<HTMLSelectElement>('[data-model-select]')?.value === selected.modelId &&
+      element<HTMLSelectElement>('[data-credential-select]')?.value ===
+        selected.credentialId
+    );
+    if (!selectionMatches || !selected) {
+      return {
+        ...configurationState,
+        activeConfiguration: null,
+        configurationDigest: null,
+        validation: null,
+      };
+    }
+    return {
+      ...configurationState,
+      activeConfiguration: selected,
+      configurationDigest: configurationState.selectedConfigurationDigest ?? null,
+      validation: configurationState.selectedValidation ?? null,
+    };
+  }
+
   function resetOverrideFlow(): void {
     const flow = element<HTMLElement>('[data-override-flow]');
     if (flow) flow.hidden = true;
@@ -79,6 +130,21 @@ export function mountAnswerSenseApp(
     element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
     const overrideMessage = element<HTMLElement>('[data-override-message]');
     if (overrideMessage) overrideMessage.textContent = '';
+  }
+
+  function resetGenerationForConfigurationChange(): void {
+    if (localGenerationSnapshotPending) {
+      invalidatedGenerationOperationToken =
+        controller.stateMachine.activeOperationToken;
+    }
+    overridePresentation = null;
+    resetOverrideFlow();
+    const current = controller.state;
+    const state = controller.stateMachine.setPage(
+      current.name === 'UNSUPPORTED' ? null : current.page
+    );
+    options.onState?.(state);
+    renderAll(state);
   }
 
   function appendRefreshAction(container: HTMLElement): void {
@@ -153,7 +219,7 @@ export function mountAnswerSenseApp(
     progress.hidden = true;
     progress.classList.remove('is-processing', 'is-complete', 'is-partial', 'is-error');
     progressText.textContent = '';
-    primary.disabled = !isCurrentValidationValid(configurationState);
+    primary.disabled = !canGenerateCurrentSelection();
     if (state.name === 'UNSUPPORTED') {
       status.textContent = 'This page is not supported.';
       detail.textContent = state.message;
@@ -300,17 +366,21 @@ export function mountAnswerSenseApp(
   }
 
   function renderValidationAvailability(): void {
-    const validateButton = element<HTMLButtonElement>(
-      '[data-validate-configuration]'
+    const saveButton = element<HTMLButtonElement>(
+      '[data-save-validate-configuration]'
     );
-    const unsavedConfiguration = element<HTMLElement>(
-      '[data-unsaved-configuration]'
+    const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
+    const modelSelect = element<HTMLSelectElement>('[data-model-select]');
+    const credentialSelect = element<HTMLSelectElement>(
+      '[data-credential-select]'
     );
-    if (!validateButton || !unsavedConfiguration) return;
+    if (!saveButton || !providerSelect || !modelSelect || !credentialSelect) return;
 
-    unsavedConfiguration.hidden = !configurationDirty;
-    validateButton.disabled =
-      validating || !configurationState.activeConfiguration || configurationDirty;
+    saveButton.disabled =
+      validating ||
+      !providerSelect.value ||
+      !modelSelect.value ||
+      !credentialSelect.value;
   }
 
   function renderConfiguration(): void {
@@ -325,41 +395,49 @@ export function mountAnswerSenseApp(
     const replaceCredentialSelect = element<HTMLSelectElement>(
       '[data-replace-credential-select]'
     );
-    const validationStatusElement = element<HTMLElement>(
-      '[data-validation-status]'
+    const configurationStatus = element<HTMLElement>(
+      '[data-configuration-status]'
     );
     const credentialStatus = element<HTMLElement>('[data-credential-status]');
     if (
       !providerSelect ||
       !modelSelect ||
       !credentialSelect ||
-      !validationStatusElement ||
+      !configurationStatus ||
       !credentialStatus
     )
       return;
 
     const active = configurationState.activeConfiguration;
+    const previousProviderId = providerSelect.value;
+    const previousModelId = modelSelect.value;
+    const previousCredentialId = credentialSelect.value;
     providerSelect.replaceChildren();
     for (const provider of configurationState.providers) {
       providerSelect.add(new Option(provider.displayName, provider.providerId));
     }
-    providerSelect.value =
-      (configurationState.providers.some(
-        (provider) => provider.providerId === active?.providerId
-      )
-        ? active?.providerId
-        : configurationState.providers[0]?.providerId) ?? '';
+    providerSelect.value = preserveConfigurationDraft && configurationState.providers.some(
+      (provider) => provider.providerId === previousProviderId
+    )
+      ? previousProviderId
+      : (configurationState.providers.some(
+            (provider) => provider.providerId === active?.providerId
+          )
+          ? active?.providerId
+          : configurationState.providers[0]?.providerId) ?? '';
     const models = modelsForProvider(configurationState, providerSelect.value);
     modelSelect.replaceChildren();
     for (const model of models)
       modelSelect.add(new Option(model.displayName, model.modelId));
-    const persistedModelId = models.some(
-      (model) => model.modelId === active?.modelId
+    const selectedModelId = preserveConfigurationDraft && models.some(
+      (model) => model.modelId === previousModelId
     )
-      ? active?.modelId
-      : undefined;
+      ? previousModelId
+      : models.some((model) => model.modelId === active?.modelId)
+        ? active?.modelId
+        : undefined;
     modelSelect.value =
-      persistedModelId ??
+      selectedModelId ??
       (models.some((model) => model.modelId === GEMINI_MODEL)
         ? GEMINI_MODEL
         : models[0]?.modelId ?? '');
@@ -376,7 +454,15 @@ export function mountAnswerSenseApp(
         new Option(credential.label || 'Unnamed API key', credential.credentialId)
       );
     }
-    if (active?.credentialId) credentialSelect.value = active.credentialId;
+    credentialSelect.value = preserveConfigurationDraft && providerCredentials.some(
+      (credential) => credential.credentialId === previousCredentialId
+    )
+      ? previousCredentialId
+      : (providerCredentials.some(
+            (credential) => credential.credentialId === active?.credentialId
+          )
+          ? active?.credentialId
+          : providerCredentials[0]?.credentialId) ?? '';
 
     if (replaceCredentialSelect) {
       replaceCredentialSelect.replaceChildren();
@@ -398,28 +484,16 @@ export function mountAnswerSenseApp(
       : 'Add an API key to configure a provider.';
     if (configurationGuidance) {
       configurationGuidance.textContent =
-        validGenerationMessage(configurationState) ??
+        (selectedConfigurationMatchesActive()
+          ? validGenerationMessage(configurationState)
+          : null) ??
         'Configure the extension before generating.';
     }
-    validationStatusElement.textContent = authorizationStatus(
-      configurationState,
+    configurationStatus.textContent = authorizationStatus(
+      configurationStateForSelection(),
       validating,
-      configurationDirty
+      !selectedConfigurationMatchesActive()
     );
-    const validationMessage = element<HTMLElement>('[data-validation-message]');
-    if (validationMessage) {
-      const generationMessage = validGenerationMessage(configurationState);
-      if (generationMessage) {
-        validationMessage.textContent = generationMessage;
-        validationMessage.hidden = false;
-      } else if (
-        validationMessage.textContent ===
-        'Configuration is valid. Generate is available on a supported page.'
-      ) {
-        validationMessage.textContent = '';
-        validationMessage.hidden = true;
-      }
-    }
     renderValidationAvailability();
   }
 
@@ -439,12 +513,63 @@ export function mountAnswerSenseApp(
   }
 
   async function reloadConfiguration(shouldRender = true): Promise<void> {
+    selectionLookupSequence += 1;
     configurationState = (await send({
       type: 'configuration-state',
     })) as unknown as ConfigurationState;
+    preserveConfigurationDraft = false;
     if (shouldRender) {
       renderAll(controller.state);
     }
+  }
+
+  async function refreshSelectedConfigurationValidation(): Promise<void> {
+    const selectedConfiguration = {
+      providerId: element<HTMLSelectElement>('[data-provider-select]')?.value ?? '',
+      modelId: element<HTMLSelectElement>('[data-model-select]')?.value ?? '',
+      credentialId:
+        element<HTMLSelectElement>('[data-credential-select]')?.value ?? '',
+    };
+    const lookupSequence = ++selectionLookupSequence;
+    if (
+      !selectedConfiguration.providerId ||
+      !selectedConfiguration.modelId ||
+      !selectedConfiguration.credentialId
+    ) {
+      configurationState = {
+        ...configurationState,
+        selectedConfiguration: null,
+        selectedConfigurationDigest: null,
+        selectedValidation: null,
+      };
+      renderConfiguration();
+      renderGeneration(controller.state);
+      return;
+    }
+    try {
+      const selectedState = (await send({
+        type: 'configuration-state',
+        selectedConfiguration,
+      })) as unknown as ConfigurationState;
+      if (lookupSequence !== selectionLookupSequence) return;
+      configurationState = {
+        ...configurationState,
+        selectedConfiguration: selectedState.selectedConfiguration ?? null,
+        selectedConfigurationDigest:
+          selectedState.selectedConfigurationDigest ?? null,
+        selectedValidation: selectedState.selectedValidation ?? null,
+      };
+    } catch {
+      if (lookupSequence !== selectionLookupSequence) return;
+      configurationState = {
+        ...configurationState,
+        selectedConfiguration: null,
+        selectedConfigurationDigest: null,
+        selectedValidation: null,
+      };
+    }
+    renderConfiguration();
+    renderGeneration(controller.state);
   }
 
   function showMessage(selector: string, text: string): void {
@@ -679,6 +804,8 @@ export function mountAnswerSenseApp(
     const credentialLabelElement = credentialLabel;
     const replaceCredentialSelectElement = replaceCredentialSelect;
     const providerSelectElement = providerSelect;
+    const modelSelectElement = modelSelect;
+    const credentialSelectElement = credentialSelect;
 
     function hideCredentialForms(): void {
       addCredentialFormElement.hidden = true;
@@ -720,7 +847,7 @@ export function mountAnswerSenseApp(
     }
 
     providerSelect.addEventListener('change', () => {
-      configurationDirty = true;
+      preserveConfigurationDraft = true;
       modelSelect.replaceChildren(
         ...modelsForProvider(configurationState, providerSelect.value).map(
           (model) => new Option(model.displayName, model.modelId)
@@ -745,15 +872,18 @@ export function mountAnswerSenseApp(
             )
           : [new Option('No API keys added yet', '')])
       );
-      renderValidationAvailability();
+      resetGenerationForConfigurationChange();
+      void refreshSelectedConfigurationValidation();
     });
     modelSelect.addEventListener('change', () => {
-      configurationDirty = true;
-      renderValidationAvailability();
+      preserveConfigurationDraft = true;
+      resetGenerationForConfigurationChange();
+      void refreshSelectedConfigurationValidation();
     });
     credentialSelect.addEventListener('change', () => {
-      configurationDirty = true;
-      renderValidationAvailability();
+      preserveConfigurationDraft = true;
+      resetGenerationForConfigurationChange();
+      void refreshSelectedConfigurationValidation();
     });
 
     addCredentialButton.addEventListener('click', () => {
@@ -810,6 +940,9 @@ export function mountAnswerSenseApp(
           const selectedCredential = configurationState.credentials.find(
             (credential) => credential.credentialId === selectedCredentialId
           );
+          const replacingActiveCredential =
+            configurationState.activeConfiguration?.credentialId ===
+            selectedCredentialId;
           const secret = promptForCredentialSecret('replace');
           if (secret === null) {
             return;
@@ -824,10 +957,10 @@ export function mountAnswerSenseApp(
           credentialLabel.value = '';
           hideCredentialForms();
           await reloadConfiguration();
-          showMessage(
-            '[data-credential-message]',
-            'API key replaced. Validate the configuration again.'
-          );
+          showMessage('[data-credential-message]', 'API key replaced.');
+          if (replacingActiveCredential) {
+            await saveAndValidateConfiguration();
+          }
         } catch (error) {
           showMessage(
             '[data-credential-message]',
@@ -842,29 +975,50 @@ export function mountAnswerSenseApp(
         hideCredentialForms();
       }
     );
-    element<HTMLButtonElement>('[data-save-configuration]')?.addEventListener(
-      'click',
-      async () => {
-        try {
-          configurationState = (await send({
-            type: 'configuration-set',
-            providerId: providerSelect.value,
-            modelId: modelSelect.value,
-            credentialId: credentialSelect.value,
-          })) as unknown as ConfigurationState;
-          configurationDirty = false;
-          showMessage(
-            '[data-validation-message]',
-            'Configuration saved. Validate it before generating.'
-          );
-          renderAll(controller.state);
-        } catch (error) {
-          showMessage(
-            '[data-validation-message]',
-            error instanceof Error ? error.message : 'Configuration could not be saved.'
-          );
-        }
+    async function saveAndValidateConfiguration(): Promise<void> {
+      if (validating) return;
+      const configurationMessage = element<HTMLElement>(
+        '[data-configuration-message]'
+      );
+      if (configurationMessage) {
+        configurationMessage.textContent = '';
+        configurationMessage.hidden = true;
       }
+      selectionLookupSequence += 1;
+      validating = true;
+      renderConfiguration();
+      renderGeneration(controller.state);
+      try {
+        configurationState = (await send({
+          type: 'configuration-set',
+          providerId: providerSelectElement.value,
+          modelId: modelSelectElement.value,
+          credentialId: credentialSelectElement.value,
+        })) as unknown as ConfigurationState;
+        preserveConfigurationDraft = false;
+        renderAll(controller.state);
+        if (!isCurrentValidationValid(configurationState)) {
+          await send({ type: 'configuration-validate' });
+          await reloadConfiguration();
+        }
+      } catch (error) {
+        await reloadConfiguration().catch(() => undefined);
+        showMessage(
+          '[data-configuration-message]',
+          error instanceof Error
+            ? error.message
+            : 'Configuration could not be validated.'
+        );
+      } finally {
+        validating = false;
+        renderConfiguration();
+        renderGeneration(controller.state);
+      }
+    }
+
+    element<HTMLButtonElement>('[data-save-validate-configuration]')?.addEventListener(
+      'click',
+      () => void saveAndValidateConfiguration()
     );
     element<HTMLButtonElement>('[data-delete-credential]')?.addEventListener(
       'click',
@@ -877,7 +1031,6 @@ export function mountAnswerSenseApp(
             });
           }
           await reloadConfiguration();
-          configurationDirty = false;
           renderAll(controller.state);
           showMessage('[data-credential-message]', 'API key deleted.');
         } catch (error) {
@@ -888,33 +1041,13 @@ export function mountAnswerSenseApp(
         }
       }
     );
-    element<HTMLButtonElement>('[data-validate-configuration]')?.addEventListener(
-      'click',
-      async () => {
-        if (validating) return;
-        validating = true;
-        renderConfiguration();
-        try {
-          await send({ type: 'configuration-validate' });
-          await reloadConfiguration();
-        } catch (error) {
-          await reloadConfiguration().catch(() => undefined);
-          showMessage(
-            '[data-validation-message]',
-            error instanceof Error ? error.message : 'Configuration validation failed.'
-          );
-        } finally {
-          validating = false;
-          renderConfiguration();
-          renderGeneration(controller.state);
-        }
-      }
-    );
   }
   primary.addEventListener('click', () => {
-    if (!isCurrentValidationValid(configurationState)) return;
+    if (!canGenerateCurrentSelection()) return;
     overridePresentation = null;
-    void controller.generate(renderAll).then((state) => renderAll(state));
+    const generation = controller.generate(renderAll);
+    localGenerationSnapshotPending = controller.state.name === 'GENERATING';
+    void generation.then((state) => renderAll(state));
   });
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;
@@ -926,6 +1059,23 @@ export function mountAnswerSenseApp(
   });
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'p7-state-updated' && message.snapshot) {
+      const snapshot = message.snapshot as WorkflowSnapshot & {
+        generationOperationId?: string | null;
+      };
+      const terminalGenerationSnapshot =
+        snapshot.generationOperationId == null &&
+        (snapshot.uiState === 'REVIEW' || snapshot.uiState === 'ERROR');
+      if (
+        invalidatedGenerationOperationToken !== null &&
+        terminalGenerationSnapshot
+      ) {
+        invalidatedGenerationOperationToken = null;
+        localGenerationSnapshotPending = false;
+        return;
+      }
+      if (terminalGenerationSnapshot && localGenerationSnapshotPending) {
+        localGenerationSnapshotPending = false;
+      }
       const state = controller.restore(message.snapshot as WorkflowSnapshot);
       overridePresentation = null;
       options.onState?.(state);

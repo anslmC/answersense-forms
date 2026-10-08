@@ -2,6 +2,7 @@ import { GeminiProviderError } from '../Generation/GeminiProvider';
 
 export type SafeProviderErrorCode =
   | 'AUTHENTICATION_FAILED'
+  | 'PERMISSION_DENIED'
   | 'INVALID_REQUEST'
   | 'RATE_LIMITED'
   | 'PROVIDER_UNAVAILABLE'
@@ -16,6 +17,8 @@ export interface SafeProviderError {
 
 const SAFE_MESSAGES: Record<SafeProviderErrorCode, string> = {
   AUTHENTICATION_FAILED: 'Credential invalid.',
+  PERMISSION_DENIED:
+    'This API key or project is not permitted to use the selected model. Check the key and project access.',
   INVALID_REQUEST: 'Provider request was invalid.',
   RATE_LIMITED: 'Provider rate limit reached.',
   PROVIDER_UNAVAILABLE: 'Provider unavailable.',
@@ -31,6 +34,8 @@ export function sanitizeProviderError(error: unknown): SafeProviderError {
     const code: SafeProviderErrorCode =
       error.code === 'AUTHENTICATION_FAILED'
         ? 'AUTHENTICATION_FAILED'
+        : error.code === 'PERMISSION_DENIED'
+          ? 'PERMISSION_DENIED'
         : error.code === 'RATE_LIMITED'
           ? 'RATE_LIMITED'
           : error.code === 'MALFORMED_PROVIDER_OUTPUT'

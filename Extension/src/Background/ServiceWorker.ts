@@ -64,6 +64,7 @@ interface WorkerMessage {
   label?: unknown;
   secret?: unknown;
   providerConfig?: unknown;
+  selectedConfiguration?: unknown;
   intent?: GenerationIntent;
 }
 
@@ -147,10 +148,29 @@ function notifyGenerationTerminalState(
   void notifyPopup({ type: 'p7-state-updated', snapshot }).catch(() => undefined);
 }
 
-async function configurationState(): Promise<Record<string, unknown>> {
+async function configurationState(
+  selection?: { providerId: string; modelId: string; credentialId: string }
+): Promise<Record<string, unknown>> {
   const activeConfiguration = await getActiveConfiguration();
   const identity = activeConfiguration
     ? await configurationIdentity(activeConfiguration)
+    : null;
+  const credentials = await listCredentials();
+  const selectedCredential = selection
+    ? credentials.find(
+        (credential) =>
+          credential.credentialId === selection.credentialId &&
+          credential.providerId === selection.providerId
+      )
+    : undefined;
+  const selectedConfiguration =
+    selection &&
+    selectedCredential &&
+    resolveProviderModel(selection.providerId, selection.modelId)
+      ? { ...selection, providerConfig: {} }
+      : null;
+  const selectedIdentity = selectedConfiguration
+    ? await configurationIdentity(selectedConfiguration)
     : null;
   return {
     providers: PROVIDER_REGISTRY.map((provider) => ({
@@ -162,11 +182,16 @@ async function configurationState(): Promise<Record<string, unknown>> {
       })),
       supportsValidation: provider.supportsValidation,
     })),
-    credentials: await listCredentials(),
+    credentials,
     activeConfiguration,
     configurationDigest: identity?.digest ?? null,
     configurationRevision: await getConfigurationStateRevision(),
     validation: identity ? await getValidation(identity.digest) : null,
+    selectedConfiguration,
+    selectedConfigurationDigest: selectedIdentity?.digest ?? null,
+    selectedValidation: selectedIdentity
+      ? await getValidation(selectedIdentity.digest)
+      : null,
   };
 }
 
@@ -331,7 +356,28 @@ export async function handleMessage(
     if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Configuration is only available to the extension UI.');
     }
-    return configurationState();
+    const selection =
+      typeof message.selectedConfiguration === 'object' &&
+      message.selectedConfiguration !== null &&
+      !Array.isArray(message.selectedConfiguration)
+        ? message.selectedConfiguration as {
+            providerId?: unknown;
+            modelId?: unknown;
+            credentialId?: unknown;
+          }
+        : null;
+    return configurationState(
+      selection &&
+        typeof selection.providerId === 'string' &&
+        typeof selection.modelId === 'string' &&
+        typeof selection.credentialId === 'string'
+        ? {
+            providerId: selection.providerId,
+            modelId: selection.modelId,
+            credentialId: selection.credentialId,
+          }
+        : undefined
+    );
   }
 
   if (message.type === 'credential-create') {

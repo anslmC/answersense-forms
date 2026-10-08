@@ -233,7 +233,9 @@ describe('Service Worker configuration API boundary', () => {
       providers: [
         expect.objectContaining({
           providerId: GEMINI_PROVIDER_ID,
-          models: [expect.objectContaining({ modelId: GEMINI_MODEL })],
+          models: expect.arrayContaining([
+            expect.objectContaining({ modelId: GEMINI_MODEL }),
+          ]),
         }),
       ],
     });
@@ -295,5 +297,150 @@ describe('Service Worker configuration API boundary', () => {
       handleMessage({ type: 'configuration-validate' }, untrustedSender())
     ).resolves.toEqual({ valid: true });
     expect(validationMock.validate).toHaveBeenCalledWith('raw-secret');
+  });
+
+  it('restores both validated key configurations when switching between them', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const first = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Primary',
+        secret: 'first-secret',
+      },
+      popupSender()
+    )) as { credentialId: string };
+    const second = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Backup',
+        secret: 'second-secret',
+      },
+      popupSender()
+    )) as { credentialId: string };
+
+    const selectConfiguration = (credentialId: string) =>
+      handleMessage(
+        {
+          type: 'configuration-set',
+          providerId: GEMINI_PROVIDER_ID,
+          modelId: GEMINI_MODEL,
+          credentialId,
+        },
+        popupSender()
+      );
+
+    await selectConfiguration(first.credentialId);
+    await handleMessage({ type: 'configuration-validate' }, popupSender());
+    await selectConfiguration(second.credentialId);
+    const unvalidatedSecond = (await handleMessage(
+      { type: 'configuration-state' }, popupSender()
+    )) as { validation: unknown };
+    expect(unvalidatedSecond.validation).toBeNull();
+    await handleMessage({ type: 'configuration-validate' }, popupSender());
+
+    const restoredFirst = (await selectConfiguration(first.credentialId)) as {
+      validation: { status: string; credentialId: string } | null;
+    };
+    expect(restoredFirst.validation).toMatchObject({
+      status: 'VALID',
+      credentialId: first.credentialId,
+    });
+    const restoredSecond = (await selectConfiguration(second.credentialId)) as {
+      validation: { status: string; credentialId: string } | null;
+    };
+    expect(restoredSecond.validation).toMatchObject({
+      status: 'VALID',
+      credentialId: second.credentialId,
+    });
+    const selectedFirst = (await handleMessage(
+      {
+        type: 'configuration-state',
+        selectedConfiguration: {
+          providerId: GEMINI_PROVIDER_ID,
+          modelId: GEMINI_MODEL,
+          credentialId: first.credentialId,
+        },
+      },
+      popupSender()
+    )) as {
+      activeConfiguration: { credentialId: string };
+      validation: { credentialId: string };
+      selectedValidation: { status: string; credentialId: string } | null;
+    };
+    expect(selectedFirst.activeConfiguration.credentialId).toBe(
+      second.credentialId
+    );
+    expect(selectedFirst.validation.credentialId).toBe(second.credentialId);
+    expect(selectedFirst.selectedValidation).toMatchObject({
+      status: 'VALID',
+      credentialId: first.credentialId,
+    });
+    const changedModel = (await handleMessage(
+      {
+        type: 'configuration-state',
+        selectedConfiguration: {
+          providerId: GEMINI_PROVIDER_ID,
+          modelId: 'gemini-3.5-flash-lite',
+          credentialId: first.credentialId,
+        },
+      },
+      popupSender()
+    )) as {
+      selectedConfigurationDigest: string | null;
+      selectedValidation: unknown;
+    };
+    expect(changedModel.selectedConfigurationDigest).not.toBeNull();
+    expect(changedModel.selectedValidation).toBeNull();
+    expect(validationMock.validate).toHaveBeenCalledTimes(2);
+  });
+
+  it('persists failed validation as INVALID and exposes only a readable safe message', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const created = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Primary',
+        secret: 'raw-secret',
+      },
+      popupSender()
+    )) as { credentialId: string };
+    await handleMessage(
+      {
+        type: 'configuration-set',
+        providerId: GEMINI_PROVIDER_ID,
+        modelId: GEMINI_MODEL,
+        credentialId: created.credentialId,
+      },
+      popupSender()
+    );
+    validationMock.validate.mockRejectedValueOnce(
+      new (await import('../src/Generation/GeminiProvider')).GeminiProviderError(
+        'PERMISSION_DENIED',
+        'provider response details'
+      )
+    );
+
+    await expect(
+      handleMessage({ type: 'configuration-validate' }, popupSender())
+    ).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+      message:
+        'This API key or project is not permitted to use the selected model. Check the key and project access.',
+    });
+    const configuration = (await handleMessage(
+      { type: 'configuration-state' },
+      popupSender()
+    )) as { validation: { status: string; failureCode?: string } | null };
+    expect(configuration.validation).toMatchObject({
+      status: 'INVALID',
+      failureCode: 'PERMISSION_DENIED',
+    });
   });
 });
