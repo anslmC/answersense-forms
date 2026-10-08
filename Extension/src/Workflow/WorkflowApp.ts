@@ -1024,14 +1024,18 @@ export function mountAnswerSenseApp(
       'click',
       async () => {
         try {
-          for (const credential of configurationState.credentials) {
-            await send({
-              type: 'credential-delete-selected',
-              credentialId: credential.credentialId,
-            });
+          const selectedCredentialId = credentialSelectElement.value;
+          if (!selectedCredentialId) {
+            showMessage('[data-credential-message]', 'Select an API key to delete.');
+            return;
           }
+          await send({
+            type: 'credential-delete-selected',
+            credentialId: selectedCredentialId,
+          });
           await reloadConfiguration();
           renderAll(controller.state);
+          await refreshSelectedConfigurationValidation();
           showMessage('[data-credential-message]', 'API key deleted.');
         } catch (error) {
           showMessage(

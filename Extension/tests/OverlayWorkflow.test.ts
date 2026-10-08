@@ -227,7 +227,15 @@ describe('live Overlay generation workflow', () => {
         };
         return currentConfigurationState;
       }
-      if (message.type === 'credential-delete-selected') return {};
+      if (message.type === 'credential-delete-selected') {
+        currentConfigurationState = {
+          ...currentConfigurationState,
+          credentials: currentConfigurationState.credentials.filter(
+            (credential) => credential.credentialId !== message.credentialId
+          ),
+        };
+        return {};
+      }
       if (message.type === 'configuration-validate') {
         keyOneValidated = true;
         currentConfigurationState = configurationState;
@@ -340,7 +348,7 @@ describe('live Overlay generation workflow', () => {
     expect(content?.textContent).toContain('API Keys');
     expect(content?.textContent).toContain('Add API key');
     expect(content?.textContent).toContain('Replace API key');
-    expect(content?.textContent).toContain('Delete All keys');
+    expect(content?.textContent).toContain('Delete this key');
     expect(content?.textContent).not.toContain('Credential');
     expect(content?.querySelector('[data-add-credential-form]')?.textContent).toContain(
       'Key Name'
@@ -380,12 +388,43 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
     });
+    currentConfigurationState = {
+      ...currentConfigurationState,
+      credentials: [
+        ...currentConfigurationState.credentials,
+        {
+          credentialId: 'credential-2',
+          providerId: 'gemini',
+          label: 'Backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    await overlay.refresh();
+    const deleteCredentialSelect = content?.querySelector<HTMLSelectElement>(
+      '[data-credential-select]'
+    );
+    if (!deleteCredentialSelect) throw new Error('API key selector missing.');
+    deleteCredentialSelect.value = 'credential-2';
+    deleteCredentialSelect.dispatchEvent(new Event('change'));
     content?.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'credential-delete-selected',
-        credentialId: 'credential-1',
+        credentialId: 'credential-2',
       });
+    });
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'credential-delete-selected'
+      )
+    ).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(
+        currentConfigurationState.credentials.map((credential) => credential.credentialId)
+      ).toEqual(['credential-1']);
+      expect(deleteCredentialSelect.value).toBe('credential-1');
     });
     await vi.waitFor(() => {
       expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(

@@ -201,7 +201,7 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
             Save &amp; Validate
           </button>
           <button type="button" class="secondary" data-delete-credential>
-            Delete All keys
+            Delete this key
           </button>
         </div>
         <p class="detail" data-credential-status>Loading configuration...</p>
