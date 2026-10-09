@@ -57,9 +57,6 @@ export function extractQuestionId(
   const metadata = Array.from(
     question.querySelectorAll<HTMLElement>('[data-params]')
   );
-  if (metadata.length > 1) {
-    return null;
-  }
 
   if (metadata.length === 1) {
     const payload = parsePayload(metadata[0].getAttribute('data-params') ?? '');

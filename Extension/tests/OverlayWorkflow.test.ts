@@ -5,6 +5,7 @@ import { mountOverlay, type OverlayHandle } from '../src/Overlay/Overlay';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { waitForInitialDiscovery } from '../src/Content/Navigation';
+import type { QuestionResult } from '../src/Models/Logical';
 
 const configurationState = {
   providers: [
@@ -1327,11 +1328,55 @@ describe('live Overlay generation workflow', () => {
         };
       }
       if (message.type === 'p7-generate') {
+        const skippedQuestionIds: Array<string | null> = [
+          'already-filled',
+          ...Array.from({ length: 9 }, (_, index) => `skipped-${index + 2}`),
+          null,
+        ];
+        const results: QuestionResult[] = [
+          ...skippedQuestionIds.map((questionId, index) => ({
+            questionId,
+            status: 'ABSTAINED' as const,
+            answer: null,
+            reason: index === 0 ? 'LOW_CONFIDENCE' : 'UNABLE_TO_DETERMINE',
+          })),
+          {
+            questionId: 'unfilled-only',
+            status: 'GENERATED',
+            answer: { questionId: 'unfilled-only', value: 'Not filled' },
+            reason: null,
+          },
+          {
+            questionId: 'failed-12',
+            status: 'GENERATION_FAILED',
+            answer: null,
+            reason: 'Generation failed.',
+          },
+        ];
         return {
-          report: { cycleId: 'cycle-zero-skipped', status: 'complete' as const, results: [] },
+          report: {
+            cycleId: 'cycle-zero-skipped',
+            status: 'partial' as const,
+            results,
+          },
           fillReport: {
             cycleId: 'cycle-zero-skipped',
-            outcomes: [{ questionId: 'unanswered', status: 'SKIPPED' as const }],
+            outcomes: [
+              ...skippedQuestionIds.map((questionId) => ({
+                questionId,
+                status: 'SKIPPED' as const,
+                reason: 'The reviewed answer was skipped.',
+                answer: null,
+                code: null,
+              })),
+              {
+                questionId: 'failed-12',
+                status: 'FILL_FAILED' as const,
+                reason: 'The current DOM question was not found.',
+                answer: null,
+                code: 'ELEMENT_NOT_FOUND' as const,
+              },
+            ],
           },
         };
       }
@@ -1357,11 +1402,69 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => {
-      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent).toBe(
-        '0 filled · 0 already filled · 0 failed · 1 skipped'
+      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.firstChild?.textContent).toBe(
+        '0 filled · 1 already filled · 1 failed · 11 skipped'
       );
       expect(overrideAction()?.hidden).toBe(false);
     });
+    const tooltipTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
+      '.skipped-details-trigger'
+    );
+    expect(tooltipTrigger?.querySelector('svg.validation-failure-info')).not.toBeNull();
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('false');
+    const tooltipAnchor = tooltipTrigger?.parentElement;
+    const mouseEnter = new Event('pointerenter');
+    Object.defineProperty(mouseEnter, 'pointerType', { value: 'mouse' });
+    tooltipAnchor?.dispatchEvent(mouseEnter);
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const mouseLeave = new Event('pointerleave');
+    Object.defineProperty(mouseLeave, 'pointerType', { value: 'mouse' });
+    tooltipAnchor?.dispatchEvent(mouseLeave);
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const tooltipPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#skipped-question-details'
+    );
+    const panelEnter = new Event('pointerenter');
+    Object.defineProperty(panelEnter, 'pointerType', { value: 'mouse' });
+    tooltipPanel?.dispatchEvent(panelEnter);
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const panelLeave = new Event('pointerleave');
+    Object.defineProperty(panelLeave, 'pointerType', { value: 'mouse' });
+    tooltipPanel?.dispatchEvent(panelLeave);
+    await vi.waitFor(() =>
+      expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('false')
+    );
+    tooltipTrigger?.focus();
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('true');
+    tooltipTrigger?.blur();
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('false');
+    const touchDown = new Event('pointerdown');
+    Object.defineProperty(touchDown, 'pointerType', { value: 'touch' });
+    tooltipTrigger?.dispatchEvent(touchDown);
+    tooltipTrigger?.click();
+    expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const tooltip = shadowRoot?.querySelector<HTMLElement>(
+      '#skipped-question-details'
+    );
+    expect(tooltip?.getAttribute('aria-hidden')).toBe('false');
+    const tooltipItems = tooltip?.querySelectorAll('li') ?? [];
+    expect(tooltipItems).toHaveLength(11);
+    expect(tooltipItems[0]?.textContent).toContain('Question ID already-filled');
+    expect(tooltipItems[0]?.textContent).toContain('Already filled question');
+    expect(tooltipItems[0]?.textContent).toContain(
+      'No confident answer was available.'
+    );
+    expect(tooltipItems[1]?.textContent).toContain('Question ID skipped-2');
+    expect(tooltipItems[1]?.textContent).toContain(
+      'An answer could not be determined.'
+    );
+    expect(tooltipItems[10]?.textContent).toContain('Question ID unavailable');
+    expect(tooltipItems[10]?.textContent).not.toContain('failed-12');
+    expect(tooltipItems[10]?.textContent).not.toContain('unfilled-only');
+    const overlayCss = readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8');
+    expect(overlayCss).toMatch(
+      /\.skipped-details-panel\s*\{[^}]*max-height:\s*min\(280px,[^}]*overflow-y:\s*auto;/
+    );
     overrideAction()?.click();
     expect(
       shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input')
@@ -1431,15 +1534,115 @@ describe('live Overlay generation workflow', () => {
     const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
     const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
     const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const overrideRefresh = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-refresh]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => expect(overrideAction()?.hidden).toBe(false));
+    expect(overrideRefresh()?.hidden).toBe(false);
     overrideAction()?.click();
     shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]')?.click();
     expect(
       shadowRoot?.querySelectorAll('[data-override-specific-list] input')
     ).toHaveLength(4);
+    expect(
+      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
+    ).toHaveLength(1);
+  });
+
+  it('refreshes only Override candidates when its filled-answer count is zero', async () => {
+    const noFilledResult = {
+      report: { cycleId: 'cycle-1', status: 'complete' as const, results: [] },
+      fillReport: { cycleId: 'cycle-1', outcomes: [] },
+    };
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createUnfilledSnapshot();
+      if (message.type === 'p7-generate') return noFilledResult;
+      return {};
+    });
+    const onRefresh = vi.fn(async () => undefined);
+
+    const page = document.createElement('section');
+    page.dataset.pageId = 'page-1';
+    page.dataset.answersenseActivePage = 'true';
+    for (let index = 1; index <= 4; index += 1) {
+      const question = document.createElement('div');
+      question.setAttribute('role', 'listitem');
+      question.dataset.questionId = `question-${index}`;
+      question.dataset.questionType = 'short-text';
+      question.dataset.questionText = `Question ${index}`;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = `Detected answer ${index}`;
+      question.append(input);
+      page.append(question);
+    }
+    document.body.append(page);
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay({ onRefresh });
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideRefresh = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-refresh]');
+    const candidateInputs = () =>
+      shadowRoot?.querySelectorAll<HTMLInputElement>(
+        '[data-override-specific-list] input[type="checkbox"]'
+      );
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    expect(overrideRefresh()?.hidden).toBe(true);
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent).toBe(
+        'Review answers'
+      )
+    );
+    expect(overrideRefresh()?.hidden).toBe(false);
+    expect(overrideRefresh()?.getAttribute('aria-label')).toBe(
+      'Refresh filled-answer detection'
+    );
+    expect(candidateInputs()).toHaveLength(0);
+
+    overrideRefresh()?.click();
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('[data-override-flow]')?.hidden
+      ).toBe(false)
+    );
+    expect(overrideRefresh()?.hidden).toBe(false);
+    expect(candidateInputs()).toHaveLength(4);
+    expect(shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent).toBe(
+      'Review answers'
+    );
+    expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')).not.toBeNull();
+    candidateInputs()?.[0]?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>(
+        '[data-override-confirmation-text]'
+      )?.textContent
+    ).toBe('Override 1 filled answer?');
+    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>(
+        '[data-override-confirmation-text]'
+      )?.textContent
+    ).toBe('Override 4 filled answers?');
+
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(
+      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
+    ).toHaveLength(1);
     expect(
       sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
     ).toHaveLength(1);

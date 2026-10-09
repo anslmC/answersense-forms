@@ -21,20 +21,24 @@ export interface FinalizedPageHandoff {
   readonly entries: readonly FinalizedPageAnswer[];
 }
 
-export function snapshotAnswer(
+export type AnswerSnapshot =
+  | { status: 'unavailable'; answer: null }
+  | { status: 'captured'; answer: Answer | null };
+
+export function captureAnswerSnapshot(
   document: Document,
   form: Form,
   questionId: string
-): Answer | null {
+): AnswerSnapshot {
   const question = form.questions.find(
     (candidate) => candidate.id === questionId
   );
   if (!question) {
-    return null;
+    return { status: 'unavailable', answer: null };
   }
   const resolved = resolveCurrentQuestionTarget(document, question);
   if (!resolved.ok) {
-    return null;
+    return { status: 'unavailable', answer: null };
   }
 
   if (
@@ -44,25 +48,39 @@ export function snapshotAnswer(
     const control = resolved.target.control;
     const value =
       'value' in control ? control.value : (control.textContent ?? '');
-    return value ? { questionId, value } : null;
+    return {
+      status: 'captured',
+      answer: value ? { questionId, value } : null,
+    };
   }
 
   if (
     resolved.target.kind !== 'single-choice' &&
     resolved.target.kind !== 'multiple-choice'
   ) {
-    return null;
+    return { status: 'unavailable', answer: null };
   }
   const selected = resolved.target.options
     .filter(isOptionSelected)
     .map(getOptionLabel);
   if (selected.length === 0) {
-    return null;
+    return { status: 'captured', answer: null };
   }
   return {
-    questionId,
-    value: resolved.target.kind === 'multiple-choice' ? selected : selected[0],
+    status: 'captured',
+    answer: {
+      questionId,
+      value: resolved.target.kind === 'multiple-choice' ? selected : selected[0],
+    },
   };
+}
+
+export function snapshotAnswer(
+  document: Document,
+  form: Form,
+  questionId: string
+): Answer | null {
+  return captureAnswerSnapshot(document, form, questionId).answer;
 }
 
 export function createFinalizedPageHandoff(

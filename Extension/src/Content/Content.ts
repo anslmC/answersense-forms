@@ -137,7 +137,9 @@ async function resynchronizeCurrentPage(): Promise<void> {
   if (!discovered) {
     throw new Error('Active page could not be discovered for refresh.');
   }
-  ensureLifecycle(discovered).resynchronizeCurrentPage(discovered);
+  const pageLifecycle = ensureLifecycle(discovered);
+  pageLifecycle.captureCurrentAnswers(document, false);
+  pageLifecycle.resynchronizeCurrentPage(discovered);
   await publishResetSnapshot();
 }
 
@@ -149,6 +151,9 @@ async function synchronizeCurrentPage(): Promise<
     throw new Error('Active page could not be discovered for generation.');
   }
   const pageLifecycle = ensureLifecycle(discovered);
+  if (!pageLifecycle.pendingNavigation) {
+    pageLifecycle.captureCurrentAnswers(document, false);
+  }
   const synchronization = pageLifecycle.synchronizeCurrentPage(discovered);
   if (synchronization === 'resynchronized') {
     await publishResetSnapshot();

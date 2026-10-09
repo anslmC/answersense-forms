@@ -9,14 +9,19 @@ import {
 } from './Configuration';
 import { createBrowserWorkflow } from './Workflow';
 import { GEMINI_MODEL } from '../Generation/GeminiProvider';
+import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
+import type { QuestionResult } from '../Models/Logical';
+import type { FillOutcome } from '../Fill/Filler';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
   filledOverrideCandidates,
   overrideQuestionLabel,
   type GeneratedUiResult,
+  type PageSummary,
   type UiState,
   type WorkflowSnapshot,
+  type WorkflowQuestion,
 } from './State';
 import {
   createOverrideFilledIntent,
@@ -68,6 +73,10 @@ export function mountAnswerSenseApp(
   let pendingOverrideIntent: GenerationIntent | null = null;
   let pendingAllQuestionIds: readonly string[] | null = null;
   let selectedSpecificQuestionIds: string[] = [];
+  let refreshedOverridePage: {
+    sourcePage: PageSummary;
+    page: PageSummary;
+  } | null = null;
 
   const controller = new WorkflowController(createBrowserWorkflow());
   let primaryAction: HTMLButtonElement | null = null;
@@ -95,6 +104,13 @@ export function mountAnswerSenseApp(
       selectedConfigurationMatchesActive() &&
       isCurrentValidationValid(configurationState)
     );
+  }
+
+  function overridePageForState(state: UiState): PageSummary | null {
+    if (state.name === 'UNSUPPORTED') return null;
+    return refreshedOverridePage?.sourcePage === state.page
+      ? refreshedOverridePage.page
+      : state.page;
   }
 
   function configurationStateForSelection(): ConfigurationState {
@@ -152,16 +168,24 @@ export function mountAnswerSenseApp(
     renderAll(state);
   }
 
-  function appendRefreshAction(container: HTMLElement): void {
+  function createRefreshAction(
+    label = 'Refresh',
+    onClick: () => void | Promise<void> = () => options.onRefresh?.()
+  ): HTMLButtonElement {
     const refresh = createElement('button') as HTMLButtonElement;
     refresh.type = 'button';
     refresh.className = 'override-failure-refresh';
     refresh.textContent = '↻';
-    refresh.title = 'Refresh';
-    refresh.setAttribute('aria-label', 'Refresh');
+    refresh.title = label;
+    refresh.setAttribute('aria-label', label);
     refresh.addEventListener('click', () => {
-      void options.onRefresh?.();
+      void onClick();
     });
+    return refresh;
+  }
+
+  function appendRefreshAction(container: HTMLElement): void {
+    const refresh = createRefreshAction();
     container.append(refresh);
   }
 
@@ -175,6 +199,11 @@ export function mountAnswerSenseApp(
     infoTooltip.setAttribute('aria-label', tooltipText);
     infoTooltip.tabIndex = 0;
 
+    infoTooltip.append(createValidationFailureInfoIcon());
+    return infoTooltip;
+  }
+
+  function createValidationFailureInfoIcon(): SVGSVGElement {
     const svgDocument = ownerDocument ?? document;
     const svgNamespace = 'http://www.w3.org/2000/svg';
     const infoIcon = svgDocument.createElementNS(svgNamespace, 'svg');
@@ -203,8 +232,223 @@ export function mountAnswerSenseApp(
     );
     iconCarrier.append(alertPath);
     infoIcon.append(backgroundCarrier, tracerCarrier, iconCarrier);
-    infoTooltip.append(infoIcon);
-    return infoTooltip;
+    return infoIcon;
+  }
+
+  function skippedReason(
+    result: QuestionResult | undefined,
+    fillReason: string | null
+  ): string {
+    if (result?.status === 'GENERATION_FAILED') {
+      return 'Answer generation failed.';
+    }
+    if (result?.status === 'VALIDATION_FAILED') {
+      return 'The generated answer did not match the question.';
+    }
+    const recordedReason = result?.reason?.trim() || fillReason?.trim();
+    if (!recordedReason) return 'Reason unavailable.';
+    if (recordedReason === 'LOW_CONFIDENCE') {
+      return 'No confident answer was available.';
+    }
+    if (recordedReason === 'UNABLE_TO_DETERMINE') {
+      return 'An answer could not be determined.';
+    }
+    if (recordedReason === 'NOT_APPLICABLE') {
+      return 'The question did not have an applicable answer.';
+    }
+    if (recordedReason === 'The reviewed answer was skipped.') {
+      return 'Skipped during review.';
+    }
+    const conciseReason = recordedReason.replace(/\s+/g, ' ');
+    return conciseReason.length > 180
+      ? `${conciseReason.slice(0, 177).trimEnd()}...`
+      : conciseReason;
+  }
+
+  function appendSkippedQuestionDetails(
+    summary: HTMLElement,
+    outcomes: readonly FillOutcome[],
+    generationResults: ReadonlyMap<string | null, QuestionResult>,
+    questions: readonly WorkflowQuestion[]
+  ): void {
+    const skippedOutcomes = outcomes.filter(
+      (outcome) => outcome.status === 'SKIPPED'
+    );
+    if (skippedOutcomes.length === 0) return;
+
+    const details = createElement('span');
+    details.className = 'skipped-details';
+    const trigger = createElement('button') as HTMLButtonElement;
+    trigger.type = 'button';
+    trigger.className = 'skipped-details-trigger';
+    trigger.setAttribute(
+      'aria-label',
+      `Show details for ${skippedOutcomes.length} skipped question${skippedOutcomes.length === 1 ? '' : 's'}`
+    );
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', 'skipped-question-details');
+
+    const icon = createValidationFailureInfoIcon();
+    icon.classList.add('skipped-details-icon');
+    icon.removeAttribute('id');
+    icon.querySelectorAll('[id]').forEach((element) =>
+      element.removeAttribute('id')
+    );
+    trigger.append(icon);
+
+    const panel = createElement('div');
+    panel.id = 'skipped-question-details';
+    panel.className = 'skipped-details-panel';
+    panel.setAttribute('role', 'region');
+    panel.setAttribute('aria-label', 'Skipped questions and reasons');
+    panel.setAttribute('aria-hidden', 'true');
+    panel.tabIndex = 0;
+    const list = createElement('ul');
+    list.className = 'skipped-details-list';
+
+    for (const outcome of skippedOutcomes) {
+      const questionId = outcome.questionId;
+      const question = questions.find(
+        (candidate) => candidate.id === questionId
+      );
+      const generationResult = generationResults.get(questionId);
+      const item = createElement('li');
+      item.className = 'skipped-details-item';
+
+      const identity = createElement('strong');
+      identity.textContent =
+        typeof questionId === 'string'
+          ? `Question ID ${questionId}`
+          : 'Question ID unavailable';
+      item.append(identity);
+
+      const title = question?.text?.trim();
+      if (title) {
+        const titleText = createElement('span');
+        titleText.className = 'skipped-details-title';
+        titleText.textContent = title;
+        item.append(titleText);
+      }
+
+      const reason = createElement('span');
+      reason.className = 'skipped-details-reason';
+      reason.textContent = skippedReason(generationResult, outcome.reason);
+      item.append(reason);
+      list.append(item);
+    }
+
+    panel.append(list);
+    details.append(trigger, panel);
+
+    let hovered = false;
+    let focused = false;
+    let pinned = false;
+    let lastPointerType: string | null = null;
+    let hoverCloseTimeout: number | null = null;
+    let hoveringDetails = false;
+    const cancelHoverClose = (): void => {
+      if (hoverCloseTimeout !== null) {
+        window.clearTimeout(hoverCloseTimeout);
+        hoverCloseTimeout = null;
+      }
+    };
+    const scheduleHoverClose = (): void => {
+      cancelHoverClose();
+      hoverCloseTimeout = window.setTimeout(() => {
+        hoverCloseTimeout = null;
+        hoveringDetails = false;
+        if (!trigger.matches(':focus-visible')) focused = false;
+        updateVisibility();
+      }, 160);
+    };
+    const updateVisibility = (): void => {
+      const visible = hovered || hoveringDetails || focused || pinned;
+      details.dataset.visible = String(visible);
+      trigger.setAttribute('aria-expanded', String(visible));
+      panel.setAttribute('aria-hidden', String(!visible));
+      if (!visible) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const panelWidth = Math.min(panel.offsetWidth || 320, viewportWidth - 24);
+      const panelHeight = Math.min(panel.offsetHeight || 220, viewportHeight - 24);
+      const left = Math.min(
+        Math.max(12, triggerRect.left),
+        Math.max(12, viewportWidth - panelWidth - 12)
+      );
+      const below = triggerRect.bottom + 6;
+      const top =
+        below + panelHeight <= viewportHeight - 12
+          ? below
+          : Math.max(12, triggerRect.top - panelHeight - 6);
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+
+    details.addEventListener('pointerenter', (event) => {
+      cancelHoverClose();
+      lastPointerType = event.pointerType;
+      hovered = true;
+      updateVisibility();
+    });
+    details.addEventListener('pointerleave', (event) => {
+      const pointerType = event.pointerType || lastPointerType;
+      lastPointerType = null;
+      hovered = false;
+      if (pointerType !== 'touch') {
+        pinned = false;
+        if (!trigger.matches(':focus-visible')) focused = false;
+      }
+      if (hoveringDetails) {
+        updateVisibility();
+      } else {
+        scheduleHoverClose();
+      }
+    });
+    panel.addEventListener('pointerenter', (event) => {
+      cancelHoverClose();
+      lastPointerType = event.pointerType;
+      hoveringDetails = true;
+      updateVisibility();
+    });
+    panel.addEventListener('pointerleave', (event) => {
+      lastPointerType = null;
+      hoveringDetails = false;
+      if (event.relatedTarget instanceof Node && details.contains(event.relatedTarget)) {
+        hovered = true;
+        updateVisibility();
+      } else {
+        scheduleHoverClose();
+      }
+    });
+    details.addEventListener('focusin', () => {
+      focused = true;
+      updateVisibility();
+    });
+    details.addEventListener('focusout', (event) => {
+      if (
+        event.relatedTarget instanceof Node &&
+        details.contains(event.relatedTarget)
+      ) {
+        return;
+      }
+      focused = false;
+      updateVisibility();
+    });
+    trigger.addEventListener('pointerdown', (event) => {
+      lastPointerType = event.pointerType;
+    });
+    trigger.addEventListener('click', () => {
+      if (lastPointerType === 'touch') {
+        pinned = !pinned;
+      } else {
+        pinned = false;
+      }
+      updateVisibility();
+    });
+
+    summary.append(details);
   }
 
   function renderGeneration(state: UiState): void {
@@ -242,13 +486,13 @@ export function mountAnswerSenseApp(
     }
     renderConfigurationGenerationLock(state.name === 'GENERATING');
 
+    const hideOverride =
+      state.name !== 'REVIEW' || 'status' in state.result;
     if (overrideAction) {
-      const hideOverride =
-        state.name !== 'REVIEW' || 'status' in state.result;
       overrideAction.toggleAttribute('hidden', hideOverride);
       overrideAction.disabled = state.name === 'GENERATING';
     }
-
+    overrideRefresh?.toggleAttribute('hidden', hideOverride);
     results.replaceChildren();
     results.hidden = true;
     message.hidden = true;
@@ -373,9 +617,31 @@ export function mountAnswerSenseApp(
       const filledCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILLED'
       ).length;
-      const alreadyFilledCount = summaryOutcomes.filter(
-        ({ status }) => status === 'PRESERVED_EXISTING'
-      ).length;
+      const newlyFilledQuestionIds = new Set(
+        summaryOutcomes
+          .filter(
+            ({ status }) => status === 'FILLED' || status === 'PARTIAL_FILL'
+          )
+          .flatMap((outcome) =>
+            typeof outcome.questionId === 'string' ? [outcome.questionId] : []
+          )
+      );
+      const alreadyFilledQuestionIds = new Set(
+        summaryOutcomes
+          .filter(({ status }) => status === 'PRESERVED_EXISTING')
+          .flatMap((outcome) =>
+            typeof outcome.questionId === 'string' ? [outcome.questionId] : []
+          )
+      );
+      for (const question of filledOverrideCandidates(state.page)) {
+        if (
+          question.id !== null &&
+          !newlyFilledQuestionIds.has(question.id)
+        ) {
+          alreadyFilledQuestionIds.add(question.id);
+        }
+      }
+      const alreadyFilledCount = alreadyFilledQuestionIds.size;
       const failedCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
       ).length;
@@ -392,7 +658,29 @@ export function mountAnswerSenseApp(
       const summary = createElement('p');
       summary.className = 'result-summary';
       summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped${overridedCount > 0 ? ` · ${overridedCount} overrided` : ''}`;
-      results.append(summary);
+      const summaryRow = createElement('div');
+      summaryRow.className = 'result-summary-row';
+      summaryRow.append(summary);
+      const generationResults = new Map<string | null, QuestionResult>();
+      if (activeOverridePresentation) {
+        for (const result of activeOverridePresentation.normalResult.report.results) {
+          generationResults.set(result.questionId, result);
+        }
+        for (const result of activeOverridePresentation.overrideResult.report.results) {
+          generationResults.set(result.questionId, result);
+        }
+      } else {
+        for (const result of state.result.report.results) {
+          generationResults.set(result.questionId, result);
+        }
+      }
+      appendSkippedQuestionDetails(
+        summaryRow,
+        summaryOutcomes,
+        generationResults,
+        state.page.questions ?? []
+      );
+      results.append(summaryRow);
       let hasFailureAction = false;
       if (isOverrideResult) {
         const failedOverrides = activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
@@ -781,6 +1069,16 @@ export function mountAnswerSenseApp(
   }
 
   const overrideAction = element<HTMLButtonElement>('[data-override-action]');
+  const overrideRefresh = overrideAction
+    ? createRefreshAction(
+        'Refresh filled-answer detection',
+        refreshOverrideCandidates
+      )
+    : null;
+  if (overrideRefresh) {
+    overrideRefresh.dataset.overrideRefresh = '';
+    overrideAction?.after(overrideRefresh);
+  }
   const overrideAll = element<HTMLButtonElement>('[data-override-all]');
   const overrideUncheck = element<HTMLButtonElement>('[data-override-uncheck]');
   const overrideConfirmation = element<HTMLElement>('[data-override-confirmation]');
@@ -837,8 +1135,9 @@ export function mountAnswerSenseApp(
   function renderSpecificQuestions(): void {
     const list = element<HTMLElement>('[data-override-specific-list]');
     const state = controller.state;
-    if (!list || state.name === 'UNSUPPORTED' || !state.page) return;
-    const filledQuestions = filledOverrideCandidates(state.page);
+    const page = overridePageForState(state);
+    if (!list || !page) return;
+    const filledQuestions = filledOverrideCandidates(page);
     list.replaceChildren();
     for (const question of filledQuestions) {
       const label = createElement('label');
@@ -873,7 +1172,7 @@ export function mountAnswerSenseApp(
     list.removeAttribute('hidden');
   }
 
-  overrideAction?.addEventListener('click', () => {
+  function openOverrideSection(): void {
     const flow = element<HTMLElement>('[data-override-flow]');
     if (!flow || controller.state.name === 'UNSUPPORTED') return;
     const shouldOpen = flow.hidden;
@@ -886,10 +1185,114 @@ export function mountAnswerSenseApp(
       renderSpecificQuestions();
       if (overrideMessage) overrideMessage.textContent = '';
     }
-  });
+  }
+
+  async function refreshOverrideCandidates(): Promise<void> {
+    const state = controller.state;
+    if (state.name !== 'REVIEW' || 'status' in state.result) return;
+    try {
+      const discovered = discoverActiveGoogleFormsPage(
+        ownerDocument ?? document
+      );
+      if (
+        !discovered ||
+        discovered.pageId !== state.page.pageId ||
+        discovered.questions.length === 0
+      ) {
+        return;
+      }
+      const previousSupportedIds = new Set(
+        (state.page.questions ?? [])
+          .filter(
+            (question) =>
+              question.supported && question.id !== null && question.id.trim()
+          )
+          .map((question) => question.id as string)
+      );
+      const hasReadableQuestion = discovered.questions.some(
+        (question) =>
+          question.kind === 'supported' &&
+          question.id !== null &&
+          (previousSupportedIds.size === 0 ||
+            previousSupportedIds.has(question.id))
+      );
+      if (!hasReadableQuestion) return;
+
+      const questions: WorkflowQuestion[] = discovered.questions.map(
+        (question) =>
+          question.kind === 'supported'
+            ? {
+                id: question.id,
+                text: question.text,
+                type: question.type,
+                supported: true,
+                existingInput: { hasValue: question.existingValue !== null },
+              }
+            : {
+                id: question.id,
+                text: question.text,
+                type: null,
+                supported: false,
+                existingInput: null,
+              }
+      );
+      const refreshedPage: PageSummary = {
+        ...state.page,
+        questionCount: questions.length,
+        questions,
+      };
+      const candidates = filledOverrideCandidates(refreshedPage);
+      const candidateIds = new Set(
+        candidates.map((question) => question.id as string)
+      );
+      const wasAllSelection = pendingAllQuestionIds !== null;
+      selectedSpecificQuestionIds = selectedSpecificQuestionIds.filter((id) =>
+        candidateIds.has(id)
+      );
+      refreshedOverridePage = {
+        sourcePage: state.page,
+        page: refreshedPage,
+      };
+
+      const flow = element<HTMLElement>('[data-override-flow]');
+      if (flow?.hidden) {
+        openOverrideSection();
+        return;
+      }
+
+      if (selectedSpecificQuestionIds.length === 0) {
+        pendingAllQuestionIds = null;
+        pendingOverrideIntent = null;
+        overrideConfirmation?.setAttribute('hidden', '');
+      } else {
+        const updatedIntent = createSpecificOverrideIntent(
+          selectedSpecificQuestionIds
+        );
+        pendingOverrideIntent = updatedIntent;
+        pendingAllQuestionIds = wasAllSelection
+          ? [...selectedSpecificQuestionIds]
+          : null;
+        options.onOverrideIntent?.(updatedIntent);
+        if (overrideConfirmationText) {
+          overrideConfirmationText.textContent =
+            `Override ${selectedSpecificQuestionIds.length} filled answer${selectedSpecificQuestionIds.length === 1 ? '' : 's'}?`;
+        }
+        overrideConfirmation?.removeAttribute('hidden');
+      }
+
+      if (flow && !flow.hidden) {
+        renderSpecificQuestions();
+      }
+    } catch {
+      return;
+    }
+  }
+
+  overrideAction?.addEventListener('click', openOverrideSection);
   overrideAll?.addEventListener('click', () => {
-    if (controller.state.name === 'UNSUPPORTED' || !controller.state.page) return;
-    const intent = createAllOverrideIntent(controller.state.page);
+    const page = overridePageForState(controller.state);
+    if (!page) return;
+    const intent = createAllOverrideIntent(page);
     if (intent.type !== 'OVERRIDE_FILLED') return;
     const selected = [...intent.selectedQuestionIds];
     selectedSpecificQuestionIds = selected;

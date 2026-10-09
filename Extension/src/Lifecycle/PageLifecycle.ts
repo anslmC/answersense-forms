@@ -5,7 +5,7 @@ import {
   normalizeDiscoveredActivePage,
 } from '../Forms/Normalization';
 import type { FinalizedPageHandoff } from '../Fill/Handoff';
-import { snapshotAnswer } from '../Fill/Handoff';
+import { captureAnswerSnapshot } from '../Fill/Handoff';
 import {
   capturePendingPageAtSettlement,
   commitPendingPageAfterSuccessfulTransition,
@@ -37,6 +37,7 @@ export interface LifecycleSnapshot {
   activeCycle: ProcessingCycle;
   pending: PendingPageState | null;
   settledPages: readonly SettledPageState[];
+  capturedQuestionIds?: readonly string[];
   visits: readonly PageVisit[];
   navigation: PendingNavigation | null;
   revisitStatus?: PageRevisitStatus;
@@ -49,6 +50,7 @@ export class PageLifecycle {
   private pending: PendingPageState | null = null;
   private navigation: PendingNavigation | null = null;
   private oldPageDocument: Document | null = null;
+  private readonly capturedQuestionIds = new Set<string>();
   private revisitStatus: PageRevisitStatus = 'NEW';
   private readonly settledPages: SettledPageState[] = [];
   private readonly visits: PageVisit[] = [];
@@ -63,6 +65,9 @@ export class PageLifecycle {
       this.activePage = snapshot.activePage;
       this.activeCycle = snapshot.activeCycle;
       this.pending = snapshot.pending;
+      for (const questionId of snapshot.capturedQuestionIds ?? []) {
+        this.capturedQuestionIds.add(questionId);
+      }
       this.settledPages.push(...snapshot.settledPages);
       this.visits.push(...snapshot.visits);
       this.navigation = snapshot.navigation;
@@ -133,6 +138,7 @@ export class PageLifecycle {
       activeCycle: this.activeCycle,
       pending: this.pending,
       settledPages: this.settledPages,
+      capturedQuestionIds: [...this.capturedQuestionIds],
       visits: this.visits,
       navigation: this.navigation,
       revisitStatus: this.revisitStatus,
@@ -157,10 +163,21 @@ export class PageLifecycle {
     return this.pending;
   }
 
-  captureCurrentAnswers(document: Document): NormalizedActivePage {
+  captureCurrentAnswers(
+    document: Document,
+    allowEmpty = true
+  ): NormalizedActivePage {
     const questions = this.activePage.form.questions.map((question) => {
       if (!question.supported || question.id === null) return question;
-      const answer = snapshotAnswer(document, this.activePage.form, question.id);
+      const capture = captureAnswerSnapshot(
+        document,
+        this.activePage.form,
+        question.id
+      );
+      if (capture.status === 'unavailable') return question;
+      if (!capture.answer && !allowEmpty) return question;
+      this.capturedQuestionIds.add(question.id);
+      const answer = capture.answer;
       const value = answer?.value ?? null;
       const selectedValues = new Set(Array.isArray(value) ? value : value === null ? [] : [value]);
       return {
@@ -180,9 +197,13 @@ export class PageLifecycle {
   }
 
   beginNext(document?: Document): void {
-    this.oldPageDocument =
+    const sourceDocument =
       document ??
       (typeof globalThis.document === 'object' ? globalThis.document : null);
+    if (sourceDocument) {
+      this.captureCurrentAnswers(sourceDocument, false);
+    }
+    this.oldPageDocument = sourceDocument;
     this.navigation = beginNextNavigation(this.activePage.form.activePageId);
   }
 
@@ -208,6 +229,10 @@ export class PageLifecycle {
     }
     if (transition === 'backward') {
       return this.activateRevisit(discovered);
+    }
+    const normalizedPage = normalizeDiscoveredActivePage(discovered);
+    if (this.isSamePage(this.activePage, normalizedPage)) {
+      this.captureCurrentAnswers(document, false);
     }
     return this.resetForNewDocument(discovered);
   }
@@ -270,7 +295,12 @@ export class PageLifecycle {
   }
 
   resynchronizeCurrentPage(discovered: DiscoveredPage): NormalizedActivePage {
-    const normalizedPage = normalizeDiscoveredActivePage(discovered);
+    const previousPage = this.activePage;
+    const normalizedPage = this.preserveKnownAnswers(
+      previousPage,
+      normalizeDiscoveredActivePage(discovered)
+    );
+    const samePage = this.isSamePage(previousPage, normalizedPage);
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
@@ -280,6 +310,11 @@ export class PageLifecycle {
       ...normalizedPage,
       processingCycle: this.activeCycle,
     };
+    if (samePage) {
+      this.retainCapturedQuestionIds(this.activePage);
+    } else {
+      this.capturedQuestionIds.clear();
+    }
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
     const activeVisit = this.visits[this.visits.length - 1];
     if (activeVisit) {
@@ -309,9 +344,10 @@ export class PageLifecycle {
       currentFingerprint === normalizedPage.form.pageFingerprint;
     if (sameIdentity) {
       this.activePage = {
-        ...normalizedPage,
+        ...this.preserveKnownAnswers(this.activePage, normalizedPage),
         processingCycle: this.activeCycle,
       };
+      this.retainCapturedQuestionIds(this.activePage);
       return 'unchanged';
     }
     this.resynchronizeCurrentPage(discovered);
@@ -332,48 +368,77 @@ export class PageLifecycle {
     discovered: DiscoveredPage,
     document: Document
   ): NormalizedActivePage {
-    if (this.pending) {
-      const sourceDocument = this.oldPageDocument ?? document;
-      const settledPending = capturePendingPageAtSettlement(
-        sourceDocument,
-        this.activePage.form,
-        this.pending
-      );
-      const committedPage = commitPendingPageAfterSuccessfulTransition(
-          settledPending,
+    const sourceDocument = this.oldPageDocument ?? document;
+    const pendingAtSettlement = this.pending && this.oldPageDocument
+      ? capturePendingPageAtSettlement(
+          this.oldPageDocument,
+          this.activePage.form,
+          this.pending
+        )
+      : this.pending;
+    const committedPage = pendingAtSettlement
+      ? commitPendingPageAfterSuccessfulTransition(
+          pendingAtSettlement,
           { nextAcceptedAndTransitioned: true }
-        );
-      const answersById = new Map(
-        committedPage.answers.map((answer) => [answer.answer?.questionId, answer])
-      );
-      for (const question of this.activePage.form.questions) {
-        if (question.id === null) continue;
-        const answer = snapshotAnswer(sourceDocument, this.activePage.form, question.id);
-        if (answer) {
-          answersById.set(question.id, {
-            answer,
-            questionText:
-              answersById.get(question.id)?.questionText ?? question.text ?? '',
-          });
-        }
-      }
-      const settledPage = {
-        ...committedPage,
-        answers: [...answersById.values()].filter(
-          (entry): entry is (typeof committedPage.answers)[number] & {
-            answer: NonNullable<(typeof entry)['answer']>;
-          } => entry.answer !== null
-        ),
-      };
-      const existingIndex = this.settledPages.findIndex(
-        (page) => page.pageId === settledPage.pageId
-      );
-      if (existingIndex >= 0) {
-        this.settledPages[existingIndex] = settledPage;
-      } else {
-        this.settledPages.push(settledPage);
+        )
+      : null;
+    const answersById = new Map<string, SettledPageState['answers'][number]>();
+    for (const entry of committedPage?.answers ?? []) {
+      if (entry.answer?.questionId) {
+        answersById.set(entry.answer.questionId, entry);
       }
     }
+    for (const question of this.activePage.form.questions) {
+      if (!question.supported || question.id === null) continue;
+      const capture = this.oldPageDocument
+        ? captureAnswerSnapshot(
+            sourceDocument,
+            this.activePage.form,
+            question.id
+          )
+        : { status: 'unavailable' as const, answer: null };
+      if (capture.answer) {
+        this.capturedQuestionIds.add(question.id);
+        answersById.set(question.id, {
+          answer: capture.answer,
+          questionText:
+            answersById.get(question.id)?.questionText ?? question.text ?? '',
+        });
+      } else if (
+        this.capturedQuestionIds.has(question.id) &&
+        question.existingInput?.hasValue !== true
+      ) {
+        answersById.delete(question.id);
+      } else if (question.existingInput?.hasValue && question.existingInput.value) {
+        answersById.set(question.id, {
+          answer: {
+            questionId: question.id,
+            value: Array.isArray(question.existingInput.value)
+              ? [...question.existingInput.value]
+              : question.existingInput.value,
+          },
+          questionText:
+            answersById.get(question.id)?.questionText ?? question.text ?? '',
+        });
+      }
+    }
+    const settledPage: SettledPageState = {
+      pageId: this.activePage.form.activePageId,
+      pageFingerprint:
+        committedPage?.pageFingerprint ??
+        this.activePage.form.pageFingerprint ??
+        computePageFingerprint(this.activePage.form),
+      answers: [...answersById.values()],
+    };
+    const existingIndex = this.settledPages.findIndex(
+      (page) => page.pageId === settledPage.pageId
+    );
+    if (existingIndex >= 0) {
+      this.settledPages[existingIndex] = settledPage;
+    } else {
+      this.settledPages.push(settledPage);
+    }
+    this.capturedQuestionIds.clear();
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
@@ -396,6 +461,7 @@ export class PageLifecycle {
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
+    this.capturedQuestionIds.clear();
     this.generation.invalidate();
     this.activeCycle = this.generation.beginCycle();
     const normalizedPage = normalizeDiscoveredActivePage(
@@ -405,7 +471,11 @@ export class PageLifecycle {
     const settledPage = this.settledPages.find(
       (page) => page.pageId === normalizedPage.form.activePageId
     );
-    if (settledPage) {
+    const settledPageMatches =
+      settledPage &&
+      (settledPage.pageFingerprint == null ||
+        settledPage.pageFingerprint === normalizedPage.form.pageFingerprint);
+    if (settledPageMatches) {
       const answersById = new Map(
         settledPage.answers.flatMap(({ answer }) =>
           answer ? [[answer.questionId, answer]] : []
@@ -451,6 +521,7 @@ export class PageLifecycle {
   private resetForNewDocument(
     discovered: DiscoveredPage
   ): NormalizedActivePage {
+    const previousPage = this.activePage;
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
@@ -460,6 +531,12 @@ export class PageLifecycle {
       discovered,
       this.activeCycle.cycleId
     );
+    this.activePage = this.preserveKnownAnswers(previousPage, this.activePage);
+    if (this.isSamePage(previousPage, this.activePage)) {
+      this.retainCapturedQuestionIds(this.activePage);
+    } else {
+      this.capturedQuestionIds.clear();
+    }
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
     this.visits[this.visits.length - 1].status = 'abandoned';
     this.visits.push({
@@ -468,5 +545,87 @@ export class PageLifecycle {
       status: 'active',
     });
     return this.activePage;
+  }
+
+  private isSamePage(
+    previous: NormalizedActivePage,
+    next: NormalizedActivePage
+  ): boolean {
+    return (
+      previous.form.formId === next.form.formId &&
+      previous.form.activePageId === next.form.activePageId
+    );
+  }
+
+  private preserveKnownAnswers(
+    previous: NormalizedActivePage,
+    next: NormalizedActivePage
+  ): NormalizedActivePage {
+    if (!this.isSamePage(previous, next)) {
+      return next;
+    }
+    const previousFingerprint =
+      previous.form.pageFingerprint ?? computePageFingerprint(previous.form);
+    const nextFingerprint =
+      next.form.pageFingerprint ?? computePageFingerprint(next.form);
+    if (previousFingerprint !== nextFingerprint) {
+      return next;
+    }
+    const previousById = new Map(
+      previous.form.questions
+        .filter(
+          (question) =>
+            question.supported &&
+            question.id !== null &&
+            question.existingInput?.hasValue === true &&
+            question.existingInput.value !== null
+        )
+        .map((question) => [question.id as string, question])
+    );
+    const questions = next.form.questions.map((question) => {
+      if (
+        !question.supported ||
+        question.id === null ||
+        question.existingInput?.hasValue === true
+      ) {
+        return question;
+      }
+      const previousQuestion = previousById.get(question.id);
+      const previousInput = previousQuestion?.existingInput;
+      if (
+        !previousQuestion ||
+        previousQuestion.type !== question.type ||
+        !previousInput ||
+        previousInput.value === null
+      ) {
+        return question;
+      }
+      const value = Array.isArray(previousInput.value)
+        ? [...previousInput.value]
+        : previousInput.value;
+      const selectedValues = new Set(Array.isArray(value) ? value : [value]);
+      return {
+        ...question,
+        existingInput: { value, hasValue: true },
+        options: question.options.map((option) => ({
+          ...option,
+          selected: selectedValues.has(option.label),
+        })),
+      };
+    });
+    return { ...next, form: { ...next.form, questions } };
+  }
+
+  private retainCapturedQuestionIds(page: NormalizedActivePage): void {
+    const questionIds = new Set(
+      page.form.questions
+        .filter((question) => question.supported && question.id !== null)
+        .map((question) => question.id as string)
+    );
+    for (const questionId of this.capturedQuestionIds) {
+      if (!questionIds.has(questionId)) {
+        this.capturedQuestionIds.delete(questionId);
+      }
+    }
   }
 }

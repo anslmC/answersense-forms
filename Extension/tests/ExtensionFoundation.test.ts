@@ -291,6 +291,26 @@ describe('Active Google Forms page discovery', () => {
     }
   });
 
+  it('uses a stable container ID when multiple data-params values are ambiguous', () => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem" data-question-id="stable-question-id">
+        <div data-params="malformed primary metadata"></div>
+        <div data-params="malformed nested metadata"></div>
+        <h3 role="heading">True or False</h3>
+        <div role="radio" aria-label="True" aria-checked="true"></div>
+        <div role="radio" aria-label="False" aria-checked="false"></div>
+      </div>`
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
+      kind: 'supported',
+      id: 'stable-question-id',
+      text: 'True or False',
+      type: 'single-choice',
+      existingValue: 'True',
+    });
+  });
+
   it('marks a visible short-answer question without an identity source unsupported', () => {
     const document = new DOMParser().parseFromString(
       `<!doctype html><main>

@@ -352,6 +352,94 @@ describe('P5 page lifecycle', () => {
     });
   });
 
+  it('settles and restores a manually answered page without a handoff', () => {
+    const lifecycle = createLifecycle();
+    const outgoingDocument = createDocument();
+    (outgoingDocument.querySelector('input') as HTMLInputElement).value =
+      'Manual answer';
+
+    lifecycle.beginNext(outgoingDocument);
+    lifecycle.confirmTransition(createDocument('page-2'));
+
+    expect(lifecycle.settledPageStates[0]?.answers).toEqual([
+      {
+        answer: { questionId: 'name', value: 'Manual answer' },
+        questionText: 'name',
+      },
+    ]);
+    const revisited = lifecycle.handlePreviousOrBack(createDocument('page-1'));
+    expect(revisited?.form.questions[0]?.existingInput).toEqual({
+      value: 'Manual answer',
+      hasValue: true,
+    });
+  });
+
+  it('preserves restored answers through empty synchronization but accepts a clear', () => {
+    const lifecycle = createLifecycle();
+    const outgoingDocument = createDocument();
+    (outgoingDocument.querySelector('input') as HTMLInputElement).value = 'Ada';
+    lifecycle.beginNext(outgoingDocument);
+    lifecycle.confirmTransition(createDocument('page-2'));
+    lifecycle.handlePreviousOrBack(createDocument('page-1'));
+    const discoveryGap = createDocument('page-1');
+    discoveryGap
+      .querySelector('[data-question-id="name"] input')
+      ?.remove();
+    lifecycle.captureCurrentAnswers(discoveryGap, false);
+
+    expect(
+      lifecycle.synchronizeCurrentPage(
+        { ...discoveredPage('page-1', 0, 3, 'name'), formId: null }
+      )
+    ).toBe('unchanged');
+    expect(lifecycle.currentPage.form.questions[0]?.existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
+
+    const clearedDocument = createDocument('page-1');
+    (clearedDocument.querySelector('input') as HTMLInputElement).value = '';
+    lifecycle.captureCurrentAnswers(clearedDocument);
+    lifecycle.synchronizeCurrentPage(
+      { ...discoveredPage('page-1', 0, 3, 'name'), formId: null }
+    );
+    expect(lifecycle.currentPage.form.questions[0]?.existingInput).toEqual({
+      value: null,
+      hasValue: false,
+    });
+  });
+
+  it('preserves active answers through Force Unsettle reload reconciliation gaps', () => {
+    const lifecycle = createLifecycle();
+    const answeredDocument = createDocument();
+    (answeredDocument.querySelector('input') as HTMLInputElement).value = 'Ada';
+    lifecycle.captureCurrentAnswers(answeredDocument);
+    lifecycle.forceClear();
+
+    const snapshot = lifecycle.getSnapshot();
+    const replacement = new PageLifecycle(
+      page,
+      new GenerationCoordinator(() => 'cycle-reconciled'),
+      snapshot
+    );
+    const discoveryGapDocument = createDocument('page-1');
+    discoveryGapDocument
+      .querySelector('[data-question-id="name"] input')
+      ?.remove();
+    const discovered = discoveredPage('page-1', 0, 3, 'name');
+
+    replacement.reconcileDocument(
+      discovered,
+      discoveryGapDocument,
+      'reload'
+    );
+
+    expect(replacement.currentPage.form.questions[0]?.existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
+  });
+
   it('refreshes paragraph state on an unchanged page', () => {
     const { lifecycle, result } = synchronizeAnswer('paragraph', 'Details');
 
