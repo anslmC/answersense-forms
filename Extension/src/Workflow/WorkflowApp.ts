@@ -247,8 +247,14 @@ export function mountAnswerSenseApp(
     }
     const recordedReason = result?.reason?.trim() || fillReason?.trim();
     if (!recordedReason) return 'Reason unavailable.';
+    if (recordedReason === 'Question text is unavailable.') {
+      return 'Question text is unavailable or empty. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.';
+    }
+    if (recordedReason === 'Question type is unsupported.') {
+      return `${recordedReason} The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.`;
+    }
     if (recordedReason === 'LOW_CONFIDENCE') {
-      return 'No confident answer was available.';
+      return 'No confident answer was available. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.';
     }
     if (recordedReason === 'UNABLE_TO_DETERMINE') {
       return 'An answer could not be determined.';

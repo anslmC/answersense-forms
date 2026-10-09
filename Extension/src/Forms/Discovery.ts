@@ -59,6 +59,15 @@ function isVisible(element: HTMLElement): boolean {
   );
 }
 
+function isRespondentQuestionContainer(question: HTMLElement): boolean {
+  return (
+    question.querySelector('[data-params]') !== null ||
+    question.querySelector(
+      'input, textarea, select, [role="radio"], [role="checkbox"], [role="option"], [role="slider"], [role="listbox"], [role="combobox"], [role="textbox"], [role="spinbutton"], [role="switch"], [role="grid"]'
+    ) !== null
+  );
+}
+
 function getText(element: Element | null): string | null {
   if (!element) {
     return null;
@@ -323,7 +332,9 @@ export function discoverActiveGoogleFormsPage(
     page.dataset.pageId ??
     (respondentForm ? null : page.id || page.getAttribute('aria-label'));
   const questions = respondentForm
-    ? (findTopLevelQuestionContainers(respondentForm)?.filter(isVisible) ?? [])
+    ? (findTopLevelQuestionContainers(respondentForm)?.filter(
+        (question) => isVisible(question) && isRespondentQuestionContainer(question)
+      ) ?? [])
     : Array.from(
         page.querySelectorAll<HTMLElement>(
           '[role="listitem"], [data-question-id]'

@@ -1336,9 +1336,19 @@ describe('live Overlay generation workflow', () => {
         const results: QuestionResult[] = [
           ...skippedQuestionIds.map((questionId, index) => ({
             questionId,
-            status: 'ABSTAINED' as const,
+            status:
+              index === 1 || index === 2
+                ? ('unsupported' as const)
+                : ('ABSTAINED' as const),
             answer: null,
-            reason: index === 0 ? 'LOW_CONFIDENCE' : 'UNABLE_TO_DETERMINE',
+            reason:
+              index === 0
+                ? 'LOW_CONFIDENCE'
+                : index === 1
+                  ? 'Question type is unsupported.'
+                  : index === 2
+                    ? 'Question text is unavailable.'
+                    : 'UNABLE_TO_DETERMINE',
           })),
           {
             questionId: 'unfilled-only',
@@ -1452,10 +1462,17 @@ describe('live Overlay generation workflow', () => {
     expect(tooltipItems[0]?.textContent).toContain('Question ID already-filled');
     expect(tooltipItems[0]?.textContent).toContain('Already filled question');
     expect(tooltipItems[0]?.textContent).toContain(
-      'No confident answer was available.'
+      'No confident answer was available. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.'
     );
     expect(tooltipItems[1]?.textContent).toContain('Question ID skipped-2');
     expect(tooltipItems[1]?.textContent).toContain(
+      'Question type is unsupported. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.'
+    );
+    expect(tooltipItems[2]?.textContent).toContain('Question ID skipped-3');
+    expect(tooltipItems[2]?.textContent).toContain(
+      'Question text is unavailable or empty. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.'
+    );
+    expect(tooltipItems[3]?.textContent).toContain(
       'An answer could not be determined.'
     );
     expect(tooltipItems[10]?.textContent).toContain('Question ID unavailable');

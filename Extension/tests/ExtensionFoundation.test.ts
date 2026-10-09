@@ -261,6 +261,46 @@ describe('Active Google Forms page discovery', () => {
     });
   });
 
+  it('excludes a section header while discovering following paragraph questions', () => {
+    const document = createRespondentQuestionDocument(
+      `<div class="Qr7Oae" role="listitem">
+        <h3 class="M7eMe" role="heading">Paragraph test header</h3>
+      </div>
+      <div class="Qr7Oae" role="listitem">
+        <div data-params="%.@.[501]"></div>
+        <h3 class="M7eMe" role="heading">Complete the sentence using both blanks: The first city is ____ and the second city is ____.</h3>
+        <textarea></textarea>
+      </div>
+      <div class="Qr7Oae" role="listitem">
+        <div data-params="%.@.[502]"></div>
+        <h3 class="M7eMe" role="heading">Explain how the two answers relate to one another.</h3>
+        <textarea></textarea>
+      </div>`
+    );
+
+    const discovered = discoverActiveGoogleFormsPage(document)!;
+    expect(discovered.questions).toEqual([
+      expect.objectContaining({
+        kind: 'supported',
+        id: '501',
+        text: 'Complete the sentence using both blanks: The first city is ____ and the second city is ____.',
+        type: 'paragraph',
+      }),
+      expect.objectContaining({
+        kind: 'supported',
+        id: '502',
+        text: 'Explain how the two answers relate to one another.',
+        type: 'paragraph',
+      }),
+    ]);
+
+    const normalized = normalizeDiscoveredActivePage(discovered);
+    expect(normalized.questionResults.map((result) => result.status)).toEqual([
+      'ready',
+      'ready',
+    ]);
+  });
+
   it('falls back to container data-question-id and id for question identity', () => {
     const identityCases = [
       { attribute: 'data-question-id="dummy-data-id"', expectedId: 'dummy-data-id' },
