@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isSupportedGoogleFormsPage } from '../src/Forms/Detection';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
+import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { EXTENSION_NAME, GOOGLE_FORMS_MATCHES } from '../src/Shared/Utils';
 
 function createDocument(): Document {
@@ -78,6 +79,19 @@ function createRealisticRespondentDocument(): Document {
   );
 }
 
+function createRespondentQuestionDocument(questionMarkup: string): Document {
+  return new DOMParser().parseFromString(
+    `<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div role="list">
+          ${questionMarkup}
+        </div>
+      </form>
+    </main>`,
+    'text/html'
+  );
+}
+
 describe('Extension foundation', () => {
   it('exposes the expected extension identity', () => {
     expect(EXTENSION_NAME).toBe('AnswerSense: Forms');
@@ -106,6 +120,194 @@ describe('Google Forms detection', () => {
 });
 
 describe('Active Google Forms page discovery', () => {
+  it('uses a valid data-params question ID and preserves supported status through normalization', () => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem">
+        <div data-params='%.@.[401]'></div>
+        <h3 role="heading">Dummy question from metadata</h3>
+        <input type="text" value="">
+      </div>`
+    );
+
+    const discovered = discoverActiveGoogleFormsPage(document);
+
+    expect(discovered?.questions[0]).toMatchObject({
+      kind: 'supported',
+      id: '401',
+      text: 'Dummy question from metadata',
+      type: 'short-text',
+    });
+    const normalized = normalizeDiscoveredActivePage(discovered!);
+    expect(normalized.form.questions[0]).toMatchObject({
+      id: '401',
+      supported: true,
+      unsupportedReason: null,
+    });
+  });
+
+  it('falls back to container data-question-id and id for question identity', () => {
+    const identityCases = [
+      { attribute: 'data-question-id="dummy-data-id"', expectedId: 'dummy-data-id' },
+      { attribute: 'id="dummy-element-id"', expectedId: 'dummy-element-id' },
+    ];
+
+    for (const identityCase of identityCases) {
+      const document = createRespondentQuestionDocument(
+        `<div role="listitem" ${identityCase.attribute}>
+          <h3 role="heading">Dummy fallback question</h3>
+          <input type="text" value="">
+        </div>`
+      );
+      const discovered = discoverActiveGoogleFormsPage(document);
+
+      expect(discovered?.questions[0]).toMatchObject({
+        kind: 'supported',
+        id: identityCase.expectedId,
+        text: 'Dummy fallback question',
+        type: 'short-text',
+      });
+      const normalized = normalizeDiscoveredActivePage(discovered!);
+      expect(normalized.form.questions[0]).toMatchObject({
+        id: identityCase.expectedId,
+        supported: true,
+        unsupportedReason: null,
+      });
+    }
+  });
+
+  it('marks a visible short-answer question without an identity source unsupported', () => {
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
+        <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform"
+            data-first-entry="7" data-last-entry="7">
+          <div role="list">
+            <div class="Qr7Oae" role="listitem">
+              <h3 role="heading">Dummy question without identity</h3>
+              <input type="text" value="">
+            </div>
+          </div>
+        </form>
+      </main>`,
+      'text/html'
+    );
+
+    const discovered = discoverActiveGoogleFormsPage(document);
+
+    expect(discovered?.questions[0]).toMatchObject({
+      kind: 'unsupported',
+      id: null,
+      text: 'Dummy question without identity',
+      reason: 'Question ID is unavailable.',
+    });
+    const normalized = normalizeDiscoveredActivePage(discovered!);
+    expect(normalized.form.questions[0]).toMatchObject({
+      id: null,
+      supported: false,
+      unsupportedReason: 'Question ID is unavailable.',
+    });
+  });
+
+  it('uses partially unmatched aria-labelledby references after blank identity candidates', () => {
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><main>
+        <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform"
+            data-first-entry="8" data-last-entry="8">
+          <div role="list">
+            <div class="Qr7Oae" role="listitem"
+                aria-labelledby="dummy-title missing-description">
+              <h3 id="dummy-title" role="heading">Dummy question with partial references</h3>
+              <input type="text" value="">
+            </div>
+          </div>
+        </form>
+      </main>`,
+      'text/html'
+    );
+
+    const discovered = discoverActiveGoogleFormsPage(document);
+
+    expect(discovered?.questions[0]).toMatchObject({
+      kind: 'supported',
+      id: 'dummy-title missing-description',
+      text: 'Dummy question with partial references',
+      type: 'short-text',
+    });
+    const normalized = normalizeDiscoveredActivePage(discovered!);
+    expect(normalized.form.questions[0]).toMatchObject({
+      id: 'dummy-title missing-description',
+      supported: true,
+      unsupportedReason: null,
+    });
+  });
+
+  it('discovers a Qr7Oae respondent short-answer container with an id-less input', () => {
+    const document = createRespondentQuestionDocument(
+      `<div class="Qr7Oae" role="listitem" data-question-id="dummy-short">
+        <h3 role="heading">Dummy short prompt</h3>
+        <input type="text" value="">
+      </div>`
+    );
+
+    const result = discoverActiveGoogleFormsPage(document);
+
+    expect(result?.questions).toHaveLength(1);
+    expect(result?.questions[0]).toMatchObject({
+      kind: 'supported',
+      id: 'dummy-short',
+      text: 'Dummy short prompt',
+      type: 'short-text',
+    });
+    const input = document.querySelector('input[type="text"]');
+    expect(input?.hasAttribute('id')).toBe(false);
+    expect(input?.hasAttribute('name')).toBe(false);
+  });
+
+  it('discovers radios inside a radiogroup without treating its hidden sentinel as a control', () => {
+    const document = createRespondentQuestionDocument(
+      `<div class="Qr7Oae" role="listitem" data-question-id="dummy-choice">
+        <h3 role="heading">Dummy single-choice prompt</h3>
+        <div role="radiogroup">
+          <input type="hidden" value="">
+          <div role="radio" aria-label="Dummy option A" aria-checked="false"></div>
+          <div role="radio" aria-label="Dummy option B" aria-checked="true"></div>
+        </div>
+      </div>`
+    );
+
+    const result = discoverActiveGoogleFormsPage(document);
+
+    expect(result?.questions).toHaveLength(1);
+    expect(result?.questions[0]).toMatchObject({
+      kind: 'supported',
+      id: 'dummy-choice',
+      text: 'Dummy single-choice prompt',
+      type: 'single-choice',
+      options: [
+        { label: 'Dummy option A', selected: false },
+        { label: 'Dummy option B', selected: true },
+      ],
+    });
+  });
+
+  it('uses visible question text when aria-labelledby is only partially matched', () => {
+    const document = createRespondentQuestionDocument(
+      `<div class="Qr7Oae" role="listitem" data-question-id="dummy-aria"
+          aria-labelledby="dummy-title missing-description">
+        <h3 id="dummy-title" role="heading">Dummy prompt with partial ARIA reference</h3>
+        <input type="text" value="">
+      </div>`
+    );
+
+    const result = discoverActiveGoogleFormsPage(document);
+
+    expect(result?.questions[0]).toMatchObject({
+      kind: 'supported',
+      id: 'dummy-aria',
+      text: 'Dummy prompt with partial ARIA reference',
+      type: 'short-text',
+    });
+  });
+
   it('models nested option listitems without treating them as questions', () => {
     const document = createRealisticRespondentDocument();
 

@@ -73,9 +73,15 @@ export function extractQuestionId(
     }
   }
 
-  const legacyId =
-    question.dataset.questionId ??
-    question.id ??
-    question.getAttribute('aria-labelledby');
-  return legacyId?.trim() || null;
+  for (const candidate of [
+    question.dataset.questionId,
+    question.id,
+    question.getAttribute('aria-labelledby'),
+  ]) {
+    const identity = candidate?.trim();
+    if (identity) {
+      return identity;
+    }
+  }
+  return null;
 }

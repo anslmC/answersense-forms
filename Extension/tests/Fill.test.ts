@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Form, Question } from '../src/Models/Logical';
+import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
+import { GenerationCoordinator } from '../src/Generation/Pipeline';
+import type { GenerationInterface } from '../src/Generation/Contract';
 import { createGenerationReport } from '../src/Generation/Report';
 import {
   acceptGeneratedAnswer,
@@ -143,6 +146,19 @@ function createDocument(options = ''): Document {
   return document;
 }
 
+function createRespondentQuestionDocument(questionMarkup: string): Document {
+  return new DOMParser().parseFromString(
+    `<!doctype html><main>
+      <form data-clean-viewform-url="https://docs.google.com/forms/d/e/example/viewform">
+        <div role="list">
+          ${questionMarkup}
+        </div>
+      </form>
+    </main>`,
+    'text/html'
+  );
+}
+
 function reportFor(
   results: Array<{ questionId: string; value: string | string[] }>
 ) {
@@ -157,7 +173,230 @@ function reportFor(
   );
 }
 
+function createDummySupportedPage() {
+  return normalizeDiscoveredActivePage(
+    {
+      pageId: 'dummy-page',
+      questions: [
+        {
+          kind: 'supported',
+          id: 'dummy-question',
+          text: 'Dummy short-answer prompt',
+          type: 'short-text',
+          required: false,
+          options: [],
+          existingValue: null,
+        },
+      ],
+    },
+    'dummy-discovery'
+  );
+}
+
+describe('skip cause traceability', () => {
+  it('preserves an unsupported question reason while producing a SKIPPED fill outcome', async () => {
+    const page = normalizeDiscoveredActivePage(
+      {
+        pageId: 'dummy-page',
+        questions: [
+          {
+            kind: 'unsupported',
+            id: 'dummy-question',
+            text: 'Dummy question text',
+            reason: 'Dummy unsupported question reason',
+          },
+        ],
+      },
+      'dummy-discovery'
+    );
+    let generatorCalled = false;
+    const generator: GenerationInterface = {
+      generate: async (request) => {
+        generatorCalled = true;
+        return { cycleId: request.cycleId, results: [] };
+      },
+    };
+
+    const report = await new GenerationCoordinator(() => 'dummy-cycle').generate(
+      page,
+      [],
+      generator
+    );
+    expect(generatorCalled).toBe(false);
+    expect(report?.results).toMatchObject([
+      {
+        questionId: 'dummy-question',
+        status: 'unsupported',
+        reason: 'Dummy unsupported question reason',
+      },
+    ]);
+
+    const fillReport = await fillReviewedAnswers(
+      createDocument(),
+      page.form,
+      report!,
+      createAcceptedReviewDecisions(report!)
+    );
+
+    expect({ generation: report?.results, fill: fillReport.outcomes }).toMatchObject({
+      generation: [{ status: 'unsupported', reason: 'Dummy unsupported question reason' }],
+      fill: [{
+        questionId: 'dummy-question',
+        status: 'SKIPPED',
+        reason: 'The reviewed answer was skipped.',
+        code: null,
+      }],
+    });
+  });
+
+  it('preserves a controlled generation failure while producing a SKIPPED fill outcome', async () => {
+    const page = createDummySupportedPage();
+    const generator: GenerationInterface = {
+      generate: async (request) => ({
+        cycleId: request.cycleId,
+        results: [
+          {
+            questionId: 'dummy-question',
+            status: 'GENERATION_FAILED',
+            answer: null,
+            failure: {
+              code: 'DUMMY_FAILURE',
+              message: 'Dummy generation failure reason',
+            },
+          },
+        ],
+      }),
+    };
+
+    const report = await new GenerationCoordinator(() => 'dummy-cycle').generate(
+      page,
+      [],
+      generator
+    );
+    expect(report?.results).toMatchObject([
+      {
+        questionId: 'dummy-question',
+        status: 'GENERATION_FAILED',
+        reason: 'Dummy generation failure reason',
+      },
+    ]);
+
+    const fillReport = await fillReviewedAnswers(
+      createDocument(),
+      page.form,
+      report!,
+      createAcceptedReviewDecisions(report!)
+    );
+
+    expect({ generation: report?.results, fill: fillReport.outcomes }).toMatchObject({
+      generation: [{ status: 'GENERATION_FAILED', reason: 'Dummy generation failure reason' }],
+      fill: [{ questionId: 'dummy-question', status: 'SKIPPED' }],
+    });
+  });
+
+  it('reports a missing short-text fill target as FILL_FAILED, not SKIPPED', async () => {
+    const page = createDummySupportedPage();
+    const generator: GenerationInterface = {
+      generate: async (request) => ({
+        cycleId: request.cycleId,
+        results: [
+          {
+            questionId: 'dummy-question',
+            status: 'GENERATED',
+            answer: {
+              questionId: 'dummy-question',
+              value: 'Dummy generated answer',
+            },
+          },
+        ],
+      }),
+    };
+
+    const report = await new GenerationCoordinator(() => 'dummy-cycle').generate(
+      page,
+      [],
+      generator
+    );
+    const document = createDocument(
+      '<div role="listitem" data-question-id="dummy-question" data-question-type="short-text"></div>'
+    );
+    const fillReport = await fillReviewedAnswers(
+      document,
+      page.form,
+      report!,
+      createAcceptedReviewDecisions(report!)
+    );
+
+    expect({ generation: report?.results, fill: fillReport.outcomes }).toMatchObject({
+      generation: [{ status: 'GENERATED', answer: { value: 'Dummy generated answer' } }],
+      fill: [{
+        questionId: 'dummy-question',
+        status: 'FILL_FAILED',
+        reason: 'The current DOM question has no text input.',
+        code: 'TARGET_NOT_FOUND',
+      }],
+    });
+    expect(fillReport.outcomes[0].status).not.toBe('SKIPPED');
+  });
+});
+
 describe('P4 current DOM resolver', () => {
+  it('resolves an id-less short-text input inside a Qr7Oae question with partial aria-labelledby', () => {
+    const document = createRespondentQuestionDocument(
+      `<div class="Qr7Oae" role="listitem" data-question-id="dummy-short"
+          aria-labelledby="dummy-title missing-description">
+        <h3 id="dummy-title" role="heading">Dummy short prompt</h3>
+        <input type="text" value="">
+      </div>`
+    );
+
+    const result = resolveCurrentQuestionTarget(
+      document,
+      question('dummy-short', 'short-text')
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.target.kind).toBe('short-text');
+      if (result.target.kind === 'short-text') {
+        expect(result.target.control).toBe(
+          document.querySelector('input[type="text"]')
+        );
+        expect(result.target.control.hasAttribute('id')).toBe(false);
+        expect(result.target.control.hasAttribute('name')).toBe(false);
+      }
+    }
+  });
+
+  it('resolves only descendant radios inside a radiogroup with a hidden sentinel', () => {
+    const document = createRespondentQuestionDocument(
+      `<div class="Qr7Oae" role="listitem" data-question-id="dummy-choice">
+        <h3 role="heading">Dummy single-choice prompt</h3>
+        <div role="radiogroup">
+          <input type="hidden" value="">
+          <div role="radio" aria-label="Dummy option A" aria-checked="false"></div>
+          <div role="radio" aria-label="Dummy option B" aria-checked="false"></div>
+        </div>
+      </div>`
+    );
+
+    const result = resolveCurrentQuestionTarget(
+      document,
+      question('dummy-choice', 'single-choice')
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.target.kind).toBe('single-choice');
+      if (result.target.kind === 'single-choice') {
+        expect(result.target.options).toHaveLength(2);
+        expect(
+          result.target.options.map((option) => option.getAttribute('aria-label'))
+        ).toEqual(['Dummy option A', 'Dummy option B']);
+      }
+    }
+  });
+
   it('resolves respondent questions through descendant data-params identity', () => {
     const document = new DOMParser().parseFromString(
       `<!doctype html><main>
@@ -632,7 +871,7 @@ describe('P4 sequential filling and preservation', () => {
         questionId: 'choice',
         status: 'GENERATION_FAILED' as const,
         answer: null,
-        failure: { code: 'GENERATOR', message: 'No answer' },
+        reason: 'No answer',
       },
     ]);
 
