@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LifecyclePublicationQueue } from '../src/Content/LifecyclePublication';
+import {
+  LifecyclePublicationQueue,
+  type LifecyclePublicationMessage,
+} from '../src/Content/LifecyclePublication';
 
 const snapshotMessage = (pageId: string) => ({
   type: 'lifecycle-snapshot' as const,
@@ -62,8 +65,17 @@ describe('Lifecycle publication delivery', () => {
 
   it('preserves publication ordering across rapid transitions', async () => {
     const published: string[] = [];
-    const send = vi.fn(async (message: { snapshot: { pageId: string } }) => {
-      published.push(message.snapshot.pageId);
+    const send = vi.fn(async (message: LifecyclePublicationMessage) => {
+      const snapshot = message.snapshot;
+      if (
+        typeof snapshot !== 'object' ||
+        snapshot === null ||
+        !('pageId' in snapshot) ||
+        typeof snapshot.pageId !== 'string'
+      ) {
+        throw new Error('Expected a lifecycle snapshot publication.');
+      }
+      published.push(snapshot.pageId);
       return { status: 'snapshot-stored' };
     });
     const queue = new LifecyclePublicationQueue(send, { sleep: vi.fn() });

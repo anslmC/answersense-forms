@@ -1,6 +1,10 @@
 import type { GenerationReport } from '../Generation/Report';
 import type { FillReport } from '../Fill/Filler';
-import { createOverrideFilledIntent, type GenerationIntent } from '../Generation/Intent';
+import {
+  createOverrideFilledIntent,
+  type GenerationIntent,
+  type OverrideFilledIntent,
+} from '../Generation/Intent';
 
 export type UiStateName =
   | 'UNSUPPORTED'
@@ -45,7 +49,7 @@ export function overrideQuestionLabel(
   return `Q${position + 1} — ${question.text}`;
 }
 
-export function createAllOverrideIntent(page: PageSummary): GenerationIntent {
+export function createAllOverrideIntent(page: PageSummary): OverrideFilledIntent {
   return createOverrideFilledIntent(
     filledOverrideCandidates(page).map((question) => question.id as string)
   );
@@ -53,7 +57,7 @@ export function createAllOverrideIntent(page: PageSummary): GenerationIntent {
 
 export function createSpecificOverrideIntent(
   questionIds: readonly string[]
-): GenerationIntent {
+): OverrideFilledIntent {
   return createOverrideFilledIntent(questionIds);
 }
 

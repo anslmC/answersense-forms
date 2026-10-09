@@ -97,10 +97,6 @@ function validResponse(cycleId = 'cycle-1'): GenerationResponse {
   };
 }
 
-function createGenerator(response: GenerationResponse): GenerationInterface {
-  return { generate: vi.fn(async () => response) };
-}
-
 describe('Generation response validation', () => {
   it('accepts valid exhaustive results and matches by questionId only', () => {
     const results = validateGenerationResponse(
@@ -301,7 +297,7 @@ describe('Generation response validation', () => {
       ],
     };
     const generator: GenerationInterface = {
-      generate: vi.fn(async (request): Promise<GenerationResponse> => ({
+      generate: vi.fn(async (request: GenerationRequest): Promise<GenerationResponse> => ({
         cycleId: request.cycleId,
         results: request.questions.map((question) => ({
           questionId: question.questionId,
@@ -514,6 +510,8 @@ describe('Generation cycles and reports', () => {
 
     const intent = createOverrideFilledIntent(['topics', 'name']);
 
+    expect(intent.type).toBe('OVERRIDE_FILLED');
+    if (intent.type !== 'OVERRIDE_FILLED') throw new Error('Expected override intent');
     expect(Object.isFrozen(intent.selectedQuestionIds)).toBe(true);
     expect(selectGenerationCandidates(overridePage, intent).map((question) => question.id)).toEqual([
       'name',
@@ -592,7 +590,7 @@ describe('Generation cycles and reports', () => {
       },
     };
     const generator: GenerationInterface = {
-      generate: vi.fn(async (request) => ({
+      generate: vi.fn(async (request: GenerationRequest) => ({
         cycleId: request.cycleId,
         results: request.questions.map((question) => ({
           questionId: question.questionId,
@@ -683,7 +681,7 @@ describe('Generation cycles and reports', () => {
       },
     };
     const generator: GenerationInterface = {
-      generate: vi.fn(async (request) => ({
+      generate: vi.fn(async (request: GenerationRequest) => ({
         cycleId: request.cycleId,
         results: request.questions.map((question) => ({
           questionId: question.questionId,

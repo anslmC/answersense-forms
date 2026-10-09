@@ -7,13 +7,18 @@ export type GenerationIntent =
       selectedQuestionIds: readonly string[];
     };
 
+export type OverrideFilledIntent = Extract<
+  GenerationIntent,
+  { type: 'OVERRIDE_FILLED' }
+>;
+
 export const GENERATE_UNANSWERED: GenerationIntent = {
   type: 'GENERATE_UNANSWERED',
 };
 
 export function createOverrideFilledIntent(
   selectedQuestionIds: readonly string[]
-): GenerationIntent {
+): OverrideFilledIntent {
   return {
     type: 'OVERRIDE_FILLED',
     selectedQuestionIds: Object.freeze([...selectedQuestionIds]),
