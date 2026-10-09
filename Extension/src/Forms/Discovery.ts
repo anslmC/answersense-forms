@@ -1,5 +1,6 @@
 import {
   isSupportedQuestionType,
+  questionTitleRejectionReason,
   type SupportedQuestionType,
 } from '../../../Shared/QuestionTypes';
 import type { PageEntryRange } from '../Models/Logical';
@@ -69,16 +70,27 @@ function getText(element: Element | null): string | null {
   return text || null;
 }
 
+function getQuestionTitleText(element: Element | null): string | null {
+  if (!element) {
+    return null;
+  }
+
+  const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
 function getQuestionText(question: HTMLElement): string | null {
   const explicitText = question.getAttribute('data-question-text');
   if (explicitText?.trim()) {
     return explicitText.trim();
   }
 
-  const textElement = question.querySelector(
-    '[data-question-text], [role="heading"], .M7eMe, .Y6Myld'
-  );
-  return getText(textElement) ?? getText(question);
+  const textElement =
+    question.querySelector('[data-question-text]') ??
+    question.querySelector('.M7eMe') ??
+    question.querySelector('.Y6Myld') ??
+    question.querySelector('[role="heading"]');
+  return getQuestionTitleText(textElement);
 }
 
 function getQuestionType(question: HTMLElement): SupportedQuestionType | null {
@@ -175,6 +187,15 @@ function discoverQuestion(
       id,
       text: null,
       reason: 'Question text is unavailable.',
+    };
+  }
+  const titleRejectionReason = questionTitleRejectionReason(text);
+  if (titleRejectionReason) {
+    return {
+      kind: 'unsupported',
+      id,
+      text,
+      reason: titleRejectionReason,
     };
   }
   if (!type) {

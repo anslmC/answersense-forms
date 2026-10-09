@@ -329,6 +329,81 @@ describe('Generation response validation', () => {
       status: 'unsupported',
     });
   });
+
+  it('filters title-invalid questions without shifting valid question IDs', async () => {
+    const invalidTitleQuestion = {
+      ...createQuestion('invalid-title', 'single-choice', ['Option one', 'Option two']),
+      text: '4.j *',
+    };
+    const validQuestion = {
+      ...createQuestion('valid-title', 'short-text'),
+      text: '\uFF21\uFF29?',
+    };
+    const mixedPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: [invalidTitleQuestion, validQuestion],
+      },
+    };
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request: GenerationRequest) => ({
+        cycleId: request.cycleId,
+        results: request.questions.map((question) => ({
+          questionId: question.questionId,
+          status: 'GENERATED' as const,
+          answer: { questionId: question.questionId, value: 'Valid answer' },
+        })),
+      })),
+    };
+
+    const report = await new GenerationCoordinator(() => 'cycle-title-guard').generate(
+      mixedPage,
+      [],
+      generator
+    );
+
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [
+          expect.objectContaining({
+            questionId: 'valid-title',
+            text: '\uFF21\uFF29?',
+          }),
+        ],
+      })
+    );
+    expect(report?.results).toMatchObject([
+      {
+        questionId: 'invalid-title',
+        status: 'unsupported',
+        answer: null,
+        reason: 'Question title must contain at least two letters or numbers.',
+      },
+      {
+        questionId: 'valid-title',
+        status: 'GENERATED',
+        answer: { questionId: 'valid-title', value: 'Valid answer' },
+      },
+    ]);
+    expect(
+      selectGenerationCandidates(
+        {
+          ...mixedPage,
+          form: {
+            ...mixedPage.form,
+            questions: [
+              {
+                ...invalidTitleQuestion,
+                existingInput: { value: 'Already filled', hasValue: true },
+              },
+            ],
+          },
+        },
+        createOverrideFilledIntent(['invalid-title'])
+      )
+    ).toEqual([]);
+  });
 });
 
 describe('Settled context and pending page state', () => {

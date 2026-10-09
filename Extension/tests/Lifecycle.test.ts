@@ -23,6 +23,7 @@ import {
   computePageFingerprint,
   normalizeDiscoveredActivePage,
 } from '../src/Forms/Normalization';
+import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 
 function question(id: string): Question {
   return {
@@ -1232,6 +1233,102 @@ describe('P5 page lifecycle', () => {
     expect(replacement.currentCycle.cycleId).toBe('cycle-reloaded');
     expect(replacement.settledPageStates.map((page) => page.pageId)).toEqual([
       'page-1',
+    ]);
+  });
+
+  it('requalifies fresh Q1-Q5 DOM after reload instead of reusing a stale supported Q4', async () => {
+    const formDocument = new DOMParser().parseFromString(
+      `<!doctype html><form data-page-id="page-1" data-clean-viewform-url="https://docs.google.com/forms/d/e/repro/viewform">
+        <div role="list">
+          <div role="listitem" data-question-id="q1" data-question-type="short-text">
+            <div class="M7eMe">1. What is the capital of China?</div>
+            <input type="text" value="">
+          </div>
+          <div role="listitem" data-question-id="q2" data-question-type="paragraph">
+            <div class="M7eMe">2. What is photosynthesis?</div>
+            <textarea></textarea>
+          </div>
+          <div role="listitem" data-question-id="q3">
+            <div data-question-text=""></div>
+            <div role="radio" aria-label="Option A"></div>
+            <div role="radio" aria-label="Option B"></div>
+          </div>
+          <div role="listitem" data-question-id="q4" data-question-type="single-choice" aria-required="true">
+            <div role="heading" aria-label="4.j * Required">
+              <span>4.</span><span class="M7eMe">j</span><span>*</span>
+              <span class="required-label">Required</span>
+            </div>
+            <div role="radio" aria-label="Option A"></div>
+            <div role="radio" aria-label="Option B"></div>
+          </div>
+          <div role="listitem" data-question-id="q5" data-question-type="short-text" data-question-text="">
+            <input type="text" value="">
+          </div>
+        </div>
+      </form>`,
+      'text/html'
+    );
+    const discovered = discoverActiveGoogleFormsPage(formDocument);
+    expect(discovered?.questions).toMatchObject([
+      { kind: 'supported', id: 'q1', text: '1. What is the capital of China?' },
+      { kind: 'supported', id: 'q2', text: '2. What is photosynthesis?' },
+      { kind: 'unsupported', id: 'q3', text: null },
+      { kind: 'unsupported', id: 'q4', text: 'j' },
+      { kind: 'unsupported', id: 'q5', text: null },
+    ]);
+
+    const staleQ4 = { ...question('q4'), text: '4.j *' };
+    const stalePage: NormalizedActivePage = {
+      form: { ...form, formId: 'repro', questions: [staleQ4] },
+      questionResults: [
+        { questionId: 'q4', status: 'ready', answer: null, reason: null },
+      ],
+      processingCycle: { cycleId: 'cycle-stale-q4' },
+    };
+    const original = new PageLifecycle(
+      stalePage,
+      new GenerationCoordinator(() => 'cycle-original-q4')
+    );
+    const snapshot = original.getSnapshot('/forms/d/e/repro/viewform');
+    const generation = new GenerationCoordinator(() => 'cycle-reloaded-q4');
+    const replacement = new PageLifecycle(
+      normalizeDiscoveredActivePage(discovered!),
+      generation,
+      snapshot
+    );
+
+    replacement.reconcileDocument(discovered!, formDocument, 'reload');
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request: GenerationRequest) => ({
+        cycleId: request.cycleId,
+        results: request.questions.map((candidate) => ({
+          questionId: candidate.questionId,
+          status: 'GENERATED' as const,
+          answer: { questionId: candidate.questionId, value: 'Generated' },
+        })),
+      })),
+    };
+    const report = await generation.generate(
+      replacement.currentPage,
+      [],
+      generator,
+      replacement.currentCycle
+    );
+
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [
+          expect.objectContaining({ questionId: 'q1' }),
+          expect.objectContaining({ questionId: 'q2' }),
+        ],
+      })
+    );
+    expect(report?.results).toMatchObject([
+      { questionId: 'q1', status: 'GENERATED' },
+      { questionId: 'q2', status: 'GENERATED' },
+      { questionId: 'q3', status: 'unsupported' },
+      { questionId: 'q4', status: 'unsupported', reason: 'Question title must contain at least two letters or numbers.' },
+      { questionId: 'q5', status: 'unsupported' },
     ]);
   });
 });

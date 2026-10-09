@@ -4,6 +4,7 @@ import type {
   QuestionResult,
   AnswerValue,
 } from '../Models/Logical';
+import { questionTitleRejectionReason } from '../../../Shared/QuestionTypes';
 import type { GenerationResponse, GenerationResult } from './Contract';
 
 export class GenerationResponseValidationError extends Error {
@@ -185,12 +186,13 @@ export function validateGenerationResponse(
   );
 
   return form.questions.flatMap((question): QuestionResult[] => {
-    if (!question.supported) {
+    const titleRejectionReason = questionTitleRejectionReason(question.text);
+    if (!question.supported || titleRejectionReason !== null) {
       return [{
         questionId: question.id,
         status: 'unsupported',
         answer: null,
-        reason: question.unsupportedReason,
+        reason: question.unsupportedReason ?? titleRejectionReason,
       }];
     }
     if (question.id === null || !candidateIds.has(question.id)) {

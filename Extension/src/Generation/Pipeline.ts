@@ -3,6 +3,7 @@ import type {
   Question,
   QuestionResult,
 } from '../Models/Logical';
+import { questionTitleRejectionReason } from '../../../Shared/QuestionTypes';
 import type { GenerationInterface, GenerationRequest } from './Contract';
 import { buildSettledContext, type SettledPageState } from './Context';
 import { createProcessingCycle, isCurrentCycle } from './Cycle';
@@ -18,6 +19,7 @@ function isOperableQuestion(question: Question): boolean {
     question.supported &&
     question.id !== null &&
     question.text !== null &&
+    questionTitleRejectionReason(question.text) === null &&
     question.type !== null
   );
 }
@@ -69,13 +71,16 @@ function createLocalGenerationResults(
   page: NormalizedActivePage
 ): QuestionResult[] {
   return page.form.questions.flatMap((question) =>
-    question.supported
+    question.supported &&
+    questionTitleRejectionReason(question.text) === null
       ? []
       : [{
           questionId: question.id,
           status: 'unsupported' as const,
           answer: null,
-          reason: question.unsupportedReason,
+          reason:
+            question.unsupportedReason ??
+            questionTitleRejectionReason(question.text),
         }]
   );
 }

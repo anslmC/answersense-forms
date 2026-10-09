@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isSupportedGoogleFormsPage } from '../src/Forms/Detection';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
+import { questionTitleRejectionReason } from '../../Shared/QuestionTypes';
 import { EXTENSION_NAME, GOOGLE_FORMS_MATCHES } from '../src/Shared/Utils';
 
 function createDocument(): Document {
@@ -91,6 +92,121 @@ function createRespondentQuestionDocument(questionMarkup: string): Document {
     'text/html'
   );
 }
+
+describe('Question title qualification', () => {
+  it.each([
+    ['empty', '', false],
+    ['whitespace', '   ', false],
+    ['newline and tab', '\n\t\r', false],
+    ['nonbreaking space', '\u00a0', false],
+    ['zero-width formatting characters', '\u200b\u200d\ufeff', false],
+    ['punctuation only', '?!...', false],
+    ['one letter', 'a', false],
+    ['one number', '7', false],
+    ['one non-English letter', '漢', false],
+    ['one Unicode number', '٧', false],
+    ['short question', 'Why?', true],
+    ['two-letter acronym', 'AI?', true],
+    ['instruction', 'Please explain your reasoning.', true],
+    ['non-English text', '名前を入力してください', true],
+    ['two non-English letters', '漢字', true],
+    ['two Arabic-Indic numbers', '١٢', true],
+    ['mathematical prompt', '2 + 2 = ?', true],
+    ['one-letter title with a question-number prefix', '4.j *', false],
+    ['one-letter title with spaced question-number prefix', '4. j *', false],
+  ])('qualifies %s title independently', (_label, title, expected) => {
+    expect(questionTitleRejectionReason(title)).toBe(
+      expected ? null : 'Question title must contain at least two letters or numbers.'
+    );
+  });
+
+  it('does not use accessibility labels, descriptions, required markers, or options as a title', () => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem" data-question-id="no-title" aria-label="A valid accessible label" aria-required="true">
+        <div data-description="true">A sufficiently long description that is not the title.</div>
+        <div role="radio" aria-label="A sufficiently long option label" aria-checked="false"></div>
+        <div role="radio" aria-label="Another sufficiently long option label" aria-checked="false"></div>
+      </div>`
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
+      kind: 'unsupported',
+      id: 'no-title',
+      text: null,
+      reason: 'Question text is unavailable.',
+    });
+  });
+
+  it('keeps a numbered required one-letter title unsupported without rewriting its title', () => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem" data-question-id="q4" data-question-text="4.j *" aria-required="true">
+        <input type="text" value="">
+      </div>`
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toEqual({
+      kind: 'unsupported',
+      id: 'q4',
+      text: '4.j *',
+      reason: 'Question title must contain at least two letters or numbers.',
+    });
+  });
+
+  it('extracts the inner question title when a rendered heading wraps numbering and required text', () => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem" data-question-id="q4">
+        <div role="heading" aria-label="4.j * Required">
+          <span>4.</span>
+          <span class="M7eMe">j</span>
+          <span>*</span>
+          <span class="required-label">Required</span>
+        </div>
+        <input type="text" value="">
+      </div>`
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
+      kind: 'unsupported',
+      id: 'q4',
+      text: 'j',
+      reason: 'Question title must contain at least two letters or numbers.',
+    });
+  });
+
+  it.each([
+    ['short answer', 'short-text', '<input type="text">'],
+    ['paragraph', 'paragraph', '<textarea></textarea>'],
+    ['multiple choice', 'multiple-choice', '<div role="checkbox"></div>'],
+    ['single choice', 'single-choice', '<div role="radio"></div>'],
+  ])('rejects the one-letter title j for %s questions', (_label, type, control) => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem" data-question-id="one-letter" data-question-type="${type}" data-question-text="j">${control}</div>`
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
+      kind: 'unsupported',
+      id: 'one-letter',
+      text: 'j',
+      reason: 'Question title must contain at least two letters or numbers.',
+    });
+  });
+
+  it.each([
+    ['multiple choice', '<div role="radio" aria-label="Long option one"></div><div role="radio" aria-label="Long option two"></div>'],
+    ['checkboxes', '<div role="checkbox" aria-label="Long option one"></div><div role="checkbox" aria-label="Long option two"></div>'],
+  ])('does not let populated %s options qualify an empty title', (_label, options) => {
+    const document = createRespondentQuestionDocument(
+      `<div role="listitem" data-question-id="empty-title" data-question-text="">${options}</div>`
+    );
+
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
+      kind: 'unsupported',
+      id: 'empty-title',
+      text: null,
+      reason: 'Question text is unavailable.',
+    });
+  });
+});
 
 describe('Extension foundation', () => {
   it('exposes the expected extension identity', () => {

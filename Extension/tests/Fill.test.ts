@@ -890,6 +890,60 @@ describe('P4 sequential filling and preservation', () => {
     ]);
   });
 
+  it('reports a title-rejected question as skipped without modifying its field', async () => {
+    const document = createDocument();
+    const rejectedPage = normalizeDiscoveredActivePage({
+      pageId: 'page-1',
+      questions: [
+        {
+          kind: 'supported',
+          id: 'short',
+          text: '4.j *',
+          type: 'short-text',
+          required: false,
+          options: [],
+          existingValue: null,
+        },
+      ],
+    });
+    const generator: GenerationInterface = { generate: vi.fn() };
+    const report = await new GenerationCoordinator(() => 'cycle-title-skip').generate(
+      rejectedPage,
+      [],
+      generator
+    );
+    expect(generator.generate).not.toHaveBeenCalled();
+    expect(report?.results).toMatchObject([
+      {
+        questionId: 'short',
+        status: 'unsupported',
+        answer: null,
+        reason: 'Question title must contain at least two letters or numbers.',
+      },
+    ]);
+    const fillReport = await fillReviewedAnswers(
+      document,
+      rejectedPage.form,
+      report!,
+      createAcceptedReviewDecisions(report!)
+    );
+
+    expect(fillReport.outcomes).toMatchObject([
+      { questionId: 'short', status: 'SKIPPED', answer: null },
+    ]);
+    expect(createSkipDiagnostics(report!, fillReport)).toMatchObject([
+      {
+        questionId: 'short',
+        generationStatus: 'unsupported',
+        generationReason: 'Question title must contain at least two letters or numbers.',
+        fillStatus: 'SKIPPED',
+      },
+    ]);
+    expect(
+      (document.querySelector('[data-question-id="short"] input') as HTMLInputElement).value
+    ).toBe('');
+  });
+
   it('reports checkbox partial and total failures', async () => {
     const document = createDocument();
     const report = reportFor([
