@@ -546,4 +546,127 @@ describe('Content navigation runtime adapter', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('publishes click-filled choice values in lifecycle state for Override', async () => {
+    vi.resetModules();
+    vi.doMock('../src/Forms/Detection', () => ({
+      isSupportedGoogleFormsPage: () => true,
+    }));
+
+    const runtimeMessages: Array<Record<string, unknown>> = [];
+    const contentListeners: Array<(
+      message: Record<string, unknown>,
+      sender: unknown,
+      sendResponse: (response: unknown) => void
+    ) => unknown> = [];
+    const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
+      runtimeMessages.push(message);
+      if (message.type === 'get-lifecycle-snapshot') return null;
+      if (message.type === 'lifecycle-snapshot') {
+        return { status: 'snapshot-stored' };
+      }
+      if (message.type === 'gemini-generate') {
+        const request = message.request as { cycleId: string };
+        return {
+          cycleId: request.cycleId,
+          results: [
+            {
+              questionId: 'choice',
+              status: 'GENERATED',
+              answer: { questionId: 'choice', value: 'Option B' },
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ 'answersense-overlay-opened': false })),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: {
+        sendMessage,
+        onMessage: {
+          addListener: (listener: typeof contentListeners[number]) => {
+            contentListeners.push(listener);
+          },
+        },
+      },
+    });
+    document.body.innerHTML = `
+      <main>
+        <section data-page-id="page-1" data-answersense-active-page="true">
+          <div role="listitem" data-question-id="choice" data-question-text="Choose one" data-question-type="single-choice">
+            <div role="radio" aria-label="Option A" aria-checked="false"></div>
+            <div role="radio" aria-label="Option B" aria-checked="false"></div>
+          </div>
+        </section>
+      </main>
+    `;
+    const options = document.querySelectorAll<HTMLElement>('[role="radio"]');
+    options[0].addEventListener('click', () => {
+      options[0].setAttribute('aria-checked', 'true');
+      options[1].setAttribute('aria-checked', 'false');
+    });
+    options[1].addEventListener('click', () => {
+      options[0].setAttribute('aria-checked', 'false');
+      options[1].setAttribute('aria-checked', 'true');
+    });
+
+    try {
+      await import('../src/Content/Content');
+      await vi.waitFor(() =>
+        expect(
+          runtimeMessages.some((message) => message.type === 'lifecycle-snapshot')
+        ).toBe(true)
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        const listener = contentListeners[0];
+        if (!listener) {
+          reject(new Error('Content message listener was not registered.'));
+          return;
+        }
+        listener(
+          {
+            type: 'generate-current-page',
+            configurationDigest: 'digest-1',
+            configurationRevision: 1,
+          },
+          {},
+          (response) => {
+            if ((response as { error?: string }).error) {
+              reject(new Error((response as { error: string }).error));
+            } else {
+              resolve();
+            }
+          }
+        );
+      });
+
+      const publishedSnapshots = runtimeMessages.filter(
+        (message) => message.type === 'lifecycle-snapshot'
+      );
+      const latestSnapshot = publishedSnapshots.at(-1)?.snapshot as {
+        activePage: { form: { questions: Array<{ id: string; existingInput: { value: string; hasValue: boolean } }> } };
+      };
+      expect(latestSnapshot.activePage.form.questions).toContainEqual(
+        expect.objectContaining({
+          id: 'choice',
+          existingInput: { value: 'Option B', hasValue: true },
+        })
+      );
+      expect(
+        runtimeMessages.some((message) => message.type === 'gemini-generate')
+      ).toBe(true);
+    } finally {
+      document.body.innerHTML = '';
+      vi.doUnmock('../src/Forms/Detection');
+      vi.unstubAllGlobals();
+    }
+  });
 });

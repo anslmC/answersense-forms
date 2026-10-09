@@ -1670,7 +1670,7 @@ describe('live Overlay generation workflow', () => {
     expect(toggle?.textContent).toBe('►');
     expect(questionSpans?.[0]?.hidden).toBe(false);
     expect(questionSpans?.[1]?.hidden).toBe(true);
-    expect(candidateLabels?.[1]?.textContent).toBe('Q2 — Question 2');
+    expect(candidateLabels?.[1]?.textContent).toBe('Question 2');
   });
 
   it('offers refresh recovery after a provider failure without retrying generation', async () => {

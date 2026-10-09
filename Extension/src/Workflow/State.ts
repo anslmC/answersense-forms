@@ -43,10 +43,9 @@ export function filledOverrideCandidates(
 }
 
 export function overrideQuestionLabel(
-  question: WorkflowQuestion,
-  position: number
+  question: WorkflowQuestion
 ): string {
-  return `Q${position + 1} — ${question.text}`;
+  return question.text ?? '';
 }
 
 export function createAllOverrideIntent(page: PageSummary): OverrideFilledIntent {

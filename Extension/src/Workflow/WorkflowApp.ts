@@ -800,12 +800,9 @@ export function mountAnswerSenseApp(
 
   function appendOverrideQuestionLabel(
     label: HTMLElement,
-    question: Parameters<typeof overrideQuestionLabel>[0],
-    index: number
+    question: Parameters<typeof overrideQuestionLabel>[0]
   ): void {
-    const text = question.text ?? '';
-    const questionPrefix = document.createTextNode(`Q${index + 1} — `);
-    label.append(questionPrefix);
+    const text = overrideQuestionLabel(question);
     if (text.length <= 180) {
       label.append(text);
       return;
@@ -843,7 +840,7 @@ export function mountAnswerSenseApp(
     if (!list || state.name === 'UNSUPPORTED' || !state.page) return;
     const filledQuestions = filledOverrideCandidates(state.page);
     list.replaceChildren();
-    for (const [index, question] of filledQuestions.entries()) {
+    for (const question of filledQuestions) {
       const label = createElement('label');
       const checkbox = createElement('input') as HTMLInputElement;
       checkbox.type = 'checkbox';
@@ -870,7 +867,7 @@ export function mountAnswerSenseApp(
         }
       });
       label.append(checkbox);
-      appendOverrideQuestionLabel(label, question, index);
+      appendOverrideQuestionLabel(label, question);
       list.append(label);
     }
     list.removeAttribute('hidden');

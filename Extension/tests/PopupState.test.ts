@@ -92,11 +92,11 @@ describe('P6 popup state machine', () => {
       'first',
       'third',
     ]);
-    expect(overrideQuestionLabel(overridePage.questions[0], 0)).toBe(
-      'Q1 — First answer'
+    expect(overrideQuestionLabel(overridePage.questions[0])).toBe(
+      'First answer'
     );
-    expect(overrideQuestionLabel(overridePage.questions[2], 2)).toBe(
-      'Q3 — Third answer'
+    expect(overrideQuestionLabel(overridePage.questions[2])).toBe(
+      'Third answer'
     );
   });
 

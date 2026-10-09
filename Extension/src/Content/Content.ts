@@ -494,6 +494,7 @@ async function handleRequest(request: {
       createAcceptedReviewDecisions(report),
       executionIntent.type === 'OVERRIDE_FILLED'
     );
+    pageLifecycle.captureCurrentAnswers(document);
     const invalidOutcomes: FillOutcome[] = invalidOverrideQuestionIds.map(
       (questionId) => {
         const question = pageLifecycle?.currentPage.form.questions.find(
