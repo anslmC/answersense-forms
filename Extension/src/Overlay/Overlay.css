@@ -915,6 +915,10 @@ input[type='checkbox'] {
   margin-top: 4px;
 }
 
+.override-confirmation [data-override-confirmation-text] {
+  margin: 0 0 3.5px;
+}
+
 button,
 [data-filled-status].is-settled {
   display: inline-flex;
