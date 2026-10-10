@@ -1,5 +1,21 @@
 import type { AnswerValue, SupportedQuestionType } from '../Models/Logical';
 
+export type ProviderErrorCode =
+  | 'AUTHENTICATION_FAILED'
+  | 'PERMISSION_DENIED'
+  | 'INVALID_REQUEST'
+  | 'RATE_LIMITED'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'MALFORMED_PROVIDER_RESPONSE'
+  | 'NETWORK_FAILURE'
+  | 'PROVIDER_FAILURE';
+
+export interface ProviderErrorContract {
+  readonly safeCode: ProviderErrorCode;
+  readonly safeMessageCode?: 'SERVER_BUSY';
+}
+
 export interface GenerationQuestion {
   questionId: string;
   text: string;

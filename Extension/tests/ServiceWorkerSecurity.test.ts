@@ -35,7 +35,7 @@ describe('Service Worker provider error sanitization', () => {
     expect(safe).toEqual({
       code: 'PERMISSION_DENIED',
       message:
-        'This API key or project is not permitted to use the selected model. Check the key and project access.',
+        'This key or project doesn’t have access to the selected model. Check your API key and project permissions.',
     });
     expect(JSON.stringify(safe)).not.toContain('raw body');
   });
@@ -48,6 +48,80 @@ describe('Service Worker provider error sanitization', () => {
     expect(safe).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
       message: 'Server was busy. Try again.',
+    });
+  });
+
+  it('sanitizes provider-neutral error metadata without exposing provider details', () => {
+    const safe = sanitizeProviderError({
+      safeCode: 'PERMISSION_DENIED',
+      safeMessageCode: 'UNRECOGNIZED',
+      message: 'Authorization: Bearer sensitive-token; raw provider body',
+      headers: { authorization: 'sensitive-token' },
+    });
+
+    expect(safe).toEqual({
+      code: 'PERMISSION_DENIED',
+      message:
+        'This key or project doesn’t have access to the selected model. Check your API key and project permissions.',
+    });
+    expect(JSON.stringify(safe)).not.toContain('sensitive-token');
+    expect(JSON.stringify(safe)).not.toContain('provider body');
+  });
+
+  it('preserves the sanitized timeout category', () => {
+    expect(sanitizeProviderError({ safeCode: 'TIMEOUT' })).toEqual({
+      code: 'TIMEOUT',
+      message: 'Provider request timed out.',
+    });
+  });
+
+  it('sanitizes unrecognized provider contract codes as generic failures', () => {
+    const safe = sanitizeProviderError({
+      safeCode: 'RAW_PROVIDER_BODY',
+      message: 'sensitive-token raw provider response',
+    });
+
+    expect(safe).toEqual({
+      code: 'PROVIDER_FAILURE',
+      message: 'Provider request failed.',
+    });
+    expect(JSON.stringify(safe)).not.toContain('sensitive-token');
+  });
+
+  it('fails closed when provider metadata getters throw', () => {
+    const getterError = Object.defineProperty({}, 'safeCode', {
+      get() {
+        throw new Error('getter exposed sensitive-token');
+      },
+    });
+    const proxyError = new Proxy({}, {
+      get(_target, property) {
+        if (property === 'safeCode') {
+          throw new Error('proxy exposed sensitive-token');
+        }
+        return undefined;
+      },
+    });
+
+    for (const error of [getterError, proxyError]) {
+      expect(sanitizeProviderError(error)).toEqual({
+        code: 'PROVIDER_FAILURE',
+        message: 'Provider request failed.',
+      });
+    }
+  });
+
+  it('maps Gemini malformed-output errors through the shared contract', () => {
+    expect(
+      sanitizeProviderError(
+        new GeminiProviderError(
+          'MALFORMED_PROVIDER_OUTPUT',
+          'raw provider response and sensitive-token'
+        )
+      )
+    ).toEqual({
+      code: 'MALFORMED_PROVIDER_RESPONSE',
+      message: 'Provider returned an invalid response.',
     });
   });
 
@@ -82,6 +156,76 @@ describe('Service Worker provider error sanitization', () => {
       error: 'Credential invalid.',
     });
     expect(JSON.stringify(response)).not.toContain('secret');
+  });
+
+  it('replaces arbitrary safe-error messages with a generic response', () => {
+    const response = serviceWorkerErrorResponse(
+      new SafeServiceWorkerError(
+        'AUTHENTICATION_FAILED',
+        'Authorization: Bearer sensitive-token'
+      )
+    );
+
+    expect(response).toEqual({
+      code: 'PROVIDER_FAILURE',
+      error: 'Provider request failed.',
+    });
+    expect(JSON.stringify(response)).not.toContain('sensitive-token');
+  });
+
+  it('replaces unapproved safe-error codes with a generic response', () => {
+    const response = serviceWorkerErrorResponse(
+      new SafeServiceWorkerError(
+        'UNAPPROVED_CODE' as SafeServiceWorkerError['code'],
+        'Credential invalid.'
+      )
+    );
+
+    expect(response).toEqual({
+      code: 'PROVIDER_FAILURE',
+      error: 'Provider request failed.',
+    });
+  });
+
+  it('preserves established safe service-worker messages', () => {
+    expect(
+      serviceWorkerErrorResponse(
+        new SafeServiceWorkerError(
+          'CONFIGURATION_STALE',
+          'Configuration changed during validation.'
+        )
+      )
+    ).toEqual({
+      code: 'CONFIGURATION_STALE',
+      error: 'Configuration changed during validation.',
+    });
+    expect(
+      serviceWorkerErrorResponse(
+        new SafeServiceWorkerError(
+          'PROVIDER_UNAVAILABLE',
+          'Server was busy. Try again.'
+        )
+      )
+    ).toEqual({
+      code: 'PROVIDER_UNAVAILABLE',
+      error: 'Server was busy. Try again.',
+    });
+  });
+
+  it('serializes hostile unexpected errors as a fixed safe response', () => {
+    const error = new Proxy({}, {
+      getPrototypeOf() {
+        throw new Error('proxy exposed sensitive-token');
+      },
+    });
+
+    const response = serviceWorkerErrorResponse(error);
+
+    expect(response).toEqual({
+      code: 'PROVIDER_FAILURE',
+      error: 'Provider request failed.',
+    });
+    expect(JSON.stringify(response)).not.toContain('sensitive-token');
   });
 });
 

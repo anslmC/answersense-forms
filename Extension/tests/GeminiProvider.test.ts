@@ -309,6 +309,24 @@ describe('direct Gemini provider', () => {
     });
   });
 
+  it('classifies an aborted generation request as a sanitized timeout', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new DOMException('sensitive abort details', 'AbortError');
+      })
+    );
+
+    try {
+      await expect(new GeminiProvider('test-key').generate(request)).rejects.toMatchObject({
+        code: 'PROVIDER_UNAVAILABLE',
+        safeCode: 'TIMEOUT',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('describes 403 permission failures without surfacing provider error codes', async () => {
     const provider = new GeminiProvider(
       'test-key',

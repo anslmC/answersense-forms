@@ -2,6 +2,8 @@ import type {
   GenerationInterface,
   GenerationRequest,
   GenerationResponse,
+  ProviderErrorContract,
+  ProviderErrorCode,
 } from './Contract';
 import { systemInstruction } from './SystemInstructions';
 
@@ -18,13 +20,40 @@ export type ProviderFailureCode =
   | 'MALFORMED_PROVIDER_OUTPUT'
   | 'PROVIDER_ERROR';
 
-export class GeminiProviderError extends Error {
+const SERVER_BUSY_MESSAGE = 'Server was busy. Try again.';
+
+function safeCodeForGeminiFailure(code: ProviderFailureCode): ProviderErrorCode {
+  if (
+    code === 'AUTHENTICATION_FAILED' ||
+    code === 'PERMISSION_DENIED' ||
+    code === 'RATE_LIMITED'
+  ) {
+    return code;
+  }
+  if (code === 'MALFORMED_PROVIDER_OUTPUT') {
+    return 'MALFORMED_PROVIDER_RESPONSE';
+  }
+  return code === 'PROVIDER_UNAVAILABLE'
+    ? 'PROVIDER_UNAVAILABLE'
+    : 'PROVIDER_FAILURE';
+}
+
+export class GeminiProviderError extends Error implements ProviderErrorContract {
+  public readonly safeCode: ProviderErrorCode;
+  public readonly safeMessageCode: 'SERVER_BUSY' | undefined;
+
   constructor(
     public readonly code: ProviderFailureCode,
-    message: string
+    message: string,
+    safeCode = safeCodeForGeminiFailure(code)
   ) {
     super(message);
     this.name = 'GeminiProviderError';
+    this.safeCode = safeCode;
+    this.safeMessageCode =
+      code === 'PROVIDER_UNAVAILABLE' && message === SERVER_BUSY_MESSAGE
+        ? 'SERVER_BUSY'
+        : undefined;
   }
 }
 
@@ -301,7 +330,14 @@ const fetchTransport: GeminiTransport = {
         }
       );
       clearTimeout(timeout);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new GeminiProviderError(
+          'PROVIDER_UNAVAILABLE',
+          'Provider unavailable.',
+          'TIMEOUT'
+        );
+      }
       throw new GeminiProviderError(
         'PROVIDER_UNAVAILABLE',
         'Provider unavailable.'

@@ -432,7 +432,7 @@ describe('Service Worker configuration API boundary', () => {
     ).rejects.toMatchObject({
       code: 'PERMISSION_DENIED',
       message:
-        'This API key or project is not permitted to use the selected model. Check the key and project access.',
+        'This key or project doesn’t have access to the selected model. Check your API key and project permissions.',
     });
     const configuration = (await handleMessage(
       { type: 'configuration-state' },
