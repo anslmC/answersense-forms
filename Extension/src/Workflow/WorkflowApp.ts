@@ -247,7 +247,11 @@ export function mountAnswerSenseApp(
     }
     const recordedReason = result?.reason?.trim() || fillReason?.trim();
     if (!recordedReason) return 'Reason unavailable.';
-    if (recordedReason === 'Question text is unavailable.') {
+    if (
+      recordedReason === 'Question text is unavailable.' ||
+      recordedReason ===
+        'Question title must contain at least two letters or numbers.'
+    ) {
       return 'Question text is unavailable or empty. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.';
     }
     if (recordedReason === 'Question type is unsupported.') {
