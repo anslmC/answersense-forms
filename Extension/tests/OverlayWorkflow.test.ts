@@ -6,6 +6,8 @@ import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { waitForInitialDiscovery } from '../src/Content/Navigation';
 import type { QuestionResult } from '../src/Models/Logical';
+import { NVIDIA_MODEL } from '../src/Generation/NvidiaProvider';
+import { NVIDIA_PROVIDER_ID } from '../src/Generation/ProviderRegistry';
 
 const configurationState = {
   providers: [
@@ -1936,6 +1938,209 @@ describe('live Overlay generation workflow', () => {
     refresh()?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
     expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
+  });
+
+  it('shows registry providers, restores active selections, and recovers from NVIDIA permission denial', async () => {
+    const multiProviderState = {
+      ...configurationState,
+      providers: [
+        {
+          providerId: 'gemini',
+          displayName: 'Gemini',
+          models: [
+            { modelId: 'gemini-model', displayName: 'Gemini model' },
+            { modelId: 'gemini-alt', displayName: 'Gemini alternate' },
+          ],
+          supportsValidation: true,
+        },
+        {
+          providerId: NVIDIA_PROVIDER_ID,
+          displayName: 'NVIDIA',
+          models: [
+            { modelId: NVIDIA_MODEL, displayName: 'NVIDIA Nemotron 3 Super' },
+          ],
+          supportsValidation: true,
+        },
+      ],
+      credentials: [
+        ...configurationState.credentials,
+        {
+          credentialId: 'gemini-backup',
+          providerId: 'gemini',
+          label: 'Gemini backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+        {
+          credentialId: 'nvidia-primary',
+          providerId: NVIDIA_PROVIDER_ID,
+          label: 'NVIDIA primary',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+        {
+          credentialId: 'nvidia-backup',
+          providerId: NVIDIA_PROVIDER_ID,
+          label: 'NVIDIA backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+      activeConfiguration: {
+        providerId: 'gemini',
+        modelId: 'gemini-alt',
+        credentialId: 'gemini-backup',
+        providerConfig: {},
+      },
+      configurationDigest: 'active-gemini-digest',
+      validation: null,
+    };
+    let currentConfigurationState = multiProviderState;
+    const permissionRequiredMessage =
+      'NVIDIA network access is required. Grant access from the AnswerSense permission page, then retry.';
+    const sendMessage = vi.fn(async (message: {
+      type?: string;
+      providerId?: string;
+      modelId?: string;
+      credentialId?: string;
+      selectedConfiguration?: {
+        providerId: string;
+        modelId: string;
+        credentialId: string;
+      };
+    }) => {
+      if (message.type === 'configuration-state') {
+        if (!message.selectedConfiguration) return currentConfigurationState;
+        return {
+          ...currentConfigurationState,
+          selectedConfiguration: {
+            ...message.selectedConfiguration,
+            providerConfig: {},
+          },
+          selectedConfigurationDigest: 'draft-digest',
+          selectedValidation: null,
+        };
+      }
+      if (message.type === 'configuration-set') {
+        currentConfigurationState = {
+          ...currentConfigurationState,
+          activeConfiguration: {
+            providerId: message.providerId ?? '',
+            modelId: message.modelId ?? '',
+            credentialId: message.credentialId ?? '',
+            providerConfig: {},
+          },
+          configurationDigest: 'active-nvidia-digest',
+          validation: null,
+        };
+        return currentConfigurationState;
+      }
+      if (message.type === 'configuration-validate') {
+        return { error: permissionRequiredMessage };
+      }
+      if (message.type === 'open-nvidia-permission-page') {
+        return { opened: true };
+      }
+      if (message.type === 'p7-discover') return createSnapshot();
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    await overlay.refresh();
+    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const providerSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+      '[data-provider-select]'
+    );
+    const modelSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+      '[data-model-select]'
+    );
+    const credentialSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+      '[data-credential-select]'
+    );
+    const permissionButton = shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-nvidia-permission]'
+    );
+    if (!providerSelect || !modelSelect || !credentialSelect) {
+      throw new Error('Provider configuration controls missing.');
+    }
+
+    expect(Array.from(providerSelect.options, (option) => option.value)).toEqual([
+      'gemini',
+      NVIDIA_PROVIDER_ID,
+    ]);
+    expect(providerSelect.value).toBe('gemini');
+    expect(modelSelect.value).toBe('gemini-alt');
+    expect(credentialSelect.value).toBe('gemini-backup');
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    expect(Array.from(modelSelect.options, (option) => option.value)).toEqual([
+      NVIDIA_MODEL,
+    ]);
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'nvidia-primary',
+      'nvidia-backup',
+    ]);
+    expect(permissionButton?.hidden).toBe(false);
+
+    providerSelect.value = 'gemini';
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe('gemini-alt'));
+    expect(credentialSelect.value).toBe('gemini-backup');
+    expect(permissionButton?.hidden).toBe(true);
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'configuration-set',
+        providerId: NVIDIA_PROVIDER_ID,
+        modelId: NVIDIA_MODEL,
+        credentialId: 'nvidia-primary',
+      })
+    );
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('[data-configuration-message]')
+          ?.textContent
+      ).toBe(permissionRequiredMessage)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
+    expect(currentConfigurationState.credentials).toContainEqual(
+      expect.objectContaining({
+        credentialId: 'nvidia-primary',
+        providerId: NVIDIA_PROVIDER_ID,
+      })
+    );
+    expect(currentConfigurationState.validation).toBeNull();
+    expect(permissionButton?.hidden).toBe(false);
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-configuration-status]')
+        ?.textContent
+    ).not.toContain('Validation failed');
+
+    permissionButton?.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'open-nvidia-permission-page',
+      })
+    );
   });
 
 });

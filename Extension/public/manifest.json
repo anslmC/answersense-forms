@@ -8,6 +8,9 @@
     "https://docs.google.com/forms/*",
     "https://generativelanguage.googleapis.com/*"
   ],
+  "optional_host_permissions": [
+    "https://integrate.api.nvidia.com/*"
+  ],
   "background": {
     "service_worker": "background/background.js",
     "type": "module"

@@ -7,6 +7,9 @@ export interface SafeProviderError {
   message: string;
 }
 
+export const NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE =
+  'NVIDIA denied access to this model. Check NVIDIA account and model permissions.';
+
 const SAFE_MESSAGES: Record<SafeProviderErrorCode, string> = {
   AUTHENTICATION_FAILED: 'Credential invalid.',
   PERMISSION_DENIED:
@@ -15,6 +18,8 @@ const SAFE_MESSAGES: Record<SafeProviderErrorCode, string> = {
   RATE_LIMITED: 'Provider rate limit reached.',
   PROVIDER_UNAVAILABLE: 'Provider unavailable.',
   TIMEOUT: 'Provider request timed out.',
+  INCOMPLETE_PROVIDER_RESPONSE:
+    'NVIDIA output was truncated. Try fewer or shorter questions.',
   MALFORMED_PROVIDER_RESPONSE: 'Provider returned an invalid response.',
   NETWORK_FAILURE: 'Provider network request failed.',
   PROVIDER_FAILURE: 'Provider request failed.',
@@ -27,6 +32,7 @@ const PROVIDER_ERROR_CODES = new Set<ProviderErrorCode>([
   'RATE_LIMITED',
   'PROVIDER_UNAVAILABLE',
   'TIMEOUT',
+  'INCOMPLETE_PROVIDER_RESPONSE',
   'MALFORMED_PROVIDER_RESPONSE',
   'NETWORK_FAILURE',
   'PROVIDER_FAILURE',
@@ -49,9 +55,13 @@ function providerErrorFromContract(error: unknown): SafeProviderError | null {
       return null;
     }
     const safeMessageCode = error.safeMessageCode;
+    const providerId = error.providerId;
     return {
       code: safeCode as ProviderErrorCode,
       message:
+        safeCode === 'PERMISSION_DENIED' && providerId === 'nvidia'
+          ? NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE
+          :
         safeCode === 'PROVIDER_UNAVAILABLE' &&
         safeMessageCode === 'SERVER_BUSY'
           ? 'Server was busy. Try again.'

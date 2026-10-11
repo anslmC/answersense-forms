@@ -1,7 +1,11 @@
 import {
   sanitizeProviderError,
+  NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE,
   type SafeProviderErrorCode,
 } from './ProviderErrorSanitizer';
+
+export const NVIDIA_HOST_PERMISSION_REQUIRED_MESSAGE =
+  'NVIDIA network access is required. Grant access from the AnswerSense permission page, then retry.';
 
 export class SafeServiceWorkerError extends Error {
   constructor(
@@ -11,6 +15,7 @@ export class SafeServiceWorkerError extends Error {
       | 'CONFIGURATION_STALE'
       | 'GENERATION_IN_PROGRESS'
       | 'GENERATION_PAGE_NOT_SYNCHRONIZED'
+      | 'NVIDIA_HOST_PERMISSION_REQUIRED'
       | 'UNAUTHORIZED_SENDER',
     message: string
   ) {
@@ -45,6 +50,9 @@ const SERVICE_WORKER_MESSAGES: Record<
     'The current page is not synchronized for generation.',
     'Override selection could not be validated.',
   ],
+  NVIDIA_HOST_PERMISSION_REQUIRED: [
+    NVIDIA_HOST_PERMISSION_REQUIRED_MESSAGE,
+  ],
   UNAUTHORIZED_SENDER: [
     'Generation request is not from a valid content tab.',
     'Generation request is not from the active tab.',
@@ -74,6 +82,13 @@ function safeServiceWorkerErrorResponse(
       safeMessageCode: 'SERVER_BUSY',
     });
     return { error: unavailableError.message, code: unavailableError.code };
+  }
+
+  if (
+    code === 'PERMISSION_DENIED' &&
+    message === NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE
+  ) {
+    return { error: message, code };
   }
 
   if (

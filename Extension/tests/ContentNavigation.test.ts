@@ -651,7 +651,8 @@ describe('Content navigation runtime adapter', () => {
       const publishedSnapshots = runtimeMessages.filter(
         (message) => message.type === 'lifecycle-snapshot'
       );
-      const latestSnapshot = publishedSnapshots.at(-1)?.snapshot as {
+      const latestSnapshot = publishedSnapshots[publishedSnapshots.length - 1]
+        ?.snapshot as {
         activePage: { form: { questions: Array<{ id: string; existingInput: { value: string; hasValue: boolean } }> } };
       };
       expect(latestSnapshot.activePage.form.questions).toContainEqual(

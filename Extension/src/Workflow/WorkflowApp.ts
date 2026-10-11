@@ -9,6 +9,7 @@ import {
 } from './Configuration';
 import { createBrowserWorkflow } from './Workflow';
 import { GEMINI_MODEL } from '../Generation/GeminiProvider';
+import { NVIDIA_PROVIDER_ID } from '../Generation/ProviderRegistry';
 import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
 import type { QuestionResult } from '../Models/Logical';
 import type { FillOutcome } from '../Fill/Filler';
@@ -791,6 +792,9 @@ export function mountAnswerSenseApp(
     );
     const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
     const modelSelect = element<HTMLSelectElement>('[data-model-select]');
+    const nvidiaPermissionButton = element<HTMLButtonElement>(
+      '[data-nvidia-permission]'
+    );
     const credentialSelect = element<HTMLSelectElement>(
       '[data-credential-select]'
     );
@@ -843,6 +847,9 @@ export function mountAnswerSenseApp(
       (models.some((model) => model.modelId === GEMINI_MODEL)
         ? GEMINI_MODEL
         : models[0]?.modelId ?? '');
+    if (nvidiaPermissionButton) {
+      nvidiaPermissionButton.hidden = providerSelect.value !== NVIDIA_PROVIDER_ID;
+    }
 
     credentialSelect.replaceChildren();
     const providerCredentials = configurationState.credentials.filter(
@@ -1426,16 +1433,23 @@ export function mountAnswerSenseApp(
     providerSelect.addEventListener('change', () => {
       clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
-      modelSelect.replaceChildren(
-        ...modelsForProvider(configurationState, providerSelect.value).map(
-          (model) => new Option(model.displayName, model.modelId)
-        )
-      );
+      const active = configurationState.activeConfiguration;
+      const activeModelId =
+        active?.providerId === providerSelect.value ? active.modelId : null;
+      const activeCredentialId =
+        active?.providerId === providerSelect.value
+          ? active.credentialId
+          : null;
       const models = modelsForProvider(configurationState, providerSelect.value);
+      modelSelect.replaceChildren(
+        ...models.map((model) => new Option(model.displayName, model.modelId))
+      );
       modelSelect.value =
-        (models.some((model) => model.modelId === GEMINI_MODEL)
-          ? GEMINI_MODEL
-          : models[0]?.modelId) ?? '';
+        (models.some((model) => model.modelId === activeModelId)
+          ? activeModelId
+          : models.some((model) => model.modelId === GEMINI_MODEL)
+            ? GEMINI_MODEL
+            : models[0]?.modelId) ?? '';
       const credentials = configurationState.credentials.filter(
         (item) => item.providerId === providerSelect.value
       );
@@ -1450,6 +1464,12 @@ export function mountAnswerSenseApp(
             )
           : [new Option('No API keys added yet', '')])
       );
+      credentialSelect.value =
+        (credentials.some(
+          (credential) => credential.credentialId === activeCredentialId
+        )
+          ? activeCredentialId
+          : credentials[0]?.credentialId) ?? '';
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();
@@ -1603,6 +1623,21 @@ export function mountAnswerSenseApp(
     element<HTMLButtonElement>('[data-save-validate-configuration]')?.addEventListener(
       'click',
       () => void saveAndValidateConfiguration()
+    );
+    element<HTMLButtonElement>('[data-nvidia-permission]')?.addEventListener(
+      'click',
+      async () => {
+        try {
+          await send({ type: 'open-nvidia-permission-page' });
+        } catch (error) {
+          showMessage(
+            '[data-configuration-message]',
+            error instanceof Error
+              ? error.message
+              : 'NVIDIA network permission page could not be opened.'
+          );
+        }
+      }
     );
     const deleteConfirmation = element<HTMLElement>(
       '[data-delete-confirmation]'

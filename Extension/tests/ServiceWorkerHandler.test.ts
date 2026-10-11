@@ -24,7 +24,10 @@ vi.mock('../src/Generation/ProviderRegistry', async () => {
   return {
     ...actual,
     resolveAdapter: (adapterId: unknown) => {
-      if (adapterId !== actual.GEMINI_ADAPTER_ID) {
+      if (
+        adapterId !== actual.GEMINI_ADAPTER_ID &&
+        adapterId !== actual.NVIDIA_ADAPTER_ID
+      ) {
         return null;
       }
       return (secret: string) => {
@@ -67,6 +70,7 @@ type ChromeTestState = {
   values: Record<string, unknown>;
   sessionValues?: Record<string, unknown>;
   queryCount: number;
+  nvidiaHostPermissionGranted?: boolean;
   removedListener?: (tabId: number) => Promise<void>;
 };
 
@@ -95,6 +99,9 @@ function installChrome(
           state.removedListener = listener;
         },
       },
+    },
+    permissions: {
+      contains: vi.fn(async () => state.nvidiaHostPermissionGranted ?? true),
     },
     storage: {
       local: {
@@ -128,14 +135,18 @@ function testStorage(): CredentialStorage {
   return chromeCredentialStorage;
 }
 
-async function authorizedState(storage: CredentialStorage) {
+async function authorizedState(
+  storage: CredentialStorage,
+  providerId = GEMINI_PROVIDER_ID,
+  modelId = GEMINI_MODEL
+) {
   const credential = await createCredential(
-    { providerId: GEMINI_PROVIDER_ID, label: 'Primary', secret: 'test-secret' },
+    { providerId, label: 'Primary', secret: 'test-secret' },
     storage
   );
   const configuration = {
-    providerId: GEMINI_PROVIDER_ID,
-    modelId: GEMINI_MODEL,
+    providerId,
+    modelId,
     credentialId: credential.credentialId,
     providerConfig: {},
   };
@@ -255,6 +266,70 @@ describe('Service Worker generation handler security boundary', () => {
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED_SENDER' });
     expect(handlerState.adapterCalls).toBe(0);
     expect(handlerState.providerCalls).toBe(0);
+  });
+
+  it.each([
+    ['missing', false],
+    ['revoked', false],
+  ])('blocks NVIDIA generation when host permission is %s', async (permissionState, granted) => {
+    const state: ChromeTestState = {
+      values: {},
+      queryCount: 0,
+      nvidiaHostPermissionGranted: permissionState === 'revoked' ? true : granted,
+    };
+    installChrome(state);
+    const authorized = await authorizedState(
+      testStorage(),
+      'nvidia',
+      'nvidia/nemotron-3-super-120b-a12b'
+    );
+    if (permissionState === 'revoked') {
+      state.nvidiaHostPermissionGranted = false;
+    }
+    const handleMessage = await loadHandler();
+
+    await expect(
+      handleMessage(
+        {
+          type: 'gemini-generate',
+          request: {},
+          configurationDigest: authorized.resolved.configurationDigest,
+          configurationRevision: authorized.resolved.authorizationRevision,
+        },
+        sender(activeTabId)
+      )
+    ).rejects.toMatchObject({ code: 'NVIDIA_HOST_PERMISSION_REQUIRED' });
+    expect(handlerState.adapterCalls).toBe(0);
+    expect(handlerState.providerCalls).toBe(0);
+  });
+
+  it('allows NVIDIA generation when the host permission is granted', async () => {
+    const state: ChromeTestState = {
+      values: {},
+      queryCount: 0,
+      nvidiaHostPermissionGranted: true,
+    };
+    installChrome(state);
+    const authorized = await authorizedState(
+      testStorage(),
+      'nvidia',
+      'nvidia/nemotron-3-super-120b-a12b'
+    );
+    const handleMessage = await loadHandler();
+
+    await expect(
+      handleMessage(
+        {
+          type: 'gemini-generate',
+          request: {},
+          configurationDigest: authorized.resolved.configurationDigest,
+          configurationRevision: authorized.resolved.authorizationRevision,
+        },
+        sender(activeTabId)
+      )
+    ).resolves.toEqual({ cycleId: 'handler-cycle', results: [] });
+    expect(handlerState.adapterCalls).toBe(1);
+    expect(handlerState.providerCalls).toBe(1);
   });
 });
 

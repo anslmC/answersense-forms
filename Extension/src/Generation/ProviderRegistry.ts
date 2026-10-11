@@ -4,10 +4,18 @@ import {
   GEMINI_MODEL,
   validateGeminiCredential,
 } from './GeminiProvider';
+import {
+  NVIDIA_MODEL,
+  NvidiaProvider,
+  validateNvidiaCredential,
+} from './NvidiaProvider';
 
 export const GEMINI_PROVIDER_ID = 'gemini';
 export const GEMINI_ADAPTER_ID = 'gemini';
 export const GEMINI_ENDPOINT_HOST = 'generativelanguage.googleapis.com';
+export const NVIDIA_PROVIDER_ID = 'nvidia';
+export const NVIDIA_ADAPTER_ID = 'nvidia';
+export const NVIDIA_ENDPOINT_HOST = 'integrate.api.nvidia.com';
 
 export interface ModelDefinition {
   readonly modelId: string;
@@ -53,8 +61,28 @@ const geminiProvider: ProviderDefinition = Object.freeze({
   endpointHost: GEMINI_ENDPOINT_HOST,
 });
 
+const nvidiaModels: readonly ModelDefinition[] = Object.freeze([
+  Object.freeze({
+    modelId: NVIDIA_MODEL,
+    displayName: 'NVIDIA Nemotron 3 Super',
+    providerId: NVIDIA_PROVIDER_ID,
+    endpointHost: NVIDIA_ENDPOINT_HOST,
+  }),
+]);
+
+const nvidiaProvider: ProviderDefinition = Object.freeze({
+  providerId: NVIDIA_PROVIDER_ID,
+  displayName: 'NVIDIA',
+  adapterId: NVIDIA_ADAPTER_ID,
+  models: nvidiaModels,
+  credentialRequirements: Object.freeze({ secret: true }),
+  supportsValidation: true,
+  endpointHost: NVIDIA_ENDPOINT_HOST,
+});
+
 export const PROVIDER_REGISTRY: readonly ProviderDefinition[] = Object.freeze([
   geminiProvider,
+  nvidiaProvider,
 ]);
 
 const providersById: Readonly<Record<string, ProviderDefinition>> =
@@ -78,12 +106,16 @@ const STATIC_ADAPTERS: Readonly<Record<string, ProviderAdapterFactory>> =
   Object.freeze({
     [GEMINI_ADAPTER_ID]: (secret, modelId = GEMINI_MODEL) =>
       new GeminiProvider(secret, undefined, modelId),
+    [NVIDIA_ADAPTER_ID]: (secret, modelId = NVIDIA_MODEL) =>
+      new NvidiaProvider(secret, modelId),
   });
 
 const STATIC_CREDENTIAL_VALIDATORS: Readonly<
   Record<string, ProviderCredentialValidator>
 > = Object.freeze({
   [GEMINI_PROVIDER_ID]: (secret) => validateGeminiCredential(secret),
+  [NVIDIA_PROVIDER_ID]: (secret, modelId) =>
+    validateNvidiaCredential(secret, modelId),
 });
 
 export function resolveProvider(

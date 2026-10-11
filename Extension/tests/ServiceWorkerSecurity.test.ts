@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GeminiProviderError } from '../src/Generation/GeminiProvider';
+import { NvidiaProviderError } from '../src/Generation/NvidiaProvider';
 import { sanitizeProviderError } from '../src/Background/ProviderErrorSanitizer';
 import {
   SafeServiceWorkerError,
@@ -122,6 +123,25 @@ describe('Service Worker provider error sanitization', () => {
     ).toEqual({
       code: 'MALFORMED_PROVIDER_RESPONSE',
       message: 'Provider returned an invalid response.',
+    });
+  });
+
+  it('preserves the sanitized NVIDIA truncation category through the runtime boundary', () => {
+    const safe = sanitizeProviderError(
+      new NvidiaProviderError('INCOMPLETE_PROVIDER_RESPONSE')
+    );
+    expect(safe).toEqual({
+      code: 'INCOMPLETE_PROVIDER_RESPONSE',
+      message: 'NVIDIA output was truncated. Try fewer or shorter questions.',
+    });
+
+    expect(
+      serviceWorkerErrorResponse(
+        new SafeServiceWorkerError(safe.code, safe.message)
+      )
+    ).toEqual({
+      code: 'INCOMPLETE_PROVIDER_RESPONSE',
+      error: 'NVIDIA output was truncated. Try fewer or shorter questions.',
     });
   });
 

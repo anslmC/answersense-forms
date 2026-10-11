@@ -13,6 +13,10 @@ export default defineConfig(({ mode }) => {
           ? resolve(__dirname, 'src/Content/Content.ts')
           : {
               background: resolve(__dirname, 'src/Background/ServiceWorker.ts'),
+              'nvidia-permission': resolve(
+                __dirname,
+                'src/Permissions/NvidiaPermissionPage.html'
+              ),
             },
         output: contentBuild
           ? {
