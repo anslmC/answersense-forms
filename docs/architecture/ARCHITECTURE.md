@@ -4,9 +4,9 @@
 
 This document describes the current production architecture of AnswerSense: Forms.
 
-The production implementation is an extension-only, direct BYOK design for supported Google Forms respondent pages.
+The production implementation is an extension-only, direct BYOK design for Google Forms respondent-page workflows.
 
-AI provider integration is represented as an extension boundary. Gemini is the currently implemented provider; additional providers can be integrated through the same boundary.
+The provider registry currently supports Gemini and NVIDIA. The user selects one provider, model, and credential for a configuration.
 
 Possible Android device support is a future consideration and is not part of the current implementation.
 
@@ -27,6 +27,10 @@ Current provider path:
 AI Provider
   -> GeminiProvider
   -> Google Gemini API
+
+AI Provider
+  -> NvidiaProvider
+  -> NVIDIA Integrate API
 ```
 
 Provider requests are sent directly from the service worker to the configured provider API. There is no AnswerSense backend workspace or server in the current production architecture.
@@ -35,7 +39,8 @@ Provider requests are sent directly from the service worker to the configured pr
 
 The content script provides the Google Forms integration layer. It:
 
-- detects the active respondent page
+- is injected on Google Forms routes and discovers supported respondent-page content
+- shows a floating launcher only on top-level `/viewform` respondent pages
 - discovers questions on the active page
 - normalizes question and control data
 - observes navigation and lifecycle transitions
@@ -76,6 +81,8 @@ The Shadow DOM Overlay is the production UI and source of truth for:
 
 The shadow root isolates overlay markup and styling from the surrounding page. The content script continues to interact with Google Forms controls outside the shadow root.
 
+The floating launcher is a separate content-script host with its own open Shadow DOM root. It is fixed near the top-right of a respondent page and invokes the same overlay toggle used by the browser action. It is hidden while the overlay is open and restored when the overlay closes. The browser action uses a broader Google Forms URL check than launcher visibility; launcher visibility itself is restricted to top-level `/viewform` routes.
+
 ## Service Worker
 
 The Manifest V3 service worker provides privileged coordination and provider access.
@@ -94,6 +101,14 @@ It:
 
 Generation requests from the content script pass through the service worker. The service worker resolves the selected provider adapter, supplies the authorized credential, and returns the application-level generation result.
 
+## Permissions
+
+The Manifest V3 manifest declares these required host permissions:
+
+- `https://docs.google.com/forms/*` for supported form workflows
+- `https://generativelanguage.googleapis.com/*` for Gemini
+- `https://integrate.api.nvidia.com/*` for NVIDIA
+
 ## AI Provider Boundary
 
 Provider metadata and adapter resolution are defined by the provider registry.
@@ -110,20 +125,29 @@ The adapter factory receives the authorized credential and provides the shared g
 
 The provider boundary isolates provider-specific transport and response handling from the Google Forms workflow. Additional providers can implement the existing provider contract without changing the Google Forms processing model.
 
-### Current Gemini Implementation
+### Registered Providers and Models
 
-The registry currently contains Gemini as its implemented provider.
+The registry currently exposes these models:
+
+- Gemini: `gemini-3.5-flash-lite` (Gemini 3.5 Flash-Lite) and `gemini-3.1-flash-lite` (Gemini 3.1 Flash-Lite)
+- NVIDIA: `nvidia/nemotron-3-super-120b-a12b` (NVIDIA Nemotron 3 Super) and `openai/gpt-oss-20b` (OpenAI GPT-OSS 20B, served through NVIDIA's API)
+
+The configured provider/model determines which adapter receives the authorized credential. There is no automatic provider routing or fallback.
 
 `GeminiProvider`:
 
 - sends structured generation requests directly to the Google Gemini API
-- uses the configured Gemini model endpoint
+- uses the selected Gemini model's `generateContent` endpoint
 - authenticates with the `x-goog-api-key` request header
 - requests JSON output
 - validates returned data against the generation contract
 - classifies authentication, quota, rate-limit, availability, and malformed-output failures
 
-Credential validation calls the Gemini model information endpoint directly using the same `x-goog-api-key` header.
+Gemini credential validation calls the Gemini model information endpoint using the same header. The current validation endpoint is for `gemini-3.1-flash-lite`, independently of which registered Gemini model is selected for generation.
+
+`NvidiaProvider` sends chat-completion requests directly to `https://integrate.api.nvidia.com/v1/chat/completions` and authenticates with an `Authorization: Bearer` API-key header. It validates the response against the shared generation contract and classifies provider and transport failures.
+
+NVIDIA credential validation sends a fixed synthetic garden-tools question to the selected NVIDIA model as a completion probe. It does not use the user's form data; unlike Gemini validation, it is a generation-style API request.
 
 No AnswerSense API or backend proxy is involved.
 
@@ -211,7 +235,7 @@ The current production architecture does not include:
 - heuristic dependency detection
 - automatic downstream regeneration
 - automatic retries
-- multi-provider routing or fallback
+- automatic provider routing or fallback; provider selection is user-configured
 - persistent answer storage
 - analytics
 - a UI framework

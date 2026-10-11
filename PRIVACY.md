@@ -1,6 +1,6 @@
 # AnswerSense: Forms Privacy Policy
 
-**Effective Date: September 15, 2026**
+**Effective Date: October 11, 2026**
 
 ## Introduction
 
@@ -30,31 +30,31 @@ AnswerSense: Forms uses this information to:
 - Preserve relevant settled context for subsequent generation requests.
 - Show generation and fill results so the user can review and edit answers.
 
-## Google Gemini and External Requests
+## Provider Requests and External Services
 
-Google Gemini is the currently implemented AI provider. Relevant normalized Google Forms question data and applicable settled question-and-answer context may be sent to Google Gemini to generate answers.
+AnswerSense currently supports Google Gemini and NVIDIA. For generation, the extension sends the selected provider the normalized questions being processed, their relevant question and page identifiers, and applicable settled question-and-answer context from earlier completed pages. It does not send raw page HTML or DOM references.
 
-Generation requests are made directly from the extension service worker to Google's Gemini API. AnswerSense does not operate an AnswerSense backend or proxy server that receives this form data. Credential and model validation also uses Google's Gemini API directly.
+Requests go directly from the extension service worker to the selected provider API using the user's key. The production extension has no AnswerSense backend or proxy that receives form data or API keys. The required host permissions cover supported Google Forms pages and the Google Generative Language and NVIDIA Integrate API hosts.
 
-The extension currently uses the Gemini model configured by the implementation and sends the user's Gemini API key to Google in the request authentication header when generation or validation requires it. Google controls its own services and data-handling practices. Users should consult Google's applicable privacy and Gemini API documentation for information about Google's handling of API requests.
+Gemini requests use the `x-goog-api-key` authentication header. Gemini credential validation requests model information from Google's API; it does not submit form questions. NVIDIA requests use bearer-key authentication. NVIDIA credential validation sends a fixed synthetic question about labeling shared garden tools to the selected NVIDIA model as a probe. This validation probe is not taken from the user's form. Generation and validation requests are handled by the selected provider under that provider's policies. Users should consult Google's or NVIDIA's current privacy and API documentation for information about provider-side handling.
 
 ## API Keys and Credentials
 
-Users provide their own Gemini API key through the AnswerSense: Forms overlay. Credential and configuration state is stored locally in encrypted configuration state using AES-GCM encryption. The encryption key is stored as a non-extractable Web Crypto key in IndexedDB.
+Users provide their own Gemini or NVIDIA API key through the AnswerSense: Forms overlay. The key is entered in a native browser prompt and passed to the extension service worker. Credential and configuration state is stored in `chrome.storage.local` as AES-GCM-encrypted state. The non-extractable Web Crypto encryption key is stored in IndexedDB.
 
-The extension's UI configuration state exposes redacted credential records and does not return the raw API key as UI state. The API key is read by the extension service worker when needed and sent directly to the configured provider. AnswerSense does not send the API key to an AnswerSense server.
+The UI receives redacted credential records, not raw API keys. The service worker reads a stored key when needed and sends it directly to the configured provider for generation or validation.
 
-Local encryption reduces exposure of persisted configuration but does not guarantee protection against a compromised browser profile, compromised extension environment, or other access to the browser environment.
+Treat provider API keys as secrets. Do not publish or commit them, include them in screenshots, or share them in issue reports.
 
 ## Local Storage and Session Data
 
 AnswerSense: Forms uses browser-local storage for different purposes:
 
 - Persistent local configuration storage contains encrypted credentials, provider and model configuration, validation information, and related configuration metadata.
-- Browser-session workflow storage can contain active questions, form and page identifiers, settled question-and-answer context, generated results, fill outcomes, visits, and other lifecycle state needed to continue the current workflow.
+- Session-scoped workflow storage can contain active questions, form and page identifiers, settled question-and-answer context, generated results, fill outcomes, visits, and other lifecycle state needed to continue the current workflow.
 - Local UI preferences include the overlay's position and whether it was opened.
 
-The implementation does not provide a separate permanent answer-history database. Session workflow data is not described as permanent history.
+The implementation does not provide a separate permanent answer-history database. Session workflow data is not a permanent answer history.
 
 ## Tracking, Analytics, and Advertising
 
@@ -66,17 +66,9 @@ AnswerSense: Forms does not automatically submit Google Forms. Users review gene
 
 The extension provides controls in its overlay to add, replace, validate, select, and delete stored credentials; select the provider and model; generate and fill answers; review results; override selected or filled answers; and re-enable generation for a settled page.
 
-## Data Sharing
-
-Form information is processed locally by the extension to discover, normalize, fill, and manage the current workflow. Data needed for generation, including relevant normalized questions and applicable settled answer context, is sent directly to Google Gemini. The API key is sent directly to Google for provider authentication and validation when required.
-
-There is no AnswerSense backend or proxy server receiving this information. The production implementation does not include advertising or analytics.
-
 ## Security
 
-AnswerSense: Forms uses local AES-GCM encryption for persisted credential and configuration state. It stores the non-extractable encryption key in IndexedDB and keeps raw credential secrets out of UI configuration state.
-
-These measures are not an absolute security guarantee. Users remain responsible for protecting their browser profile, device, and Gemini API key.
+Encryption reduces exposure of persisted configuration but is not an absolute security guarantee. It does not protect against a compromised browser profile or extension environment with access to the encryption key. Users remain responsible for protecting their browser profile, device, and provider API keys.
 
 ## Open Source and Transparency
 
