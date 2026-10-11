@@ -134,16 +134,16 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
         </button>
         <p class="configuration-guidance">
           <span data-configuration-guidance>Configure the extension before generating.</span>
-          Need an API key? Get one from
-          <a
-            href="https://aistudio.google.com/apikey"
-            target="_blank"
-            rel="noopener noreferrer"
-          >Google AI Studio</a>.
+          <button type="button" class="configuration-guidance-action" data-open-configuration>
+            Need an API key? Find provider links in Resources.
+          </button>
         </p>
         <div id="configuration-content" class="configuration-content" data-configuration-content hidden>
       <section class="credential-panel" aria-labelledby="credential-heading">
-        <h2 id="credential-heading">API Keys</h2>
+        <div class="credential-heading-row">
+          <h2 id="credential-heading">API Keys</h2>
+          <p class="detail" data-credential-status>Loading configuration...</p>
+        </div>
         <div class="actions">
           <button type="button" data-add-credential>Add API key</button>
           <button type="button" class="secondary" data-replace-credential>
@@ -192,12 +192,9 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
         <select id="provider-select" data-provider-select></select>
         <label for="model-select">Model</label>
         <select id="model-select" data-model-select></select>
-        <div class="credential-label-row">
-          <label for="credential-select">API Key</label>
-          <p class="detail" data-credential-status>Loading configuration...</p>
-        </div>
+        <label for="credential-select">API Key</label>
         <select id="credential-select" data-credential-select>
-          <option value="">No API keys added yet</option>
+          <option value="" disabled hidden selected>No API keys added yet</option>
         </select>
         <div class="actions">
           <button type="button" data-save-validate-configuration>
@@ -231,19 +228,8 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
         <p class="message" data-configuration-message hidden></p>
       </section>
       <section class="resources-panel" aria-labelledby="resources-heading">
-        <h2 id="resources-heading">Resources</h2>
-        <a
-          class="resources-link"
-          href="https://aistudio.google.com/app/apikey"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-            <path d="M6 1.5 7.3 5l3.2 1.2-3.2 1.2L6 11 4.8 7.4 1.2 6.2 4.8 5 6 1.5Z" />
-            <path d="m12 8.5.7 1.9 1.8.6-1.8.7L12 13.5l-.7-1.8-1.8-.7 1.8-.6.7-1.9Z" />
-          </svg>
-          <span>Get Gemini API key</span>
-        </a>
+        <h2 id="resources-heading" data-resources-heading>Resources</h2>
+        <div data-resource-links></div>
       </section>
         </div>
       </section>
@@ -504,6 +490,11 @@ export async function mountOverlay(
       configurationToggleIcon.textContent = expanded ? '▼' : '►';
     }
   });
+  body
+    .querySelector<HTMLButtonElement>('[data-open-configuration]')
+    ?.addEventListener('click', () => {
+      if (configurationContent?.hidden) configurationToggle?.click();
+    });
 
   const handle = mountAnswerSenseApp({
     root: body,

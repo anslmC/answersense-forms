@@ -50,9 +50,10 @@ const configurationState = {
 
 type TestConfigurationState = Omit<
   typeof configurationState,
-  'activeConfiguration' | 'validation'
+  'activeConfiguration' | 'configurationDigest' | 'validation'
 > & {
   activeConfiguration: typeof configurationState.activeConfiguration | null;
+  configurationDigest: string | null;
   validation: typeof configurationState.validation | null;
 };
 
@@ -134,6 +135,86 @@ function createAlreadyFilledGenerationResult() {
   };
 }
 
+interface ProviderActionMessage {
+  type?: string;
+  providerId?: string;
+  credentialId?: string;
+  selectedConfiguration?: {
+    providerId: string;
+    modelId: string;
+    credentialId: string;
+  };
+}
+
+function providerActionConfigurationState() {
+  return {
+    ...configurationState,
+    providers: [
+      {
+        providerId: 'gemini',
+        displayName: 'Gemini',
+        models: [
+          { modelId: 'gemini-model', displayName: 'Gemini model' },
+          { modelId: 'gemini-alt', displayName: 'Gemini alternate' },
+        ],
+        supportsValidation: true,
+      },
+      {
+        providerId: NVIDIA_PROVIDER_ID,
+        displayName: 'NVIDIA',
+        models: [
+          { modelId: NVIDIA_MODEL, displayName: 'NVIDIA model' },
+          { modelId: NVIDIA_GPT_OSS_MODEL, displayName: 'NVIDIA alternate' },
+        ],
+        supportsValidation: true,
+      },
+    ],
+    credentials: [
+      ...configurationState.credentials,
+      {
+        credentialId: 'nvidia-primary',
+        providerId: NVIDIA_PROVIDER_ID,
+        label: 'NVIDIA primary',
+        createdAt: '2026-09-12T00:00:00.000Z',
+        updatedAt: '2026-09-12T00:00:00.000Z',
+      },
+    ],
+  };
+}
+
+async function mountProviderActionOverlay(
+  sendMessage: (message: ProviderActionMessage) => Promise<Record<string, unknown>>
+) {
+  vi.stubGlobal('chrome', {
+    storage: {
+      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+    },
+    runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+  });
+  vi.stubGlobal('Option', function (label: string, value: string) {
+    const option = document.createElement('option');
+    option.textContent = label;
+    option.value = value;
+    return option;
+  });
+  const handle = await mountOverlay();
+  await handle.refresh();
+  const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+  const providerSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+    '[data-provider-select]'
+  );
+  const modelSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+    '[data-model-select]'
+  );
+  const credentialSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+    '[data-credential-select]'
+  );
+  if (!shadowRoot || !providerSelect || !modelSelect || !credentialSelect) {
+    throw new Error('Provider configuration controls missing.');
+  }
+  return { handle, shadowRoot, providerSelect, modelSelect, credentialSelect };
+}
+
 describe('live Overlay generation workflow', () => {
   let overlay: OverlayHandle | null = null;
 
@@ -141,6 +222,7 @@ describe('live Overlay generation workflow', () => {
     overlay?.close();
     overlay = null;
     document.documentElement.replaceChildren(document.head, document.body);
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -311,13 +393,18 @@ describe('live Overlay generation workflow', () => {
     expect(guidance?.parentElement?.tagName).toBe('P');
     expect(guidance?.closest('button')).toBeNull();
     const apiKeyHelp = guidance?.parentElement;
-    const apiKeyLink = apiKeyHelp?.querySelector<HTMLAnchorElement>('a');
-    expect(apiKeyHelp?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'Configure the extension before generating. Need an API key? Get one from Google AI Studio.'
+    const apiKeyLink = apiKeyHelp?.querySelector<HTMLButtonElement>(
+      '[data-open-configuration]'
     );
-    expect(apiKeyLink?.href).toBe('https://aistudio.google.com/apikey');
-    expect(apiKeyLink?.target).toBe('_blank');
-    expect(apiKeyLink?.rel).toBe('noopener noreferrer');
+    expect(apiKeyHelp?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Configure the extension before generating. Need an API key? Find provider links in Resources.'
+    );
+    expect(apiKeyLink?.type).toBe('button');
+    const geminiResource = shadowRoot?.querySelector<HTMLAnchorElement>(
+      '.resources-link'
+    );
+    expect(geminiResource?.textContent?.trim()).toBe('Get Gemini API key');
+    expect(geminiResource?.href).toBe('https://aistudio.google.com/app/apikey');
     const overlayStyles = readFileSync(
       resolve(process.cwd(), 'src/Overlay/Overlay.css'),
       'utf8'
@@ -329,6 +416,14 @@ describe('live Overlay generation workflow', () => {
     expect(overlayStyles).toMatch(
       /\.status-panel\s*\{[\s\S]*flex-direction: column;[\s\S]*align-items: flex-start;/
     );
+    expect(content?.hidden).toBe(true);
+
+    apiKeyLink?.click();
+    expect(content?.hidden).toBe(false);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
+
+    toggle?.click();
     expect(content?.hidden).toBe(true);
 
     toggle?.click();
@@ -352,7 +447,7 @@ describe('live Overlay generation workflow', () => {
     }
 
     expect(content?.textContent).toContain('API Keys');
-    expect(content?.textContent).toContain('Add API key');
+    expect(content?.textContent).toContain('Add Gemini API key');
     expect(content?.textContent).toContain('Replace API key');
     expect(content?.textContent).toContain('Delete this key');
     expect(content?.textContent).not.toContain('Credential');
@@ -1417,7 +1512,7 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => {
-      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.firstChild?.textContent).toBe(
+      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent).toContain(
         '0 filled · 1 already filled · 1 failed · 11 skipped'
       );
       expect(overrideAction()?.hidden).toBe(false);
@@ -1425,6 +1520,17 @@ describe('live Overlay generation workflow', () => {
     const tooltipTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
       '.skipped-details-trigger'
     );
+    const skippedLabel = shadowRoot?.querySelector<HTMLElement>(
+      '.result-summary-skipped'
+    );
+    expect(skippedLabel?.textContent).toContain('11 skipped');
+    expect(
+      shadowRoot?.querySelector('.result-summary-row > .skipped-details')
+    ).not.toBeNull();
+    expect(
+      shadowRoot?.querySelector('.result-summary-row > .skipped-details')
+        ?.previousElementSibling
+    ).toBe(shadowRoot?.querySelector('.result-summary'));
     expect(tooltipTrigger?.querySelector('svg.validation-failure-info')).not.toBeNull();
     expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('false');
     const tooltipAnchor = tooltipTrigger?.parentElement;
@@ -1943,7 +2049,838 @@ describe('live Overlay generation workflow', () => {
     expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
   });
 
-  it('shows registry providers, restores active selections, and recovers from NVIDIA permission denial', async () => {
+  it('opens configuration from API-key help and keeps the Gemini resource link', async () => {
+    const fixture = await mountProviderActionOverlay(async (message) => {
+      if (message.type === 'configuration-state') {
+        return providerActionConfigurationState();
+      }
+      if (message.type === 'p7-discover') return createSnapshot();
+      return {};
+    });
+    overlay = fixture.handle;
+    const { shadowRoot } = fixture;
+    const helpButton = shadowRoot.querySelector<HTMLButtonElement>(
+      '[data-open-configuration]'
+    );
+    const content = shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-content]'
+    );
+    const toggle = shadowRoot.querySelector<HTMLButtonElement>(
+      '[data-configuration-toggle]'
+    );
+    const resourceLink = shadowRoot.querySelector<HTMLAnchorElement>(
+      '.resources-link'
+    );
+    const nvidiaResourceLink = shadowRoot.querySelector<HTMLAnchorElement>(
+      '.resources-link[href="https://build.nvidia.com/settings/api-keys"]'
+    );
+
+    expect(helpButton?.textContent?.trim()).toBe(
+      'Need an API key? Find provider links in Resources.'
+    );
+    expect(content?.hidden).toBe(true);
+    expect(resourceLink?.textContent?.trim()).toBe('Get Gemini API key');
+    expect(resourceLink?.href).toBe(
+      'https://aistudio.google.com/app/apikey'
+    );
+    expect(resourceLink?.target).toBe('_blank');
+    expect(resourceLink?.rel).toBe('noopener noreferrer');
+    const geminiLogo = resourceLink?.querySelector<SVGSVGElement>('svg');
+    expect(geminiLogo?.getAttribute('viewBox')).toBe('0 0 24 24');
+    expect(geminiLogo?.getAttribute('fill')).toBe('currentColor');
+    expect(geminiLogo?.querySelectorAll('path')).toHaveLength(1);
+    expect(nvidiaResourceLink?.textContent?.trim()).toBe('Get NVIDIA API key');
+    expect(nvidiaResourceLink?.href).toBe(
+      'https://build.nvidia.com/settings/api-keys'
+    );
+    expect(nvidiaResourceLink?.target).toBe('_blank');
+    expect(nvidiaResourceLink?.rel).toBe('noopener noreferrer');
+    const nvidiaLogo = nvidiaResourceLink?.querySelector<SVGSVGElement>('svg');
+    expect(nvidiaLogo?.getAttribute('viewBox')).toBe('0 86.6 512 338.8');
+    expect(nvidiaLogo?.getAttribute('fill')).toBe('currentColor');
+    expect(nvidiaLogo?.style.fill).toBe('#000000');
+    expect(nvidiaLogo?.querySelectorAll('path')).toHaveLength(1);
+    const resourcesTooltip = shadowRoot?.querySelector<HTMLElement>(
+      '[data-resources-heading] .validation-failure-info-tooltip'
+    );
+    expect(resourcesTooltip?.querySelector('svg.validation-failure-info')).not.toBeNull();
+    expect(resourcesTooltip?.dataset.tooltip).toBe(
+      'Signing in may be required to create an API key.'
+    );
+
+    helpButton?.click();
+    expect(content?.hidden).toBe(false);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('does not apply a late Add credential completion after switching providers', async () => {
+    const state = providerActionConfigurationState();
+    let resolveCreate!: (response: Record<string, unknown>) => void;
+    const pendingCreate = new Promise<Record<string, unknown>>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return state;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-create') return pendingCreate;
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+
+    vi.stubGlobal('prompt', vi.fn(() => 'new-gemini-secret'));
+    const addForm = shadowRoot.querySelector<HTMLElement>(
+      '[data-add-credential-form]'
+    );
+    const credentialLabel = shadowRoot.querySelector<HTMLInputElement>(
+      '[data-credential-label]'
+    );
+    addForm?.removeAttribute('hidden');
+    if (credentialLabel) credentialLabel.value = 'New Gemini key';
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-save-add-credential]')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'credential-create', providerId: 'gemini' })
+      )
+    );
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    credentialSelect.value = 'nvidia-primary';
+    credentialSelect.dispatchEvent(new Event('change'));
+    shadowRoot.querySelector<HTMLButtonElement>('[data-add-credential]')?.click();
+    const currentAddForm = shadowRoot.querySelector<HTMLElement>(
+      '[data-add-credential-form]'
+    );
+    const currentCredentialLabel = shadowRoot.querySelector<HTMLInputElement>(
+      '[data-credential-label]'
+    );
+    if (currentCredentialLabel) {
+      currentCredentialLabel.value = 'NVIDIA key in progress';
+    }
+    const configurationMessage = shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-message]'
+    );
+    const credentialMessage = shadowRoot.querySelector<HTMLElement>(
+      '[data-credential-message]'
+    );
+    if (configurationMessage) {
+      configurationMessage.textContent = 'Current NVIDIA feedback';
+      configurationMessage.hidden = false;
+    }
+    if (credentialMessage) {
+      credentialMessage.textContent = 'Current NVIDIA key feedback';
+      credentialMessage.hidden = false;
+    }
+    const configurationStateCalls = sendMessage.mock.calls.filter(
+      ([request]) => request.type === 'configuration-state'
+    ).length;
+
+    resolveCreate({ credentialId: 'new-gemini-key' });
+    await pendingCreate;
+    await Promise.resolve();
+
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(currentAddForm?.hidden).toBe(false);
+    expect(currentCredentialLabel?.value).toBe('NVIDIA key in progress');
+    expect(configurationMessage?.textContent).toBe('Current NVIDIA feedback');
+    expect(credentialMessage?.textContent).toBe('Current NVIDIA key feedback');
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-state'
+      )
+    ).toHaveLength(configurationStateCalls);
+  });
+
+  it('shows the latest invalid Gemini credential result after provider switching and retries', async () => {
+    const baseState = providerActionConfigurationState();
+    const initialState = {
+      ...baseState,
+      credentials: [
+        ...baseState.credentials,
+        {
+          credentialId: 'gemini-backup',
+          providerId: 'gemini',
+          label: 'Gemini backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    const selectedConfiguration = {
+      providerId: 'gemini',
+      modelId: 'gemini-model',
+      credentialId: 'credential-1',
+      providerConfig: {},
+    };
+    let hasSavedConfiguration = false;
+    let validationFailed = false;
+    const invalidState = () => ({
+      ...initialState,
+      activeConfiguration: selectedConfiguration,
+      configurationDigest: 'invalid-gemini-digest',
+      validation: validationFailed
+        ? {
+            ...initialState.validation,
+            configurationDigest: 'invalid-gemini-digest',
+            status: 'INVALID' as const,
+            failureCode: 'AUTHENTICATION_FAILED',
+          }
+        : null,
+    });
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') {
+        return hasSavedConfiguration ? invalidState() : initialState;
+      }
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'configuration-set') {
+        hasSavedConfiguration = true;
+        return invalidState();
+      }
+      if (message.type === 'configuration-validate') {
+        validationFailed = true;
+        return { error: 'Credential invalid.' };
+      }
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, credentialSelect } = fixture;
+    const saveButton = shadowRoot.querySelector<HTMLButtonElement>(
+      '[data-save-validate-configuration]'
+    );
+    const status = shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-status]'
+    );
+    const message = shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-message]'
+    );
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    providerSelect.value = 'gemini';
+    providerSelect.dispatchEvent(new Event('change'));
+
+    saveButton?.click();
+    await vi.waitFor(() => {
+      expect(message?.textContent).toBe('');
+      expect(message?.hidden).toBe(true);
+      expect(status?.textContent).toContain('Validation failed');
+      expect(status?.textContent).toContain('Credential invalid.');
+      expect(status?.textContent).not.toContain('Select a provider');
+    });
+
+    saveButton?.click();
+    await vi.waitFor(() => {
+      expect(
+        sendMessage.mock.calls.filter(
+          ([request]) => request.type === 'configuration-validate'
+        )
+      ).toHaveLength(2);
+      expect(message?.hidden).toBe(true);
+      expect(status?.textContent).toContain('Credential invalid.');
+      expect(status?.textContent).not.toContain('Select a provider');
+    });
+
+    credentialSelect.value = 'gemini-backup';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(message?.hidden).toBe(true);
+    expect(status?.textContent).not.toContain('Credential invalid.');
+  });
+
+  it('disables the API-key selector when the selected provider has no keys', async () => {
+    let state = {
+      ...providerActionConfigurationState(),
+      credentials: providerActionConfigurationState().credentials.filter(
+        (credential) => credential.providerId === NVIDIA_PROVIDER_ID
+      ),
+    };
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return state;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-create') {
+        state = {
+          ...state,
+          credentials: [
+            ...state.credentials,
+            {
+              credentialId: 'gemini-added',
+              providerId: 'gemini',
+              label: 'Added Gemini key',
+              createdAt: '2026-09-12T00:00:00.000Z',
+              updatedAt: '2026-09-12T00:00:00.000Z',
+            },
+          ],
+        };
+        return {};
+      }
+      if (message.type === 'credential-delete-selected') {
+        state = {
+          ...state,
+          credentials: state.credentials.filter(
+            (credential) => credential.credentialId !== message.credentialId
+          ),
+        };
+        return {};
+      }
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, credentialSelect } = fixture;
+    const credentialStatus = shadowRoot.querySelector<HTMLElement>(
+      '[data-credential-status]'
+    );
+    const addCredentialButton = shadowRoot.querySelector<HTMLButtonElement>(
+      '[data-add-credential]'
+    );
+
+    expect(credentialStatus?.parentElement?.classList.contains('credential-heading-row')).toBe(true);
+    expect(credentialStatus?.parentElement?.querySelector('#credential-heading')?.textContent).toBe('API Keys');
+    expect(credentialStatus?.textContent).toBe('1 API key stored.');
+    expect(credentialStatus?.title).toBe('');
+    expect(credentialStatus?.dataset.tooltip).toBe(
+      'Gemini keys: 0\nNVIDIA keys: 1'
+    );
+    expect(credentialSelect.disabled).toBe(true);
+    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(addCredentialButton?.textContent).toBe('Add NVIDIA API key');
+    expect(credentialSelect.disabled).toBe(false);
+    expect(credentialSelect.value).toBe('nvidia-primary');
+
+    providerSelect.value = 'gemini';
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(addCredentialButton?.textContent).toBe('Add Gemini API key');
+    expect(credentialSelect.disabled).toBe(true);
+
+    vi.stubGlobal('prompt', vi.fn(() => 'new-gemini-secret'));
+    shadowRoot.querySelector<HTMLButtonElement>('[data-add-credential]')?.click();
+    const credentialLabel = shadowRoot.querySelector<HTMLInputElement>(
+      '[data-credential-label]'
+    );
+    if (credentialLabel) credentialLabel.value = 'Added Gemini key';
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-save-add-credential]')
+      ?.click();
+    await vi.waitFor(() => {
+      expect(credentialSelect.disabled).toBe(false);
+      expect(credentialSelect.value).toBe('gemini-added');
+      expect(credentialStatus?.dataset.tooltip).toBe(
+        'Gemini keys: 1\nNVIDIA keys: 1'
+      );
+    });
+
+    shadowRoot.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    await vi.waitFor(() => expect(credentialSelect.disabled).toBe(true));
+    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+    expect(credentialStatus?.dataset.tooltip).toBe(
+      'Gemini keys: 0\nNVIDIA keys: 1'
+    );
+  });
+
+  it('keeps NVIDIA selected after successfully adding an NVIDIA key', async () => {
+    let currentConfigurationState = {
+      ...providerActionConfigurationState(),
+      credentials: [
+        ...providerActionConfigurationState().credentials,
+        {
+          credentialId: 'nvidia-backup',
+          providerId: NVIDIA_PROVIDER_ID,
+          label: 'NVIDIA backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-create') {
+        currentConfigurationState = {
+          ...currentConfigurationState,
+          credentials: [
+            ...currentConfigurationState.credentials,
+            {
+              credentialId: 'nvidia-added',
+              providerId: message.providerId ?? NVIDIA_PROVIDER_ID,
+              label: 'Added NVIDIA key',
+              createdAt: '2026-09-12T00:00:00.000Z',
+              updatedAt: '2026-09-12T00:00:00.000Z',
+            },
+          ],
+        };
+        return { credentialId: 'nvidia-added' };
+      }
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    vi.stubGlobal('prompt', vi.fn(() => 'new-nvidia-secret'));
+    shadowRoot.querySelector<HTMLButtonElement>('[data-add-credential]')?.click();
+    const keyLabel = shadowRoot.querySelector<HTMLInputElement>(
+      '[data-credential-label]'
+    );
+    if (keyLabel) keyLabel.value = 'Added NVIDIA key';
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-save-add-credential]')
+      ?.click();
+
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot.querySelector<HTMLElement>('[data-credential-message]')
+          ?.textContent
+      ).toBe('API key added.')
+    );
+    const credentialMessage = shadowRoot.querySelector<HTMLElement>(
+      '[data-credential-message]'
+    );
+    expect(credentialMessage?.hidden).toBe(false);
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'nvidia-primary',
+      'nvidia-backup',
+      'nvidia-added',
+    ]);
+    await vi.waitFor(
+      () => expect(credentialMessage?.hidden).toBe(true),
+      { timeout: 2500, interval: 25 }
+    );
+    expect(credentialMessage?.textContent).toBe('');
+  });
+
+  it('does not apply a late Replace completion or save another provider', async () => {
+    const state = providerActionConfigurationState();
+    let resolveReplace!: (response: Record<string, unknown>) => void;
+    const pendingReplace = new Promise<Record<string, unknown>>((resolve) => {
+      resolveReplace = resolve;
+    });
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return state;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-replace') return pendingReplace;
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+
+    vi.stubGlobal('prompt', vi.fn(() => 'replacement-secret'));
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-replace-credential]')
+      ?.click();
+    const replaceSelection = shadowRoot.querySelector<HTMLSelectElement>(
+      '[data-replace-credential-select]'
+    );
+    if (replaceSelection) replaceSelection.value = 'credential-1';
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-save-replace-credential]')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'credential-replace',
+          providerId: 'gemini',
+          credentialId: 'credential-1',
+        })
+      )
+    );
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    credentialSelect.value = 'nvidia-primary';
+    credentialSelect.dispatchEvent(new Event('change'));
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-replace-credential]')
+      ?.click();
+    const currentReplaceForm = shadowRoot.querySelector<HTMLElement>(
+      '[data-replace-credential-form]'
+    );
+    const currentReplaceSelection = shadowRoot.querySelector<HTMLSelectElement>(
+      '[data-replace-credential-select]'
+    );
+    if (currentReplaceSelection) {
+      currentReplaceSelection.value = 'nvidia-primary';
+    }
+    const credentialMessage = shadowRoot.querySelector<HTMLElement>(
+      '[data-credential-message]'
+    );
+    if (credentialMessage) {
+      credentialMessage.textContent = 'Current NVIDIA key feedback';
+      credentialMessage.hidden = false;
+    }
+    const configurationStateCalls = sendMessage.mock.calls.filter(
+      ([request]) => request.type === 'configuration-state'
+    ).length;
+
+    resolveReplace({ credentialId: 'replacement-gemini-key' });
+    await pendingReplace;
+    await Promise.resolve();
+
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(currentReplaceForm?.hidden).toBe(false);
+    expect(currentReplaceSelection?.value).toBe('nvidia-primary');
+    expect(credentialMessage?.textContent).toBe('Current NVIDIA key feedback');
+    expect(
+      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-set')
+    ).toHaveLength(0);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-state'
+      )
+    ).toHaveLength(configurationStateCalls);
+  });
+
+  it('does not reload or report a late Delete completion after switching providers', async () => {
+    const state = providerActionConfigurationState();
+    let resolveDelete!: (response: Record<string, unknown>) => void;
+    const pendingDelete = new Promise<Record<string, unknown>>((resolve) => {
+      resolveDelete = resolve;
+    });
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return state;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-delete-selected') return pendingDelete;
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+
+    credentialSelect.value = 'credential-1';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() =>
+      expect(
+        sendMessage.mock.calls.some(
+          ([request]) =>
+            request.type === 'configuration-state' && request.selectedConfiguration
+        )
+      ).toBe(true)
+    );
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
+    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'credential-delete-selected',
+        credentialId: 'credential-1',
+      })
+    );
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    credentialSelect.value = 'nvidia-primary';
+    credentialSelect.dispatchEvent(new Event('change'));
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
+    const deleteConfirmation = shadowRoot.querySelector<HTMLElement>(
+      '[data-delete-confirmation]'
+    );
+    const configurationMessage = shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-message]'
+    );
+    if (configurationMessage) {
+      configurationMessage.textContent = 'Current NVIDIA feedback';
+      configurationMessage.hidden = false;
+    }
+    const configurationStateCalls = sendMessage.mock.calls.filter(
+      ([request]) => request.type === 'configuration-state'
+    ).length;
+
+    resolveDelete({ deleted: true });
+    await pendingDelete;
+    await Promise.resolve();
+
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(deleteConfirmation?.hidden).toBe(false);
+    expect(configurationMessage?.textContent).toBe('Current NVIDIA feedback');
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-state'
+      )
+    ).toHaveLength(configurationStateCalls);
+  });
+
+  it('keeps NVIDIA selected when deleting a key and chooses a same-provider replacement', async () => {
+    let currentConfigurationState = {
+      ...providerActionConfigurationState(),
+      credentials: [
+        ...providerActionConfigurationState().credentials,
+        {
+          credentialId: 'nvidia-backup',
+          providerId: NVIDIA_PROVIDER_ID,
+          label: 'NVIDIA backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-delete-selected') {
+        currentConfigurationState = {
+          ...currentConfigurationState,
+          credentials: currentConfigurationState.credentials.filter(
+            (credential) => credential.credentialId !== message.credentialId
+          ),
+        };
+        return { deleted: true };
+      }
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    shadowRoot.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot.querySelector<HTMLElement>('[data-configuration-message]')
+          ?.textContent
+      ).toBe('API key deleted.')
+    );
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('nvidia-backup');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'nvidia-backup',
+    ]);
+
+    shadowRoot.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    await vi.waitFor(() =>
+      expect(credentialSelect.options[0]?.textContent).toBe(
+        'No API keys added yet'
+      )
+    );
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('');
+    expect(credentialSelect.options).toHaveLength(1);
+    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+  });
+
+  it('keeps NVIDIA selected when replacing a non-active NVIDIA key', async () => {
+    let currentConfigurationState = {
+      ...providerActionConfigurationState(),
+      credentials: [
+        ...providerActionConfigurationState().credentials,
+        {
+          credentialId: 'nvidia-backup',
+          providerId: NVIDIA_PROVIDER_ID,
+          label: 'NVIDIA backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'credential-replace') {
+        currentConfigurationState = {
+          ...currentConfigurationState,
+          credentials: [
+            ...currentConfigurationState.credentials.filter(
+              (credential) => credential.credentialId !== 'nvidia-backup'
+            ),
+            {
+              credentialId: 'nvidia-replaced',
+              providerId: NVIDIA_PROVIDER_ID,
+              label: 'NVIDIA backup',
+              createdAt: '2026-09-12T00:00:00.000Z',
+              updatedAt: '2026-09-12T00:00:00.000Z',
+            },
+          ],
+        };
+        return { credentialId: 'nvidia-replaced' };
+      }
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    shadowRoot.querySelector<HTMLButtonElement>('[data-replace-credential]')?.click();
+    const replaceSelect = shadowRoot.querySelector<HTMLSelectElement>(
+      '[data-replace-credential-select]'
+    );
+    if (replaceSelect) replaceSelect.value = 'nvidia-backup';
+    vi.stubGlobal('prompt', vi.fn(() => 'replacement-secret'));
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-save-replace-credential]')
+      ?.click();
+
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot.querySelector<HTMLElement>('[data-credential-message]')
+          ?.textContent
+      ).toBe('API key replaced.')
+    );
+    expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
+    expect(modelSelect.value).toBe(NVIDIA_MODEL);
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'nvidia-primary',
+      'nvidia-replaced',
+    ]);
+    expect(
+      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-set')
+    ).toHaveLength(0);
+  });
+
+  it('shows the no-keys message as a placeholder, not a dropdown choice', async () => {
+    let currentConfigurationState: TestConfigurationState = {
+      ...configurationState,
+      credentials: [],
+      activeConfiguration: null,
+      configurationDigest: null,
+      validation: null,
+    };
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { credentialSelect } = fixture;
+
+    expect(credentialSelect.options).toHaveLength(1);
+    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+    expect(credentialSelect.options[0]?.disabled).toBe(true);
+    expect(credentialSelect.options[0]?.hidden).toBe(true);
+    expect(credentialSelect.value).toBe('');
+
+    currentConfigurationState = {
+      ...currentConfigurationState,
+      credentials: [
+        {
+          credentialId: 'gemini-new-key',
+          providerId: 'gemini',
+          label: 'Gemini key',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+    };
+    await fixture.handle.refresh();
+
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'gemini-new-key',
+    ]);
+    expect(credentialSelect.options[0]?.textContent).toBe('Gemini key');
+    expect(credentialSelect.options[0]?.disabled).toBe(false);
+    expect(credentialSelect.options[0]?.hidden).toBe(false);
+    expect(credentialSelect.value).toBe('gemini-new-key');
+  });
+
+  it('selects the first provider key by default and restores remembered keys', async () => {
+    const state = {
+      ...providerActionConfigurationState(),
+      credentials: [
+        ...providerActionConfigurationState().credentials,
+        {
+          credentialId: 'gemini-backup',
+          providerId: 'gemini',
+          label: 'Gemini backup',
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+      activeConfiguration: null,
+      configurationDigest: null,
+      validation: null,
+    };
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return state;
+      if (message.type === 'p7-discover') return createSnapshot();
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    const { shadowRoot, providerSelect, credentialSelect } = fixture;
+    const primaryAction = shadowRoot.querySelector<HTMLButtonElement>(
+      '[data-primary-action]'
+    );
+    const configurationStatus = shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-status]'
+    );
+
+    expect(providerSelect.value).toBe('gemini');
+    expect(credentialSelect.value).toBe('credential-1');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'credential-1',
+      'gemini-backup',
+    ]);
+    expect(primaryAction?.disabled).toBe(true);
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'nvidia-primary',
+    ]);
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+
+    providerSelect.value = 'gemini';
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('credential-1');
+    credentialSelect.value = 'gemini-backup';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(primaryAction?.disabled).toBe(true);
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    providerSelect.value = 'gemini';
+    providerSelect.dispatchEvent(new Event('change'));
+    expect(credentialSelect.value).toBe('gemini-backup');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) =>
+          request.type === 'configuration-state' && request.selectedConfiguration
+      )
+    ).toHaveLength(0);
+  });
+
+  it('preserves provider keys while resetting validation and recovering from NVIDIA permission denial', async () => {
     const multiProviderState = {
       ...configurationState,
       providers: [
@@ -1992,14 +2929,35 @@ describe('live Overlay generation workflow', () => {
       ],
       activeConfiguration: {
         providerId: 'gemini',
-        modelId: 'gemini-alt',
+        modelId: 'gemini-model',
         credentialId: 'gemini-backup',
         providerConfig: {},
       },
       configurationDigest: 'active-gemini-digest',
-      validation: null,
+      validation: {
+        configurationDigest: 'active-gemini-digest',
+        providerId: 'gemini',
+        modelId: 'gemini-model',
+        credentialId: 'gemini-backup',
+        status: 'VALID' as const,
+        validatedAt: '2026-09-12T00:00:00.000Z',
+      },
     };
-    let currentConfigurationState = multiProviderState;
+    type MutableMultiProviderState = Omit<
+      typeof multiProviderState,
+      'activeConfiguration' | 'configurationDigest' | 'validation'
+    > & {
+      activeConfiguration: typeof multiProviderState.activeConfiguration | null;
+      configurationDigest: string | null;
+      validation: typeof multiProviderState.validation | null;
+    };
+    let currentConfigurationState: MutableMultiProviderState = multiProviderState;
+    let deferSelectedValidation = false;
+    let deferNvidiaValidation = false;
+    const pendingValidationResolvers: {
+      selected?: () => void;
+      nvidia?: () => void;
+    } = {};
     const permissionRequiredMessage =
       'NVIDIA network access is required. Grant access from the AnswerSense permission page, then retry.';
     const sendMessage = vi.fn(async (message: {
@@ -2015,6 +2973,28 @@ describe('live Overlay generation workflow', () => {
     }) => {
       if (message.type === 'configuration-state') {
         if (!message.selectedConfiguration) return currentConfigurationState;
+        if (
+          deferSelectedValidation &&
+          message.selectedConfiguration.providerId === 'gemini'
+        ) {
+          deferSelectedValidation = false;
+          return new Promise<Record<string, unknown>>((resolve) => {
+            pendingValidationResolvers.selected = () =>
+              resolve({
+                ...currentConfigurationState,
+                selectedConfiguration: {
+                  ...message.selectedConfiguration,
+                  providerConfig: {},
+                },
+                selectedConfigurationDigest: 'stale-gemini-digest',
+                selectedValidation: {
+                  ...multiProviderState.validation,
+                  configurationDigest: 'stale-gemini-digest',
+                  credentialId: message.selectedConfiguration?.credentialId,
+                },
+              });
+          });
+        }
         return {
           ...currentConfigurationState,
           selectedConfiguration: {
@@ -2026,21 +3006,78 @@ describe('live Overlay generation workflow', () => {
         };
       }
       if (message.type === 'configuration-set') {
+        const nextActiveConfiguration = {
+          providerId: message.providerId ?? '',
+          modelId: message.modelId ?? '',
+          credentialId: message.credentialId ?? '',
+          providerConfig: {},
+        };
+        const nextDigest = `active-${message.providerId}-digest`;
+        const configurationUnchanged =
+          currentConfigurationState.activeConfiguration?.providerId ===
+            nextActiveConfiguration.providerId &&
+          currentConfigurationState.activeConfiguration.modelId ===
+            nextActiveConfiguration.modelId &&
+          currentConfigurationState.activeConfiguration.credentialId ===
+            nextActiveConfiguration.credentialId &&
+          currentConfigurationState.configurationDigest === nextDigest;
         currentConfigurationState = {
           ...currentConfigurationState,
-          activeConfiguration: {
-            providerId: message.providerId ?? '',
-            modelId: message.modelId ?? '',
-            credentialId: message.credentialId ?? '',
-            providerConfig: {},
-          },
-          configurationDigest: 'active-nvidia-digest',
-          validation: null,
+          activeConfiguration: nextActiveConfiguration,
+          configurationDigest: nextDigest,
+          validation: configurationUnchanged
+            ? currentConfigurationState.validation
+            : null,
         };
         return currentConfigurationState;
       }
       if (message.type === 'configuration-validate') {
-        return { error: permissionRequiredMessage };
+        if (
+          currentConfigurationState.activeConfiguration?.providerId ===
+          NVIDIA_PROVIDER_ID
+        ) {
+          if (deferNvidiaValidation) {
+            deferNvidiaValidation = false;
+            return new Promise<Record<string, unknown>>((resolve) => {
+              pendingValidationResolvers.nvidia = () => {
+                const activeConfiguration =
+                  currentConfigurationState.activeConfiguration;
+                if (activeConfiguration) {
+                  currentConfigurationState = {
+                    ...currentConfigurationState,
+                    validation: {
+                      configurationDigest:
+                        currentConfigurationState.configurationDigest ?? '',
+                      providerId: activeConfiguration.providerId,
+                      modelId: activeConfiguration.modelId,
+                      credentialId: activeConfiguration.credentialId,
+                      status: 'VALID',
+                      validatedAt: '2026-09-12T00:00:00.000Z',
+                    },
+                  };
+                }
+                resolve({ valid: true });
+              };
+            });
+          }
+          return { error: permissionRequiredMessage };
+        }
+        const activeConfiguration = currentConfigurationState.activeConfiguration;
+        if (activeConfiguration) {
+          currentConfigurationState = {
+            ...currentConfigurationState,
+            validation: {
+              configurationDigest:
+                currentConfigurationState.configurationDigest ?? '',
+              providerId: activeConfiguration.providerId,
+              modelId: activeConfiguration.modelId,
+              credentialId: activeConfiguration.credentialId,
+              status: 'VALID',
+              validatedAt: '2026-09-12T00:00:00.000Z',
+            },
+          };
+        }
+        return { valid: true };
       }
       if (message.type === 'open-nvidia-permission-page') {
         return { opened: true };
@@ -2075,6 +3112,9 @@ describe('live Overlay generation workflow', () => {
     const permissionButton = shadowRoot?.querySelector<HTMLButtonElement>(
       '[data-nvidia-permission]'
     );
+    const primaryAction = shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-primary-action]'
+    );
     if (!providerSelect || !modelSelect || !credentialSelect) {
       throw new Error('Provider configuration controls missing.');
     }
@@ -2084,8 +3124,15 @@ describe('live Overlay generation workflow', () => {
       NVIDIA_PROVIDER_ID,
     ]);
     expect(providerSelect.value).toBe('gemini');
-    expect(modelSelect.value).toBe('gemini-alt');
+    expect(modelSelect.value).toBe('gemini-model');
     expect(credentialSelect.value).toBe('gemini-backup');
+
+    deferSelectedValidation = true;
+    credentialSelect.value = 'credential-1';
+    credentialSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() =>
+      expect(pendingValidationResolvers.selected).toBeTypeOf('function')
+    );
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
@@ -2098,54 +3145,217 @@ describe('live Overlay generation workflow', () => {
       'nvidia-primary',
       'nvidia-backup',
     ]);
+    expect(
+      Array.from(credentialSelect.options).every((option) => !option.disabled)
+    ).toBe(true);
+    expect(
+      Array.from(credentialSelect.options).map((option) => option.value)
+    ).not.toContain('credential-1');
     expect(permissionButton?.hidden).toBe(false);
+    const configurationStatus = shadowRoot?.querySelector<HTMLElement>(
+      '[data-configuration-status]'
+    );
+    const configurationMessage = shadowRoot?.querySelector<HTMLElement>(
+      '[data-configuration-message]'
+    );
+    const credentialMessage = shadowRoot?.querySelector<HTMLElement>(
+      '[data-credential-message]'
+    );
+    const addCredentialForm = shadowRoot?.querySelector<HTMLElement>(
+      '[data-add-credential-form]'
+    );
+    const credentialLabel = shadowRoot?.querySelector<HTMLInputElement>(
+      '[data-credential-label]'
+    );
+    const saveButton = shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-save-validate-configuration]'
+    );
+    expect(configurationStatus?.textContent).toContain('Select a provider');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(credentialSelect.value).toBe('nvidia-primary');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'nvidia-primary',
+      'nvidia-backup',
+    ]);
+    expect(saveButton?.disabled).toBe(false);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-state' && request.selectedConfiguration
+      )
+    ).toHaveLength(1);
 
     modelSelect.value = NVIDIA_GPT_OSS_MODEL;
     modelSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL));
     credentialSelect.value = 'nvidia-backup';
     credentialSelect.dispatchEvent(new Event('change'));
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-state' && request.selectedConfiguration
+      )
+    ).toHaveLength(1);
+
+    addCredentialForm?.removeAttribute('hidden');
+    if (credentialLabel) credentialLabel.value = 'temporary NVIDIA label';
+    if (configurationMessage) {
+      configurationMessage.textContent = 'Validation failed';
+      configurationMessage.hidden = false;
+    }
+    if (credentialMessage) {
+      credentialMessage.textContent = 'API key could not be added.';
+      credentialMessage.hidden = false;
+    }
 
     providerSelect.value = 'gemini';
     providerSelect.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(modelSelect.value).toBe('gemini-alt'));
-    expect(credentialSelect.value).toBe('gemini-backup');
+    await vi.waitFor(() => expect(modelSelect.value).toBe('gemini-model'));
+    expect(credentialSelect.value).toBe('credential-1');
+    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
+      'credential-1',
+      'gemini-backup',
+    ]);
+    expect(
+      Array.from(credentialSelect.options).every((option) => !option.disabled)
+    ).toBe(true);
     expect(permissionButton?.hidden).toBe(true);
+    expect(configurationStatus?.textContent).toContain('Select a provider');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(configurationMessage?.textContent).toBe('');
+    expect(configurationMessage?.hidden).toBe(true);
+    expect(credentialMessage?.textContent).toBe('');
+    expect(credentialMessage?.hidden).toBe(true);
+    expect(addCredentialForm?.hidden).toBe(true);
+    expect(credentialLabel?.value).toBe('');
+
+    credentialSelect.value = 'credential-1';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(primaryAction?.disabled).toBe(true);
+    pendingValidationResolvers.selected?.();
+    await vi.waitFor(() =>
+      expect(configurationStatus?.textContent).toContain('Select a provider')
+    );
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+
+    credentialSelect.value = 'gemini-backup';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(configurationStatus?.textContent).toContain('Select a provider');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+    expect(
+      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+    ).toHaveLength(0);
+    saveButton?.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'configuration-set',
+        providerId: 'gemini',
+        modelId: 'gemini-model',
+        credentialId: 'gemini-backup',
+      })
+    );
+    await vi.waitFor(() =>
+      expect(configurationStatus?.textContent).toBe('Status: Valid')
+    );
+    expect(primaryAction?.disabled).toBe(false);
+    expect(
+      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+    ).toHaveLength(1);
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
     expect(credentialSelect.value).toBe('nvidia-backup');
-    shadowRoot
-      ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
-      ?.click();
+    expect(permissionButton?.hidden).toBe(false);
+    expect(saveButton?.disabled).toBe(false);
+    expect(configurationStatus?.textContent).toContain('Select a provider');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+    expect(
+      currentConfigurationState.credentials.map((credential) => credential.credentialId)
+    ).toEqual([
+      'credential-1',
+      'gemini-backup',
+      'nvidia-primary',
+      'nvidia-backup',
+    ]);
+    credentialSelect.value = 'nvidia-primary';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(saveButton?.disabled).toBe(false);
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    deferNvidiaValidation = true;
+    saveButton?.click();
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'configuration-set',
         providerId: NVIDIA_PROVIDER_ID,
-        modelId: NVIDIA_GPT_OSS_MODEL,
-        credentialId: 'nvidia-backup',
+        modelId: NVIDIA_MODEL,
+        credentialId: 'nvidia-primary',
       })
     );
+    await vi.waitFor(() =>
+      expect(pendingValidationResolvers.nvidia).toBeTypeOf('function')
+    );
+    expect(
+      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+    ).toHaveLength(2);
+
+    providerSelect.value = 'gemini';
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe('gemini-model'));
+    expect(credentialSelect.value).toBe('gemini-backup');
+    expect(configurationStatus?.textContent).not.toBe('VALIDATING');
+    expect(primaryAction?.disabled).toBe(true);
+    credentialSelect.value = 'credential-1';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(saveButton?.disabled).toBe(false);
+    expect(configurationStatus?.textContent).not.toBe('VALIDATING');
+    pendingValidationResolvers.nvidia?.();
+    await vi.waitFor(() =>
+      expect(configurationStatus?.textContent).toContain('Select a provider')
+    );
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+    expect(configurationMessage?.hidden).toBe(true);
+    expect(currentConfigurationState.credentials).toContainEqual(
+      expect.objectContaining({
+        credentialId: 'nvidia-primary',
+        providerId: NVIDIA_PROVIDER_ID,
+      })
+    );
+    expect(currentConfigurationState.validation).toMatchObject({
+      providerId: NVIDIA_PROVIDER_ID,
+      status: 'VALID',
+    });
+    expect(permissionButton?.hidden).toBe(true);
+
+    providerSelect.value = NVIDIA_PROVIDER_ID;
+    providerSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    credentialSelect.value = 'nvidia-primary';
+    credentialSelect.dispatchEvent(new Event('change'));
+    expect(configurationStatus?.textContent).toContain('Select a provider');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+    saveButton?.click();
     await vi.waitFor(() =>
       expect(
         shadowRoot?.querySelector<HTMLElement>('[data-configuration-message]')
           ?.textContent
       ).toBe(permissionRequiredMessage)
     );
-    expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
-    expect(currentConfigurationState.credentials).toContainEqual(
-      expect.objectContaining({
-        credentialId: 'nvidia-backup',
-        providerId: NVIDIA_PROVIDER_ID,
-      })
-    );
-    expect(currentConfigurationState.validation).toBeNull();
-    expect(permissionButton?.hidden).toBe(false);
     expect(
-      shadowRoot?.querySelector<HTMLElement>('[data-configuration-status]')
-        ?.textContent
-    ).not.toContain('Validation failed');
+      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+    ).toHaveLength(3);
+    expect(configurationStatus?.textContent).toContain('Select a provider');
+    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
+    expect(primaryAction?.disabled).toBe(true);
+    expect(currentConfigurationState.validation).toMatchObject({
+      providerId: NVIDIA_PROVIDER_ID,
+      status: 'VALID',
+    });
+    expect(permissionButton?.hidden).toBe(false);
 
     permissionButton?.click();
     await vi.waitFor(() =>

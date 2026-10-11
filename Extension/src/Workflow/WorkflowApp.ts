@@ -42,6 +42,12 @@ export interface WorkflowAppHandle {
   ready: Promise<void>;
 }
 
+interface ConfigurationSelection {
+  providerId: string;
+  modelId: string;
+  credentialId: string;
+}
+
 export function mountAnswerSenseApp(
   options: WorkflowAppOptions = {}
 ): WorkflowAppHandle {
@@ -61,13 +67,19 @@ export function mountAnswerSenseApp(
     configurationRevision: 0,
     validation: null,
   };
-  let validating = false;
+  let credentialAddedMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let validationOperationSequence = 0;
+  let validatingSelection: {
+    selection: ConfigurationSelection;
+    revision: number;
+    operationId: number;
+  } | null = null;
   let preserveConfigurationDraft = false;
-  const providerDraftSelections = new Map<
-    string,
-    { modelId: string; credentialId: string }
-  >();
+  let requiresExplicitConfigurationSave = false;
+  const providerCredentialSelections = new Map<string, string>();
+  let renderedProviderId: string | null = null;
   let selectionLookupSequence = 0;
+  let configurationSelectionRevision = 0;
   let localGenerationSnapshotPending = false;
   let invalidatedGenerationOperationToken: number | null = null;
   let lockedConfigurationControls: Array<{
@@ -91,9 +103,69 @@ export function mountAnswerSenseApp(
     overrideResult: GeneratedUiResult;
   } | null = null;
 
+  function currentConfigurationSelection(): ConfigurationSelection {
+    return {
+      providerId: element<HTMLSelectElement>('[data-provider-select]')?.value ?? '',
+      modelId: element<HTMLSelectElement>('[data-model-select]')?.value ?? '',
+      credentialId:
+        element<HTMLSelectElement>('[data-credential-select]')?.value ?? '',
+    };
+  }
+
+  function currentSelectionMatches(
+    selection: ConfigurationSelection
+  ): boolean {
+    const current = currentConfigurationSelection();
+    return (
+      current.providerId === selection.providerId &&
+      current.modelId === selection.modelId &&
+      current.credentialId === selection.credentialId
+    );
+  }
+
+  function captureConfigurationOwnership(): {
+    selection: ConfigurationSelection;
+    revision: number;
+  } {
+    return {
+      selection: currentConfigurationSelection(),
+      revision: configurationSelectionRevision,
+    };
+  }
+
+  function ownsConfigurationSelection(owner: {
+    selection: ConfigurationSelection;
+    revision: number;
+  }): boolean {
+    return (
+      configurationSelectionRevision === owner.revision &&
+      currentSelectionMatches(owner.selection)
+    );
+  }
+
+  function ownsProviderRevision(owner: {
+    selection: ConfigurationSelection;
+    revision: number;
+  }): boolean {
+    return (
+      configurationSelectionRevision === owner.revision &&
+      element<HTMLSelectElement>('[data-provider-select]')?.value ===
+        owner.selection.providerId
+    );
+  }
+
+  function isValidatingCurrentSelection(): boolean {
+    return Boolean(
+      validatingSelection &&
+      validatingSelection.revision === configurationSelectionRevision &&
+      currentSelectionMatches(validatingSelection.selection)
+    );
+  }
+
   function selectedConfigurationMatchesActive(): boolean {
     const active = configurationState.activeConfiguration;
     return Boolean(
+      !requiresExplicitConfigurationSave &&
       active &&
       element<HTMLSelectElement>('[data-provider-select]')?.value ===
         active.providerId &&
@@ -105,7 +177,7 @@ export function mountAnswerSenseApp(
 
   function canGenerateCurrentSelection(): boolean {
     return (
-      !validating &&
+      !isValidatingCurrentSelection() &&
       selectedConfigurationMatchesActive() &&
       isCurrentValidationValid(configurationState)
     );
@@ -119,6 +191,14 @@ export function mountAnswerSenseApp(
   }
 
   function configurationStateForSelection(): ConfigurationState {
+    if (requiresExplicitConfigurationSave) {
+      return {
+        ...configurationState,
+        activeConfiguration: null,
+        configurationDigest: null,
+        validation: null,
+      };
+    }
     if (selectedConfigurationMatchesActive()) return configurationState;
 
     const selected = configurationState.selectedConfiguration;
@@ -194,15 +274,46 @@ export function mountAnswerSenseApp(
     container.append(refresh);
   }
 
+  function positionOverlayTooltip(anchor: HTMLElement): void {
+    const bounds = anchor.getBoundingClientRect();
+    const tooltipText = anchor.dataset.tooltip ?? '';
+    const maxWidth = Math.min(360, Math.max(0, window.innerWidth - 24));
+    const estimatedHeight = Math.min(
+      280,
+      Math.max(32, tooltipText.split('\n').length * 16 + 12)
+    );
+    const below = bounds.bottom + 6;
+    const top =
+      below + estimatedHeight <= window.innerHeight - 12
+        ? below
+        : Math.max(12, bounds.top - estimatedHeight - 6);
+    const left = Math.min(
+      Math.max(12, bounds.left),
+      Math.max(12, window.innerWidth - maxWidth - 12)
+    );
+    anchor.style.setProperty('--overlay-tooltip-top', `${top}px`);
+    anchor.style.setProperty('--overlay-tooltip-left', `${left}px`);
+  }
+
+  function enableOverlayTooltip(anchor: HTMLElement): void {
+    if (anchor.dataset.tooltipPositioning === 'enabled') return;
+    anchor.dataset.tooltipPositioning = 'enabled';
+    const position = () => positionOverlayTooltip(anchor);
+    anchor.addEventListener('pointerenter', position);
+    anchor.addEventListener('focus', position);
+  }
+
   function createValidationFailureInfoTooltip(
     tooltipText = 'Key was invalid. Please check if you entered the correct key.'
   ): HTMLElement {
     const infoTooltip = createElement('span');
-    infoTooltip.className = 'validation-failure-info-tooltip';
+    infoTooltip.className =
+      'overlay-tooltip validation-failure-info-tooltip';
     infoTooltip.dataset.tooltip = tooltipText;
     infoTooltip.setAttribute('role', 'img');
     infoTooltip.setAttribute('aria-label', tooltipText);
     infoTooltip.tabIndex = 0;
+    enableOverlayTooltip(infoTooltip);
 
     infoTooltip.append(createValidationFailureInfoIcon());
     return infoTooltip;
@@ -238,6 +349,68 @@ export function mountAnswerSenseApp(
     iconCarrier.append(alertPath);
     infoIcon.append(backgroundCarrier, tracerCarrier, iconCarrier);
     return infoIcon;
+  }
+
+  function createResourceLink(
+    label: string,
+    href: string,
+    viewBox: string,
+    paths: readonly string[],
+    iconFill = 'currentColor'
+  ): HTMLAnchorElement {
+    const link = createElement('a') as HTMLAnchorElement;
+    link.className = 'resources-link';
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+
+    const svgDocument = ownerDocument ?? document;
+    const icon = svgDocument.createElementNS(
+      'http://www.w3.org/2000/svg',
+      'svg'
+    );
+    icon.setAttribute('viewBox', viewBox);
+    icon.setAttribute('fill', 'currentColor');
+    if (iconFill !== 'currentColor') icon.style.fill = iconFill;
+    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('focusable', 'false');
+    for (const pathData of paths) {
+      const path = svgDocument.createElementNS(
+        'http://www.w3.org/2000/svg',
+        'path'
+      );
+      path.setAttribute('d', pathData);
+      icon.append(path);
+    }
+
+    const text = createElement('span');
+    text.textContent = label;
+    link.append(icon, text);
+    return link;
+  }
+
+  function renderResourceLinks(): void {
+    const resources = element<HTMLElement>('[data-resource-links]');
+    if (!resources || resources.childElementCount > 0) return;
+    resources.append(
+      createResourceLink(
+        'Get Gemini API key',
+        'https://aistudio.google.com/app/apikey',
+        '0 0 24 24',
+        [
+          'M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81',
+        ]
+      ),
+      createResourceLink(
+        'Get NVIDIA API key',
+        'https://build.nvidia.com/settings/api-keys',
+        '0 86.6 512 338.8',
+        [
+          'M52.3 232.5s46.3-68.3 138.7-75.4v-24.8C88.7 140.5 0 227.2 0 227.2s50.2 145.2 191 158.4v-26.3C87.7 346.3 52.3 232.5 52.3 232.5M191 307v24.1C112.9 317.2 91.3 236 91.3 236s37.5-41.5 99.8-48.3v26.5h-.1c-32.7-3.9-58.2 26.6-58.2 26.6S147 292.2 191 307m0-220.4v45.7c3-.2 6-.4 9-.5 116.4-3.9 192.2 95.5 192.2 95.5s-87.1 105.9-177.8 105.9c-8.3 0-16.1-.8-23.4-2.1v28.3c6.3.8 12.7 1.3 19.5 1.3 84.4 0 145.5-43.1 204.6-94.2 9.8 7.9 49.9 27 58.2 35.3-56.2 47.1-187.3 85-261.5 85-7.2 0-14-.4-20.8-1.1v39.7h321V86.6zm0 101.1v-30.6c3-.2 6-.4 9-.5 83.7-2.6 138.6 71.9 138.6 71.9s-59.3 82.4-122.9 82.4c-9.2 0-17.4-1.5-24.7-4v-92.8c32.6 3.9 39.1 18.3 58.7 51l43.6-36.7s-31.8-41.7-85.4-41.7c-5.8 0-11.4.4-16.9 1',
+        ],
+        '#000000'
+      )
+    );
   }
 
   function skippedReason(
@@ -281,7 +454,7 @@ export function mountAnswerSenseApp(
   }
 
   function appendSkippedQuestionDetails(
-    summary: HTMLElement,
+    summaryRow: HTMLElement,
     outcomes: readonly FillOutcome[],
     generationResults: ReadonlyMap<string | null, QuestionResult>,
     questions: readonly WorkflowQuestion[]
@@ -463,7 +636,7 @@ export function mountAnswerSenseApp(
       updateVisibility();
     });
 
-    summary.append(details);
+    summaryRow.append(details);
   }
 
   function renderGeneration(state: UiState): void {
@@ -672,7 +845,16 @@ export function mountAnswerSenseApp(
 
       const summary = createElement('p');
       summary.className = 'result-summary';
-      summary.textContent = `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · ${skippedCount} skipped${overridedCount > 0 ? ` · ${overridedCount} overrided` : ''}`;
+      summary.append(
+        `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · `
+      );
+      const skippedLabel = createElement('span');
+      skippedLabel.className = 'result-summary-skipped';
+      skippedLabel.textContent = `${skippedCount} skipped`;
+      summary.append(skippedLabel);
+      if (overridedCount > 0 && skippedCount === 0) {
+        summary.append(` · ${overridedCount} overrided`);
+      }
       const summaryRow = createElement('div');
       summaryRow.className = 'result-summary-row';
       summaryRow.append(summary);
@@ -695,6 +877,12 @@ export function mountAnswerSenseApp(
         generationResults,
         state.page.questions ?? []
       );
+      if (overridedCount > 0 && skippedCount > 0) {
+        const overrideLabel = createElement('span');
+        overrideLabel.className = 'result-summary';
+        overrideLabel.textContent = ` · ${overridedCount} overrided`;
+        summaryRow.append(overrideLabel);
+      }
       results.append(summaryRow);
       let hasFailureAction = false;
       if (isOverrideResult) {
@@ -751,7 +939,7 @@ export function mountAnswerSenseApp(
     if (!saveButton || !providerSelect || !modelSelect || !credentialSelect) return;
 
     saveButton.disabled =
-      validating ||
+      isValidatingCurrentSelection() ||
       !providerSelect.value ||
       !modelSelect.value ||
       !credentialSelect.value;
@@ -790,6 +978,18 @@ export function mountAnswerSenseApp(
     lockedConfigurationControls = null;
   }
 
+  function updateAddCredentialButtonLabel(
+    providerSelect: HTMLSelectElement
+  ): void {
+    const addCredentialButton = element<HTMLButtonElement>(
+      '[data-add-credential]'
+    );
+    const providerName = providerSelect.selectedOptions[0]?.textContent?.trim();
+    if (addCredentialButton && providerName) {
+      addCredentialButton.textContent = `Add ${providerName} API key`;
+    }
+  }
+
   function renderConfiguration(): void {
     const configurationGuidance = element<HTMLElement>(
       '[data-configuration-guidance]'
@@ -818,6 +1018,20 @@ export function mountAnswerSenseApp(
     )
       return;
 
+    renderResourceLinks();
+    const resourcesHeading = element<HTMLElement>('[data-resources-heading]');
+    if (
+      resourcesHeading &&
+      !resourcesHeading.querySelector('.validation-failure-info-tooltip')
+    ) {
+      resourcesHeading.append(
+        ' ',
+        createValidationFailureInfoTooltip(
+          'Signing in may be required to create an API key.'
+        )
+      );
+    }
+
     const active = configurationState.activeConfiguration;
     const previousProviderId = providerSelect.value;
     const previousModelId = modelSelect.value;
@@ -835,6 +1049,8 @@ export function mountAnswerSenseApp(
           )
           ? active?.providerId
           : configurationState.providers[0]?.providerId) ?? '';
+    updateAddCredentialButtonLabel(providerSelect);
+        renderedProviderId = providerSelect.value;
     const models = modelsForProvider(configurationState, providerSelect.value);
     modelSelect.replaceChildren();
     for (const model of models)
@@ -859,8 +1075,12 @@ export function mountAnswerSenseApp(
     const providerCredentials = configurationState.credentials.filter(
       (item) => item.providerId === providerSelect.value
     );
+    credentialSelect.disabled = providerCredentials.length === 0;
     if (!providerCredentials.length) {
-      credentialSelect.add(new Option('No API keys added yet', ''));
+      const placeholder = new Option('No API keys added yet', '');
+      placeholder.disabled = true;
+      placeholder.hidden = true;
+      credentialSelect.add(placeholder);
     }
     for (const credential of providerCredentials) {
       credentialSelect.add(
@@ -895,6 +1115,23 @@ export function mountAnswerSenseApp(
     credentialStatus.textContent = configurationState.credentials.length
       ? `${configurationState.credentials.length} API key${configurationState.credentials.length === 1 ? '' : 's'} stored.`
       : 'Add an API key to configure a provider.';
+    const credentialCountsByProvider = new Map<string, number>();
+    for (const credential of configurationState.credentials) {
+      credentialCountsByProvider.set(
+        credential.providerId,
+        (credentialCountsByProvider.get(credential.providerId) ?? 0) + 1
+      );
+    }
+    credentialStatus.classList.add('overlay-tooltip', 'credential-count-tooltip');
+    credentialStatus.dataset.tooltip = [
+      ...configurationState.providers.map(
+        (provider) =>
+          `${provider.displayName} keys: ${credentialCountsByProvider.get(provider.providerId) ?? 0}`
+      ),
+    ].join('\n');
+    credentialStatus.removeAttribute('title');
+    credentialStatus.tabIndex = 0;
+    enableOverlayTooltip(credentialStatus);
     if (configurationGuidance) {
       configurationGuidance.textContent =
         (selectedConfigurationMatchesActive()
@@ -902,9 +1139,10 @@ export function mountAnswerSenseApp(
           : null) ??
         'Configure the extension before generating.';
     }
+    const selectionConfigurationState = configurationStateForSelection();
     const configurationStatusText = authorizationStatus(
-      configurationStateForSelection(),
-      validating,
+      selectionConfigurationState,
+      isValidatingCurrentSelection(),
       !selectedConfigurationMatchesActive()
     );
     const isValidationSuccessful = configurationStatusText === 'Already validated.';
@@ -917,6 +1155,10 @@ export function mountAnswerSenseApp(
     const isValidationFailure =
       configurationStatusText ===
       'Validation failed. Save & Validate to try again.';
+    const isInvalidCredential =
+      isValidationFailure &&
+      selectionConfigurationState.validation?.failureCode ===
+        'AUTHENTICATION_FAILED';
     if (needsResave) {
       const resaveStatus = createElement('span');
       resaveStatus.dataset.resaveStatus = '';
@@ -940,7 +1182,9 @@ export function mountAnswerSenseApp(
 
       configurationStatus.replaceChildren(
         failureStatus,
-        document.createTextNode(' '),
+        document.createTextNode(
+          isInvalidCredential ? ' — Credential invalid. ' : ' '
+        ),
         createValidationFailureInfoTooltip(),
         document.createTextNode(' Save & Validate to try again.')
       );
@@ -980,24 +1224,34 @@ export function mountAnswerSenseApp(
     return response ?? {};
   }
 
-  async function reloadConfiguration(shouldRender = true): Promise<void> {
-    selectionLookupSequence += 1;
-    configurationState = (await send({
+  async function reloadConfiguration(
+    shouldRender = true,
+    expectedSelection?: ConfigurationSelection,
+    expectedSelectionRevision?: number
+  ): Promise<boolean> {
+    const lookupSequence = ++selectionLookupSequence;
+    const nextState = (await send({
       type: 'configuration-state',
     })) as unknown as ConfigurationState;
-    preserveConfigurationDraft = false;
+    if (
+      expectedSelection &&
+      (lookupSequence !== selectionLookupSequence ||
+        !currentSelectionMatches(expectedSelection) ||
+        (expectedSelectionRevision !== undefined &&
+          expectedSelectionRevision !== configurationSelectionRevision))
+    ) {
+      return false;
+    }
+    configurationState = nextState;
+    preserveConfigurationDraft = shouldRender && expectedSelection !== undefined;
     if (shouldRender) {
       renderAll(controller.state);
     }
+    return true;
   }
 
   async function refreshSelectedConfigurationValidation(): Promise<void> {
-    const selectedConfiguration = {
-      providerId: element<HTMLSelectElement>('[data-provider-select]')?.value ?? '',
-      modelId: element<HTMLSelectElement>('[data-model-select]')?.value ?? '',
-      credentialId:
-        element<HTMLSelectElement>('[data-credential-select]')?.value ?? '',
-    };
+    const selectedConfiguration = currentConfigurationSelection();
     const lookupSequence = ++selectionLookupSequence;
     if (
       !selectedConfiguration.providerId ||
@@ -1018,7 +1272,10 @@ export function mountAnswerSenseApp(
         type: 'configuration-state',
         selectedConfiguration,
       })) as unknown as ConfigurationState;
-      if (lookupSequence !== selectionLookupSequence) return;
+      if (
+        lookupSequence !== selectionLookupSequence ||
+        !currentSelectionMatches(selectedConfiguration)
+      ) return;
       configurationState = {
         ...configurationState,
         selectedConfiguration: selectedState.selectedConfiguration ?? null,
@@ -1027,7 +1284,10 @@ export function mountAnswerSenseApp(
         selectedValidation: selectedState.selectedValidation ?? null,
       };
     } catch {
-      if (lookupSequence !== selectionLookupSequence) return;
+      if (
+        lookupSequence !== selectionLookupSequence ||
+        !currentSelectionMatches(selectedConfiguration)
+      ) return;
       configurationState = {
         ...configurationState,
         selectedConfiguration: null,
@@ -1038,7 +1298,34 @@ export function mountAnswerSenseApp(
     renderConfiguration();
   }
 
+  function clearCredentialAddedMessageTimeout(): void {
+    if (credentialAddedMessageTimeout !== null) {
+      clearTimeout(credentialAddedMessageTimeout);
+      credentialAddedMessageTimeout = null;
+    }
+  }
+
+  function clearConfigurationMessage(): void {
+    const message = element<HTMLElement>('[data-configuration-message]');
+    if (message) {
+      message.textContent = '';
+      message.hidden = true;
+    }
+  }
+
+  function clearCredentialMessage(): void {
+    clearCredentialAddedMessageTimeout();
+    const message = element<HTMLElement>('[data-credential-message]');
+    if (message) {
+      message.textContent = '';
+      message.hidden = true;
+    }
+  }
+
   function showMessage(selector: string, text: string): void {
+    if (selector === '[data-credential-message]') {
+      clearCredentialAddedMessageTimeout();
+    }
     const message = element<HTMLElement>(selector);
     if (message) {
       message.textContent = text;
@@ -1046,12 +1333,17 @@ export function mountAnswerSenseApp(
     }
   }
 
-  function clearProviderRequestFailureMessage(): void {
-    const message = element<HTMLElement>('[data-configuration-message]');
-    if (message?.textContent === 'Provider request failed.') {
-      message.textContent = '';
-      message.hidden = true;
-    }
+  function showCredentialAddedMessage(): void {
+    const messageText = 'API key added.';
+    showMessage('[data-credential-message]', messageText);
+    credentialAddedMessageTimeout = setTimeout(() => {
+      const message = element<HTMLElement>('[data-credential-message]');
+      if (message?.textContent === messageText) {
+        message.textContent = '';
+        message.hidden = true;
+      }
+      credentialAddedMessageTimeout = null;
+    }, 1500);
   }
 
   function promptForCredentialSecret(action: 'add' | 'replace'): string | null {
@@ -1392,7 +1684,6 @@ export function mountAnswerSenseApp(
     const credentialLabelElement = credentialLabel;
     const replaceCredentialSelectElement = replaceCredentialSelect;
     const providerSelectElement = providerSelect;
-    const modelSelectElement = modelSelect;
     const credentialSelectElement = credentialSelect;
 
     function hideCredentialForms(): void {
@@ -1435,85 +1726,113 @@ export function mountAnswerSenseApp(
     }
 
     providerSelect.addEventListener('change', () => {
-      clearProviderRequestFailureMessage();
-      preserveConfigurationDraft = true;
-      const previousProviderId = providerSelect.dataset.previousProviderId;
+      updateAddCredentialButtonLabel(providerSelect);
+      const previousProviderId = renderedProviderId;
       if (previousProviderId) {
-        providerDraftSelections.set(previousProviderId, {
-          modelId: modelSelect.value,
-          credentialId: credentialSelect.value,
-        });
+        providerCredentialSelections.set(
+          previousProviderId,
+          credentialSelect.value
+        );
       }
-      providerSelect.dataset.previousProviderId = providerSelect.value;
-      const active = configurationState.activeConfiguration;
-      const draft = providerDraftSelections.get(providerSelect.value);
-      const activeModelId =
-        active?.providerId === providerSelect.value ? active.modelId : null;
-      const activeCredentialId =
-        active?.providerId === providerSelect.value
-          ? active.credentialId
-          : null;
+      selectionLookupSequence += 1;
+      configurationSelectionRevision += 1;
+      clearConfigurationMessage();
+      clearCredentialMessage();
+      hideCredentialForms();
+      requiresExplicitConfigurationSave = true;
+      preserveConfigurationDraft = true;
       const models = modelsForProvider(configurationState, providerSelect.value);
       modelSelect.replaceChildren(
         ...models.map((model) => new Option(model.displayName, model.modelId))
       );
       modelSelect.value =
-        (models.some((model) => model.modelId === draft?.modelId)
-          ? draft?.modelId
-          : models.some((model) => model.modelId === activeModelId)
-            ? activeModelId
-            : models.some((model) => model.modelId === GEMINI_MODEL)
-              ? GEMINI_MODEL
-              : models[0]?.modelId) ?? '';
+        (models.some((model) => model.modelId === GEMINI_MODEL)
+          ? GEMINI_MODEL
+          : models[0]?.modelId) ?? '';
       const credentials = configurationState.credentials.filter(
         (item) => item.providerId === providerSelect.value
       );
-      credentialSelect.replaceChildren(
-        ...(credentials.length
-          ? credentials.map(
-              (credential) =>
-                new Option(
-                  credential.label || 'Unnamed API key',
-                  credential.credentialId
-                )
-            )
-          : [new Option('No API keys added yet', '')])
+      credentialSelect.disabled = credentials.length === 0;
+      const credentialOptions = credentials.map(
+        (credential) =>
+          new Option(
+            credential.label || 'Unnamed API key',
+            credential.credentialId
+          )
       );
+      if (!credentialOptions.length) {
+        const placeholder = new Option('No API keys added yet', '');
+        placeholder.disabled = true;
+        placeholder.hidden = true;
+        credentialOptions.push(placeholder);
+      }
+      credentialSelect.replaceChildren(...credentialOptions);
+      const rememberedCredentialId = providerCredentialSelections.get(
+        providerSelect.value
+      );
+      const activeCredentialId =
+        configurationState.activeConfiguration?.providerId === providerSelect.value
+          ? configurationState.activeConfiguration.credentialId
+          : null;
       credentialSelect.value =
-        (credentials.some(
-          (credential) => credential.credentialId === draft?.credentialId
+        credentials.some(
+          (credential) =>
+            credential.credentialId === rememberedCredentialId
         )
-          ? draft?.credentialId
+          ? rememberedCredentialId ?? ''
           : credentials.some(
-              (credential) => credential.credentialId === activeCredentialId
+                (credential) => credential.credentialId === activeCredentialId
             )
-            ? activeCredentialId
-            : credentials[0]?.credentialId) ?? '';
+            ? activeCredentialId ?? ''
+            : credentials[0]?.credentialId ?? '';
+      renderedProviderId = providerSelect.value;
+      configurationState = {
+        ...configurationState,
+        selectedConfiguration: null,
+        selectedConfigurationDigest: null,
+        selectedValidation: null,
+      };
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
-      void refreshSelectedConfigurationValidation();
     });
     modelSelect.addEventListener('change', () => {
-      clearProviderRequestFailureMessage();
+      selectionLookupSequence += 1;
+      configurationSelectionRevision += 1;
+      clearConfigurationMessage();
       preserveConfigurationDraft = true;
-      providerDraftSelections.set(providerSelect.value, {
-        modelId: modelSelect.value,
-        credentialId: credentialSelect.value,
-      });
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
-      void refreshSelectedConfigurationValidation();
+      if (requiresExplicitConfigurationSave) {
+        configurationState = {
+          ...configurationState,
+          selectedConfiguration: null,
+          selectedConfigurationDigest: null,
+          selectedValidation: null,
+        };
+        renderConfiguration();
+      } else {
+        void refreshSelectedConfigurationValidation();
+      }
     });
     credentialSelect.addEventListener('change', () => {
-      clearProviderRequestFailureMessage();
+      selectionLookupSequence += 1;
+      configurationSelectionRevision += 1;
+      providerCredentialSelections.set(providerSelect.value, credentialSelect.value);
+      clearConfigurationMessage();
       preserveConfigurationDraft = true;
-      providerDraftSelections.set(providerSelect.value, {
-        modelId: modelSelect.value,
-        credentialId: credentialSelect.value,
-      });
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
-      void refreshSelectedConfigurationValidation();
+      if (requiresExplicitConfigurationSave) {
+        configurationState = {
+          ...configurationState,
+          selectedConfiguration: null,
+          selectedConfigurationDigest: null,
+          selectedValidation: null,
+        };
+        renderConfiguration();
+      } else {
+        void refreshSelectedConfigurationValidation();
+      }
     });
 
     addCredentialButton.addEventListener('click', () => {
@@ -1526,6 +1845,7 @@ export function mountAnswerSenseApp(
     element<HTMLButtonElement>('[data-save-add-credential]')?.addEventListener(
       'click',
       async () => {
+        const owner = captureConfigurationOwnership();
         try {
           const secret = promptForCredentialSecret('add');
           if (secret === null) {
@@ -1533,15 +1853,22 @@ export function mountAnswerSenseApp(
           }
           await send({
             type: 'credential-create',
-            providerId: providerSelect.value,
+            providerId: owner.selection.providerId,
             label: credentialLabel.value,
             secret,
           });
+          if (!ownsConfigurationSelection(owner)) return;
           credentialLabel.value = '';
           hideCredentialForms();
-          await reloadConfiguration();
-          showMessage('[data-credential-message]', 'API key added.');
+          const reloaded = await reloadConfiguration(
+            true,
+            owner.selection,
+            owner.revision
+          );
+          if (!reloaded || !ownsProviderRevision(owner)) return;
+          showCredentialAddedMessage();
         } catch (error) {
+          if (!ownsConfigurationSelection(owner)) return;
           showMessage(
             '[data-credential-message]',
             error instanceof Error ? error.message : 'API key could not be added.'
@@ -1558,6 +1885,7 @@ export function mountAnswerSenseApp(
     element<HTMLButtonElement>('[data-save-replace-credential]')?.addEventListener(
       'click',
       async () => {
+        const owner = captureConfigurationOwnership();
         try {
           const selectedCredentialId = replaceCredentialSelect.value;
           if (!selectedCredentialId) {
@@ -1570,28 +1898,87 @@ export function mountAnswerSenseApp(
           const selectedCredential = configurationState.credentials.find(
             (credential) => credential.credentialId === selectedCredentialId
           );
-          const replacingActiveCredential =
+          const replacingActiveConfiguration =
+            configurationState.activeConfiguration?.providerId ===
+              owner.selection.providerId &&
+            configurationState.activeConfiguration?.modelId ===
+              owner.selection.modelId &&
             configurationState.activeConfiguration?.credentialId ===
-            selectedCredentialId;
+              selectedCredentialId;
           const secret = promptForCredentialSecret('replace');
           if (secret === null) {
             return;
           }
-          await send({
+          const replacement = await send({
             type: 'credential-replace',
             credentialId: selectedCredentialId,
-            providerId: providerSelect.value,
+            providerId: owner.selection.providerId,
             label: selectedCredential?.label || 'Unnamed API key',
             secret,
           });
+          if (!ownsConfigurationSelection(owner)) return;
           credentialLabel.value = '';
           hideCredentialForms();
-          await reloadConfiguration();
+          const reloaded = await reloadConfiguration(
+            false,
+            owner.selection,
+            owner.revision
+          );
+          if (!reloaded || !ownsConfigurationSelection(owner)) return;
+          const replacementCredentialId =
+            typeof replacement.credentialId === 'string'
+              ? replacement.credentialId
+              : null;
+          if (replacingActiveConfiguration && replacementCredentialId) {
+            const replacementState = configurationState;
+            const replacementIsActive =
+              replacementState.activeConfiguration?.providerId ===
+                owner.selection.providerId &&
+              replacementState.activeConfiguration?.modelId ===
+                owner.selection.modelId &&
+              replacementState.activeConfiguration?.credentialId ===
+                replacementCredentialId &&
+              replacementState.credentials.some(
+                (credential) =>
+                  credential.credentialId === replacementCredentialId &&
+                  credential.providerId === owner.selection.providerId
+            );
+            if (replacementIsActive) {
+              preserveConfigurationDraft = false;
+              renderAll(controller.state);
+            }
+          } else {
+            const replacementIsSelected =
+              replacementCredentialId !== null &&
+              owner.selection.credentialId === selectedCredentialId &&
+              configurationState.credentials.some(
+                (credential) =>
+                  credential.credentialId === replacementCredentialId &&
+                  credential.providerId === owner.selection.providerId
+              );
+            if (replacementIsSelected && replacementCredentialId) {
+              credentialSelectElement.value = replacementCredentialId;
+              providerCredentialSelections.set(
+                owner.selection.providerId,
+                replacementCredentialId
+              );
+            }
+            preserveConfigurationDraft = true;
+            renderAll(controller.state);
+          }
+          if (!ownsProviderRevision(owner)) return;
           showMessage('[data-credential-message]', 'API key replaced.');
-          if (replacingActiveCredential) {
+          if (
+            replacingActiveConfiguration &&
+            replacementCredentialId &&
+            currentConfigurationSelection().providerId === owner.selection.providerId &&
+            currentConfigurationSelection().modelId === owner.selection.modelId &&
+            currentConfigurationSelection().credentialId === replacementCredentialId
+          ) {
             await saveAndValidateConfiguration();
           }
         } catch (error) {
+          if (!ownsConfigurationSelection(owner)) return;
           showMessage(
             '[data-credential-message]',
             error instanceof Error ? error.message : 'API key could not be replaced.'
@@ -1606,7 +1993,18 @@ export function mountAnswerSenseApp(
       }
     );
     async function saveAndValidateConfiguration(): Promise<void> {
-      if (validating) return;
+      const selectedConfiguration = currentConfigurationSelection();
+      const selectionRevision = configurationSelectionRevision;
+      if (
+        validatingSelection &&
+        validatingSelection.revision === selectionRevision &&
+        currentSelectionMatches(validatingSelection.selection)
+      ) return;
+      const isCurrentSave = (): boolean =>
+        selectionRevision === configurationSelectionRevision &&
+        currentSelectionMatches(selectedConfiguration);
+      const operationId = ++validationOperationSequence;
+      const validateAfterProviderChange = requiresExplicitConfigurationSave;
       const configurationMessage = element<HTMLElement>(
         '[data-configuration-message]'
       );
@@ -1615,33 +2013,67 @@ export function mountAnswerSenseApp(
         configurationMessage.hidden = true;
       }
       selectionLookupSequence += 1;
-      validating = true;
+      validatingSelection = {
+        selection: selectedConfiguration,
+        revision: selectionRevision,
+        operationId,
+      };
       renderConfiguration();
       renderGeneration(controller.state);
       try {
-        configurationState = (await send({
+        const savedState = (await send({
           type: 'configuration-set',
-          providerId: providerSelectElement.value,
-          modelId: modelSelectElement.value,
-          credentialId: credentialSelectElement.value,
+          providerId: selectedConfiguration.providerId,
+          modelId: selectedConfiguration.modelId,
+          credentialId: selectedConfiguration.credentialId,
         })) as unknown as ConfigurationState;
-        preserveConfigurationDraft = false;
+        if (!isCurrentSave()) return;
+        configurationState = savedState;
         renderAll(controller.state);
-        if (!isCurrentValidationValid(configurationState)) {
+        if (
+          validateAfterProviderChange ||
+          !isCurrentValidationValid(configurationState)
+        ) {
           await send({ type: 'configuration-validate' });
-          await reloadConfiguration();
+          if (!isCurrentSave()) return;
+          const reloaded = await reloadConfiguration(
+            false,
+            selectedConfiguration,
+            selectionRevision
+          );
+          if (!reloaded) return;
         }
+        if (!isCurrentSave()) return;
+        preserveConfigurationDraft = false;
+        if (validateAfterProviderChange) {
+          requiresExplicitConfigurationSave = false;
+        }
+        renderAll(controller.state);
       } catch (error) {
-        await reloadConfiguration().catch(() => undefined);
+        if (!isCurrentSave()) return;
+        const reloaded = await reloadConfiguration(
+          false,
+          selectedConfiguration,
+          selectionRevision
+        ).catch(() => false);
+        if (!isCurrentSave()) return;
         const errorMessage =
           error instanceof Error
             ? error.message
             : 'Configuration could not be validated.';
-        if (errorMessage !== 'Provider request failed.') {
+        if (reloaded && errorMessage === 'Credential invalid.') {
+          requiresExplicitConfigurationSave = false;
+        }
+        if (
+          errorMessage !== 'Provider request failed.' &&
+          errorMessage !== 'Credential invalid.'
+        ) {
           showMessage('[data-configuration-message]', errorMessage);
         }
       } finally {
-        validating = false;
+        if (validatingSelection?.operationId === operationId) {
+          validatingSelection = null;
+        }
         renderConfiguration();
         renderGeneration(controller.state);
       }
@@ -1713,16 +2145,24 @@ export function mountAnswerSenseApp(
           return;
         }
         if (deleteConfirmation) deleteConfirmation.hidden = true;
+        const owner = captureConfigurationOwnership();
         try {
           await send({
             type: 'credential-delete-selected',
             credentialId: selectedCredentialId,
           });
-          await reloadConfiguration();
-          renderAll(controller.state);
+          if (!ownsConfigurationSelection(owner)) return;
+          const reloaded = await reloadConfiguration(
+            true,
+            owner.selection,
+            owner.revision
+          );
+          if (!reloaded || !ownsProviderRevision(owner)) return;
           await refreshSelectedConfigurationValidation();
+          if (!ownsProviderRevision(owner)) return;
           showMessage('[data-configuration-message]', 'API key deleted.');
         } catch (error) {
+          if (!ownsConfigurationSelection(owner)) return;
           showMessage(
             '[data-configuration-message]',
             error instanceof Error ? error.message : 'API key could not be deleted.'

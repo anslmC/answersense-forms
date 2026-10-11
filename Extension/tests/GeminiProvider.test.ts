@@ -6,6 +6,7 @@ import {
   GeminiProvider,
   GeminiProviderError,
   responseJsonSchema,
+  validateGeminiCredential,
   type GeminiTransport,
 } from '../src/Generation/GeminiProvider';
 import type { GenerationRequest } from '../src/Generation/Contract';
@@ -193,6 +194,34 @@ describe('direct Gemini provider', () => {
     await expect(validator?.('test-key', GEMINI_MODEL)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
+  });
+
+  it('classifies API_KEY_INVALID from a 400 credential validation response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 400,
+              status: 'INVALID_ARGUMENT',
+              details: [{ reason: 'API_KEY_INVALID' }],
+            },
+          }),
+          { status: 400 }
+        )
+      )
+    );
+
+    try {
+      await expect(validateGeminiCredential('test-key')).rejects.toMatchObject({
+        code: 'AUTHENTICATION_FAILED',
+        safeCode: 'AUTHENTICATION_FAILED',
+        message: 'Credential invalid.',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('uses the selected Gemini model in the generation endpoint', async () => {

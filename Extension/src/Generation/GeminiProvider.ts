@@ -424,6 +424,25 @@ export async function validateGeminiCredential(apiKey: string): Promise<void> {
     );
   }
   if (!response.ok) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // Keep status-based classification when the provider body is unavailable.
+    }
+    if (
+      isRecord(body) &&
+      isRecord(body.error) &&
+      Array.isArray(body.error.details) &&
+      body.error.details.some(
+        (detail) => isRecord(detail) && detail.reason === 'API_KEY_INVALID'
+      )
+    ) {
+      throw new GeminiProviderError(
+        'AUTHENTICATION_FAILED',
+        'Credential invalid.'
+      );
+    }
     throw classifyStatus(response.status);
   }
 }
