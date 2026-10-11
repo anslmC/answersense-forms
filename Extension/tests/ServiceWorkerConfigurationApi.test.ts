@@ -38,7 +38,6 @@ type StoredState = Record<string, unknown>;
 
 type ChromeTestState = {
   values: Record<string, unknown>;
-  nvidiaHostPermissionGranted?: boolean;
 };
 
 function installChrome(state: ChromeTestState): void {
@@ -54,9 +53,6 @@ function installChrome(state: ChromeTestState): void {
       query: vi.fn(async () => [{ id: 17 }]),
       sendMessage: vi.fn(),
       create: vi.fn(async () => ({ id: 18 })),
-    },
-    permissions: {
-      contains: vi.fn(async () => state.nvidiaHostPermissionGranted ?? false),
     },
     storage: {
       local: {
@@ -166,23 +162,6 @@ describe('Service Worker configuration API boundary', () => {
       },
     });
     expect(state.values[CONFIGURATION_STATE_STORAGE_KEY]).toBeDefined();
-  });
-
-  it('opens the built NVIDIA permission page from the dedicated UI action', async () => {
-    const state: ChromeTestState = { values: {} };
-    installChrome(state);
-    const handleMessage = await loadHandler();
-
-    await expect(
-      handleMessage({ type: 'open-nvidia-permission-page' }, popupSender())
-    ).resolves.toEqual({ opened: true });
-    expect(
-      (globalThis as typeof globalThis & {
-        chrome: { tabs: { create: ReturnType<typeof vi.fn> } };
-      }).chrome.tabs.create
-    ).toHaveBeenCalledWith({
-      url: `chrome-extension://${extensionId}/src/Permissions/NvidiaPermissionPage.html`,
-    });
   });
 
   it('accepts API keys through the authorized path but never returns raw secrets', async () => {
@@ -342,42 +321,7 @@ describe('Service Worker configuration API boundary', () => {
     expect(validationMock.validate).toHaveBeenCalledWith('raw-secret');
   });
 
-  it('validates NVIDIA credentials only when host permission is granted', async () => {
-    const state: ChromeTestState = {
-      values: {},
-      nvidiaHostPermissionGranted: true,
-    };
-    installChrome(state);
-    const handleMessage = await loadHandler();
-    const created = (await handleMessage(
-      {
-        type: 'credential-create',
-        providerId: 'nvidia',
-        label: 'NVIDIA key',
-        secret: 'nvidia-secret',
-      },
-      popupSender()
-    )) as { credentialId: string };
-    await handleMessage(
-      {
-        type: 'configuration-set',
-        providerId: 'nvidia',
-        modelId: 'nvidia/nemotron-3-super-120b-a12b',
-        credentialId: created.credentialId,
-      },
-      popupSender()
-    );
-
-    await expect(
-      handleMessage({ type: 'configuration-validate' }, popupSender())
-    ).resolves.toEqual({ valid: true });
-    expect(validationMock.validateNvidia).toHaveBeenCalledWith(
-      'nvidia-secret',
-      'nvidia/nemotron-3-super-120b-a12b'
-    );
-  });
-
-  it('blocks missing NVIDIA host permission without changing credential or validation state', async () => {
+  it('validates NVIDIA credentials without a runtime permission request', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);
     const handleMessage = await loadHandler();
@@ -390,84 +334,39 @@ describe('Service Worker configuration API boundary', () => {
       },
       popupSender()
     )) as { credentialId: string };
-    await handleMessage(
+    const configured = (await handleMessage(
       {
         type: 'configuration-set',
         providerId: 'nvidia',
         modelId: 'nvidia/nemotron-3-super-120b-a12b',
         credentialId: created.credentialId,
       },
-      popupSender()
-    );
-    const before = (await handleMessage(
-      { type: 'configuration-state' },
-      popupSender()
-    )) as { configurationDigest: string; credentials: unknown[]; validation: unknown };
-
-    await expect(
-      handleMessage({ type: 'configuration-validate' }, popupSender())
-    ).rejects.toMatchObject({
-      code: 'NVIDIA_HOST_PERMISSION_REQUIRED',
-      message: expect.stringContaining('NVIDIA network access is required'),
-    });
-    const after = (await handleMessage(
-      { type: 'configuration-state' },
-      popupSender()
-    )) as { configurationDigest: string; credentials: unknown[]; validation: unknown };
-
-    expect(validationMock.validateNvidia).not.toHaveBeenCalled();
-    expect(after).toEqual(before);
-  });
-
-  it('blocks revoked NVIDIA host permission without invalidating a prior validation', async () => {
-    const state: ChromeTestState = {
-      values: {},
-      nvidiaHostPermissionGranted: true,
-    };
-    installChrome(state);
-    const handleMessage = await loadHandler();
-    const created = (await handleMessage(
-      {
-        type: 'credential-create',
-        providerId: 'nvidia',
-        label: 'NVIDIA key',
-        secret: 'nvidia-secret',
-      },
-      popupSender()
-    )) as { credentialId: string };
-    await handleMessage(
-      {
-        type: 'configuration-set',
-        providerId: 'nvidia',
-        modelId: 'nvidia/nemotron-3-super-120b-a12b',
-        credentialId: created.credentialId,
-      },
-      popupSender()
-    );
-    await handleMessage({ type: 'configuration-validate' }, popupSender());
-    const beforeRevocation = (await handleMessage(
-      { type: 'configuration-state' },
       popupSender()
     )) as { configurationDigest: string };
-    state.nvidiaHostPermissionGranted = false;
 
     await expect(
-      handleMessage({ type: 'configuration-validate' }, popupSender())
-    ).rejects.toMatchObject({ code: 'NVIDIA_HOST_PERMISSION_REQUIRED' });
-    const configuration = (await handleMessage(
-      { type: 'configuration-state' },
-      popupSender()
-    )) as {
-      configurationDigest: string;
-      credentials: unknown[];
-      validation: { status: string } | null;
-    };
+      handleMessage(
+        {
+          type: 'configuration-validate',
+          configurationDigest: 'stale-nvidia-digest',
+        },
+        popupSender()
+      )
+    ).rejects.toMatchObject({ code: 'CONFIGURATION_STALE' });
+    expect(validationMock.validateNvidia).not.toHaveBeenCalled();
 
-    expect(validationMock.validateNvidia).toHaveBeenCalledTimes(1);
-    expect(configuration.credentials).toHaveLength(1);
-    expect(configuration.validation).toMatchObject({ status: 'VALID' });
-    expect(configuration.configurationDigest).toBe(
-      beforeRevocation.configurationDigest
+    await expect(
+      handleMessage(
+        {
+          type: 'configuration-validate',
+          configurationDigest: configured.configurationDigest,
+        },
+        popupSender()
+      )
+    ).resolves.toEqual({ valid: true });
+    expect(validationMock.validateNvidia).toHaveBeenCalledWith(
+      'nvidia-secret',
+      'nvidia/nemotron-3-super-120b-a12b'
     );
   });
 

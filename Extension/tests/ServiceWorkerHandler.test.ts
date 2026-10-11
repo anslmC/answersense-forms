@@ -70,7 +70,6 @@ type ChromeTestState = {
   values: Record<string, unknown>;
   sessionValues?: Record<string, unknown>;
   queryCount: number;
-  nvidiaHostPermissionGranted?: boolean;
   removedListener?: (tabId: number) => Promise<void>;
 };
 
@@ -99,9 +98,6 @@ function installChrome(
           state.removedListener = listener;
         },
       },
-    },
-    permissions: {
-      contains: vi.fn(async () => state.nvidiaHostPermissionGranted ?? true),
     },
     storage: {
       local: {
@@ -268,46 +264,10 @@ describe('Service Worker generation handler security boundary', () => {
     expect(handlerState.providerCalls).toBe(0);
   });
 
-  it.each([
-    ['missing', false],
-    ['revoked', false],
-  ])('blocks NVIDIA generation when host permission is %s', async (permissionState, granted) => {
+  it('allows NVIDIA generation under the required host permission', async () => {
     const state: ChromeTestState = {
       values: {},
       queryCount: 0,
-      nvidiaHostPermissionGranted: permissionState === 'revoked' ? true : granted,
-    };
-    installChrome(state);
-    const authorized = await authorizedState(
-      testStorage(),
-      'nvidia',
-      'nvidia/nemotron-3-super-120b-a12b'
-    );
-    if (permissionState === 'revoked') {
-      state.nvidiaHostPermissionGranted = false;
-    }
-    const handleMessage = await loadHandler();
-
-    await expect(
-      handleMessage(
-        {
-          type: 'gemini-generate',
-          request: {},
-          configurationDigest: authorized.resolved.configurationDigest,
-          configurationRevision: authorized.resolved.authorizationRevision,
-        },
-        sender(activeTabId)
-      )
-    ).rejects.toMatchObject({ code: 'NVIDIA_HOST_PERMISSION_REQUIRED' });
-    expect(handlerState.adapterCalls).toBe(0);
-    expect(handlerState.providerCalls).toBe(0);
-  });
-
-  it('allows NVIDIA generation when the host permission is granted', async () => {
-    const state: ChromeTestState = {
-      values: {},
-      queryCount: 0,
-      nvidiaHostPermissionGranted: true,
     };
     installChrome(state);
     const authorized = await authorizedState(

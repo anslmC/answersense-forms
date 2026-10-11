@@ -9,7 +9,6 @@ import {
 } from './Configuration';
 import { createBrowserWorkflow } from './Workflow';
 import { GEMINI_MODEL } from '../Generation/GeminiProvider';
-import { NVIDIA_PROVIDER_ID } from '../Generation/ProviderRegistry';
 import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
 import type { QuestionResult } from '../Models/Logical';
 import type { FillOutcome } from '../Fill/Filler';
@@ -40,6 +39,16 @@ export interface WorkflowAppOptions {
 export interface WorkflowAppHandle {
   refresh: () => Promise<void>;
   ready: Promise<void>;
+}
+
+class ServiceWorkerResponseError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ServiceWorkerResponseError';
+  }
 }
 
 interface ConfigurationSelection {
@@ -996,9 +1005,6 @@ export function mountAnswerSenseApp(
     );
     const providerSelect = element<HTMLSelectElement>('[data-provider-select]');
     const modelSelect = element<HTMLSelectElement>('[data-model-select]');
-    const nvidiaPermissionButton = element<HTMLButtonElement>(
-      '[data-nvidia-permission]'
-    );
     const credentialSelect = element<HTMLSelectElement>(
       '[data-credential-select]'
     );
@@ -1067,10 +1073,6 @@ export function mountAnswerSenseApp(
       (models.some((model) => model.modelId === GEMINI_MODEL)
         ? GEMINI_MODEL
         : models[0]?.modelId ?? '');
-    if (nvidiaPermissionButton) {
-      nvidiaPermissionButton.hidden = providerSelect.value !== NVIDIA_PROVIDER_ID;
-    }
-
     credentialSelect.replaceChildren();
     const providerCredentials = configurationState.credentials.filter(
       (item) => item.providerId === providerSelect.value
@@ -1114,7 +1116,7 @@ export function mountAnswerSenseApp(
 
     credentialStatus.textContent = configurationState.credentials.length
       ? `${configurationState.credentials.length} API key${configurationState.credentials.length === 1 ? '' : 's'} stored.`
-      : 'Add an API key to configure a provider.';
+      : 'No keys stored';
     const credentialCountsByProvider = new Map<string, number>();
     for (const credential of configurationState.credentials) {
       credentialCountsByProvider.set(
@@ -1220,7 +1222,12 @@ export function mountAnswerSenseApp(
     const response = (await chrome.runtime.sendMessage(message)) as
       | Record<string, unknown>
       | undefined;
-    if (response?.error) throw new Error(String(response.error));
+    if (response?.error) {
+      throw new ServiceWorkerResponseError(
+        typeof response.code === 'string' ? response.code : '',
+        String(response.error)
+      );
+    }
     return response ?? {};
   }
 
@@ -2034,7 +2041,10 @@ export function mountAnswerSenseApp(
           validateAfterProviderChange ||
           !isCurrentValidationValid(configurationState)
         ) {
-          await send({ type: 'configuration-validate' });
+          await send({
+            type: 'configuration-validate',
+            configurationDigest: savedState.configurationDigest ?? undefined,
+          });
           if (!isCurrentSave()) return;
           const reloaded = await reloadConfiguration(
             false,
@@ -2082,21 +2092,6 @@ export function mountAnswerSenseApp(
     element<HTMLButtonElement>('[data-save-validate-configuration]')?.addEventListener(
       'click',
       () => void saveAndValidateConfiguration()
-    );
-    element<HTMLButtonElement>('[data-nvidia-permission]')?.addEventListener(
-      'click',
-      async () => {
-        try {
-          await send({ type: 'open-nvidia-permission-page' });
-        } catch (error) {
-          showMessage(
-            '[data-configuration-message]',
-            error instanceof Error
-              ? error.message
-              : 'NVIDIA network permission page could not be opened.'
-          );
-        }
-      }
     );
     const deleteConfirmation = element<HTMLElement>(
       '[data-delete-confirmation]'

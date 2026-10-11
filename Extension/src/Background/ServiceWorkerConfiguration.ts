@@ -11,7 +11,6 @@ import {
 } from '../Generation/Credentials';
 import {
   GEMINI_PROVIDER_ID,
-  NVIDIA_PROVIDER_ID,
   resolveAdapter,
   resolveProviderModel,
   type ModelDefinition,
@@ -19,22 +18,6 @@ import {
   type ProviderDefinition,
 } from '../Generation/ProviderRegistry';
 import { GEMINI_MODEL } from '../Generation/GeminiProvider';
-import { NVIDIA_HOST_PERMISSION } from '../Generation/NvidiaProvider';
-
-export async function providerHostPermissionGranted(
-  providerId: string
-): Promise<boolean> {
-  if (providerId !== NVIDIA_PROVIDER_ID) {
-    return true;
-  }
-  try {
-    return await chrome.permissions.contains({
-      origins: [NVIDIA_HOST_PERMISSION],
-    });
-  } catch {
-    return false;
-  }
-}
 
 export interface ResolvedProviderConfiguration {
   configuration: Configuration;

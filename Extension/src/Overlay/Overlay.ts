@@ -200,12 +200,6 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <button type="button" data-save-validate-configuration>
             Save &amp; Validate
           </button>
-          <button
-            type="button"
-            class="secondary"
-            data-nvidia-permission
-            hidden
-          >Grant NVIDIA network access</button>
           <button type="button" class="secondary" data-delete-credential>
             Delete this key
           </button>

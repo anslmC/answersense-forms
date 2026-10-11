@@ -11,7 +11,6 @@ export const NVIDIA_MODEL = 'nvidia/nemotron-3-super-120b-a12b';
 export const NVIDIA_GPT_OSS_MODEL = 'openai/gpt-oss-20b';
 export const NVIDIA_ENDPOINT =
   'https://integrate.api.nvidia.com/v1/chat/completions';
-export const NVIDIA_HOST_PERMISSION = 'https://integrate.api.nvidia.com/*';
 export const NVIDIA_REQUEST_TIMEOUT_MS = 30_000;
 const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze({
   [NVIDIA_MODEL]: 16384,

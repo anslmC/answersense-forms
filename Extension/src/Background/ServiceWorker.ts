@@ -27,7 +27,6 @@ import type { GenerationIntent } from '../Generation/Intent';
 import {
   resolveActiveProviderConfiguration,
   resolveAuthorizedProviderConfiguration,
-  providerHostPermissionGranted,
 } from './ServiceWorkerConfiguration';
 import { sanitizeProviderError } from './ProviderErrorSanitizer';
 import {
@@ -37,7 +36,6 @@ import {
 } from './ServiceWorkerSecurity';
 import {
   SafeServiceWorkerError,
-  NVIDIA_HOST_PERMISSION_REQUIRED_MESSAGE,
   serviceWorkerErrorResponse,
 } from './ServiceWorkerResponse';
 import { isUiGenerationResult } from '../Workflow/State';
@@ -198,12 +196,14 @@ async function configurationState(
   };
 }
 
-async function validateActiveConfiguration(): Promise<{ valid: true }> {
+async function validateActiveConfiguration(
+  expectedDigest?: string
+): Promise<{ valid: true }> {
   const resolved = await resolveActiveProviderConfiguration();
-  if (!(await providerHostPermissionGranted(resolved.provider.providerId))) {
+  if (expectedDigest && resolved.configurationDigest !== expectedDigest) {
     throw new SafeServiceWorkerError(
-      'NVIDIA_HOST_PERMISSION_REQUIRED',
-      NVIDIA_HOST_PERMISSION_REQUIRED_MESSAGE
+      'CONFIGURATION_STALE',
+      'Configuration changed during validation.'
     );
   }
   const validator = resolveCredentialValidator(
@@ -279,16 +279,6 @@ export async function handleMessage(
     throw new Error('Unauthorized extension message.');
   }
 
-  if (message.type === 'open-nvidia-permission-page') {
-    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
-      throw new Error('Permission settings are only available to the extension UI.');
-    }
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL('src/Permissions/NvidiaPermissionPage.html'),
-    });
-    return { opened: true };
-  }
-
   if (message.type === 'gemini-generate') {
     if (
       !isTrustedContentSender(sender, chrome.runtime.id) ||
@@ -345,12 +335,6 @@ export async function handleMessage(
         error instanceof Error && error.message.includes('changed')
           ? 'Generation configuration is stale.'
           : 'Generation configuration is not authorized.'
-      );
-    }
-    if (!(await providerHostPermissionGranted(resolved.provider.providerId))) {
-      throw new SafeServiceWorkerError(
-        'NVIDIA_HOST_PERMISSION_REQUIRED',
-        NVIDIA_HOST_PERMISSION_REQUIRED_MESSAGE
       );
     }
     const finalActiveTabId = await activeTabId();
@@ -511,7 +495,16 @@ export async function handleMessage(
     if (!isTrustedUiSender(sender, chrome.runtime.id)) {
       throw new Error('Validation is only available to the extension UI.');
     }
-    return validateActiveConfiguration();
+    if (
+      message.configurationDigest !== undefined &&
+      (typeof message.configurationDigest !== 'string' ||
+        !message.configurationDigest)
+    ) {
+      throw new Error('Configuration digest is invalid.');
+    }
+    return validateActiveConfiguration(
+      message.configurationDigest as string | undefined
+    );
   }
 
   if (message.type === 'credential-save') {
@@ -691,12 +684,6 @@ export async function handleMessage(
         error instanceof Error && error.message.includes('changed')
           ? 'Generation configuration is stale.'
           : 'Generation configuration is not authorized.'
-      );
-    }
-    if (!(await providerHostPermissionGranted(resolved.provider.providerId))) {
-      throw new SafeServiceWorkerError(
-        'NVIDIA_HOST_PERMISSION_REQUIRED',
-        NVIDIA_HOST_PERMISSION_REQUIRED_MESSAGE
       );
     }
     const generationOperationId = crypto.randomUUID();

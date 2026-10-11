@@ -2880,7 +2880,7 @@ describe('live Overlay generation workflow', () => {
     ).toHaveLength(0);
   });
 
-  it('preserves provider keys while resetting validation and recovering from NVIDIA permission denial', async () => {
+  it('preserves provider keys and ignores stale NVIDIA validation after a selection change', async () => {
     const multiProviderState = {
       ...configurationState,
       providers: [
@@ -2958,8 +2958,6 @@ describe('live Overlay generation workflow', () => {
       selected?: () => void;
       nvidia?: () => void;
     } = {};
-    const permissionRequiredMessage =
-      'NVIDIA network access is required. Grant access from the AnswerSense permission page, then retry.';
     const sendMessage = vi.fn(async (message: {
       type?: string;
       providerId?: string;
@@ -3034,33 +3032,31 @@ describe('live Overlay generation workflow', () => {
       if (message.type === 'configuration-validate') {
         if (
           currentConfigurationState.activeConfiguration?.providerId ===
-          NVIDIA_PROVIDER_ID
+            NVIDIA_PROVIDER_ID &&
+          deferNvidiaValidation
         ) {
-          if (deferNvidiaValidation) {
-            deferNvidiaValidation = false;
-            return new Promise<Record<string, unknown>>((resolve) => {
-              pendingValidationResolvers.nvidia = () => {
-                const activeConfiguration =
-                  currentConfigurationState.activeConfiguration;
-                if (activeConfiguration) {
-                  currentConfigurationState = {
-                    ...currentConfigurationState,
-                    validation: {
-                      configurationDigest:
-                        currentConfigurationState.configurationDigest ?? '',
-                      providerId: activeConfiguration.providerId,
-                      modelId: activeConfiguration.modelId,
-                      credentialId: activeConfiguration.credentialId,
-                      status: 'VALID',
-                      validatedAt: '2026-09-12T00:00:00.000Z',
-                    },
-                  };
-                }
-                resolve({ valid: true });
-              };
-            });
-          }
-          return { error: permissionRequiredMessage };
+          deferNvidiaValidation = false;
+          return new Promise<Record<string, unknown>>((resolve) => {
+            pendingValidationResolvers.nvidia = () => {
+              const activeConfiguration =
+                currentConfigurationState.activeConfiguration;
+              if (activeConfiguration) {
+                currentConfigurationState = {
+                  ...currentConfigurationState,
+                  validation: {
+                    configurationDigest:
+                      currentConfigurationState.configurationDigest ?? '',
+                    providerId: activeConfiguration.providerId,
+                    modelId: activeConfiguration.modelId,
+                    credentialId: activeConfiguration.credentialId,
+                    status: 'VALID',
+                    validatedAt: '2026-09-12T00:00:00.000Z',
+                  },
+                };
+              }
+              resolve({ valid: true });
+            };
+          });
         }
         const activeConfiguration = currentConfigurationState.activeConfiguration;
         if (activeConfiguration) {
@@ -3079,16 +3075,16 @@ describe('live Overlay generation workflow', () => {
         }
         return { valid: true };
       }
-      if (message.type === 'open-nvidia-permission-page') {
-        return { opened: true };
-      }
       if (message.type === 'p7-discover') return createSnapshot();
       return {};
     });
 
     vi.stubGlobal('chrome', {
       storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
-      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: vi.fn() },
+      },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
       const option = document.createElement('option');
@@ -3108,9 +3104,6 @@ describe('live Overlay generation workflow', () => {
     );
     const credentialSelect = shadowRoot?.querySelector<HTMLSelectElement>(
       '[data-credential-select]'
-    );
-    const permissionButton = shadowRoot?.querySelector<HTMLButtonElement>(
-      '[data-nvidia-permission]'
     );
     const primaryAction = shadowRoot?.querySelector<HTMLButtonElement>(
       '[data-primary-action]'
@@ -3151,7 +3144,6 @@ describe('live Overlay generation workflow', () => {
     expect(
       Array.from(credentialSelect.options).map((option) => option.value)
     ).not.toContain('credential-1');
-    expect(permissionButton?.hidden).toBe(false);
     const configurationStatus = shadowRoot?.querySelector<HTMLElement>(
       '[data-configuration-status]'
     );
@@ -3218,7 +3210,6 @@ describe('live Overlay generation workflow', () => {
     expect(
       Array.from(credentialSelect.options).every((option) => !option.disabled)
     ).toBe(true);
-    expect(permissionButton?.hidden).toBe(true);
     expect(configurationStatus?.textContent).toContain('Select a provider');
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
     expect(configurationMessage?.textContent).toBe('');
@@ -3267,7 +3258,6 @@ describe('live Overlay generation workflow', () => {
     providerSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
     expect(credentialSelect.value).toBe('nvidia-backup');
-    expect(permissionButton?.hidden).toBe(false);
     expect(saveButton?.disabled).toBe(false);
     expect(configurationStatus?.textContent).toContain('Select a provider');
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
@@ -3328,8 +3318,10 @@ describe('live Overlay generation workflow', () => {
       providerId: NVIDIA_PROVIDER_ID,
       status: 'VALID',
     });
-    expect(permissionButton?.hidden).toBe(true);
-
+    currentConfigurationState = {
+      ...currentConfigurationState,
+      validation: null,
+    };
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
@@ -3340,29 +3332,12 @@ describe('live Overlay generation workflow', () => {
     expect(primaryAction?.disabled).toBe(true);
     saveButton?.click();
     await vi.waitFor(() =>
-      expect(
-        shadowRoot?.querySelector<HTMLElement>('[data-configuration-message]')
-          ?.textContent
-      ).toBe(permissionRequiredMessage)
+      expect(configurationStatus?.textContent).toBe('Status: Valid')
     );
     expect(
       sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
     ).toHaveLength(3);
-    expect(configurationStatus?.textContent).toContain('Select a provider');
-    expect(configurationStatus?.textContent).not.toContain('Status: Valid');
-    expect(primaryAction?.disabled).toBe(true);
-    expect(currentConfigurationState.validation).toMatchObject({
-      providerId: NVIDIA_PROVIDER_ID,
-      status: 'VALID',
-    });
-    expect(permissionButton?.hidden).toBe(false);
-
-    permissionButton?.click();
-    await vi.waitFor(() =>
-      expect(sendMessage).toHaveBeenCalledWith({
-        type: 'open-nvidia-permission-page',
-      })
-    );
+    expect(primaryAction?.disabled).toBe(false);
   });
 
 });
