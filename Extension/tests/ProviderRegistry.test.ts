@@ -15,7 +15,11 @@ import {
   resolveProviderModel,
 } from '../src/Generation/ProviderRegistry';
 import { GeminiProvider, GEMINI_MODEL } from '../src/Generation/GeminiProvider';
-import { NVIDIA_MODEL, NvidiaProvider } from '../src/Generation/NvidiaProvider';
+import {
+  NVIDIA_GPT_OSS_MODEL,
+  NVIDIA_MODEL,
+  NvidiaProvider,
+} from '../src/Generation/NvidiaProvider';
 
 describe('compiled provider registry', () => {
   it('registers Gemini and its supported model', () => {
@@ -80,7 +84,7 @@ describe('compiled provider registry', () => {
     expect(resolveCredentialValidator(GEMINI_PROVIDER_ID, 'unsupported-model')).toBeNull();
   });
 
-  it('registers NVIDIA with its fixed model, adapter, and validator', () => {
+  it('registers NVIDIA models in default-first order with one adapter and validator', () => {
     expect(resolveProvider(NVIDIA_PROVIDER_ID)).toMatchObject({
       providerId: NVIDIA_PROVIDER_ID,
       adapterId: NVIDIA_ADAPTER_ID,
@@ -93,7 +97,18 @@ describe('compiled provider registry', () => {
       providerId: NVIDIA_PROVIDER_ID,
       endpointHost: NVIDIA_ENDPOINT_HOST,
     });
+    expect(resolveProvider(NVIDIA_PROVIDER_ID)?.models.map((model) => model.modelId)).toEqual([
+      NVIDIA_MODEL,
+      NVIDIA_GPT_OSS_MODEL,
+    ]);
+    expect(resolveModel(NVIDIA_PROVIDER_ID, NVIDIA_GPT_OSS_MODEL)).toMatchObject({
+      modelId: NVIDIA_GPT_OSS_MODEL,
+      providerId: NVIDIA_PROVIDER_ID,
+      endpointHost: NVIDIA_ENDPOINT_HOST,
+    });
     expect(resolveProviderAdapter(NVIDIA_PROVIDER_ID, NVIDIA_MODEL)?.('test-key'))
+      .toBeInstanceOf(NvidiaProvider);
+    expect(resolveProviderAdapter(NVIDIA_PROVIDER_ID, NVIDIA_GPT_OSS_MODEL)?.('test-key'))
       .toBeInstanceOf(NvidiaProvider);
     expect(resolveCredentialValidator(NVIDIA_PROVIDER_ID, NVIDIA_MODEL))
       .toBeTypeOf('function');

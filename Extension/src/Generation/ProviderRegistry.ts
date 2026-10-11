@@ -5,6 +5,7 @@ import {
   validateGeminiCredential,
 } from './GeminiProvider';
 import {
+  NVIDIA_GPT_OSS_MODEL,
   NVIDIA_MODEL,
   NvidiaProvider,
   validateNvidiaCredential,
@@ -65,6 +66,12 @@ const nvidiaModels: readonly ModelDefinition[] = Object.freeze([
   Object.freeze({
     modelId: NVIDIA_MODEL,
     displayName: 'NVIDIA Nemotron 3 Super',
+    providerId: NVIDIA_PROVIDER_ID,
+    endpointHost: NVIDIA_ENDPOINT_HOST,
+  }),
+  Object.freeze({
+    modelId: NVIDIA_GPT_OSS_MODEL,
+    displayName: 'OpenAI GPT-OSS 20B',
     providerId: NVIDIA_PROVIDER_ID,
     endpointHost: NVIDIA_ENDPOINT_HOST,
   }),

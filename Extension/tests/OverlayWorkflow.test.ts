@@ -6,7 +6,10 @@ import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { waitForInitialDiscovery } from '../src/Content/Navigation';
 import type { QuestionResult } from '../src/Models/Logical';
-import { NVIDIA_MODEL } from '../src/Generation/NvidiaProvider';
+import {
+  NVIDIA_GPT_OSS_MODEL,
+  NVIDIA_MODEL,
+} from '../src/Generation/NvidiaProvider';
 import { NVIDIA_PROVIDER_ID } from '../src/Generation/ProviderRegistry';
 
 const configurationState = {
@@ -1958,6 +1961,7 @@ describe('live Overlay generation workflow', () => {
           displayName: 'NVIDIA',
           models: [
             { modelId: NVIDIA_MODEL, displayName: 'NVIDIA Nemotron 3 Super' },
+            { modelId: NVIDIA_GPT_OSS_MODEL, displayName: 'OpenAI GPT-OSS 20B' },
           ],
           supportsValidation: true,
         },
@@ -2088,12 +2092,19 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
     expect(Array.from(modelSelect.options, (option) => option.value)).toEqual([
       NVIDIA_MODEL,
+      NVIDIA_GPT_OSS_MODEL,
     ]);
     expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
       'nvidia-primary',
       'nvidia-backup',
     ]);
     expect(permissionButton?.hidden).toBe(false);
+
+    modelSelect.value = NVIDIA_GPT_OSS_MODEL;
+    modelSelect.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL));
+    credentialSelect.value = 'nvidia-backup';
+    credentialSelect.dispatchEvent(new Event('change'));
 
     providerSelect.value = 'gemini';
     providerSelect.dispatchEvent(new Event('change'));
@@ -2103,7 +2114,8 @@ describe('live Overlay generation workflow', () => {
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
+    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL));
+    expect(credentialSelect.value).toBe('nvidia-backup');
     shadowRoot
       ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
       ?.click();
@@ -2111,8 +2123,8 @@ describe('live Overlay generation workflow', () => {
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'configuration-set',
         providerId: NVIDIA_PROVIDER_ID,
-        modelId: NVIDIA_MODEL,
-        credentialId: 'nvidia-primary',
+        modelId: NVIDIA_GPT_OSS_MODEL,
+        credentialId: 'nvidia-backup',
       })
     );
     await vi.waitFor(() =>
@@ -2124,7 +2136,7 @@ describe('live Overlay generation workflow', () => {
     expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
     expect(currentConfigurationState.credentials).toContainEqual(
       expect.objectContaining({
-        credentialId: 'nvidia-primary',
+        credentialId: 'nvidia-backup',
         providerId: NVIDIA_PROVIDER_ID,
       })
     );

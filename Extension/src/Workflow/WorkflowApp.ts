@@ -63,6 +63,10 @@ export function mountAnswerSenseApp(
   };
   let validating = false;
   let preserveConfigurationDraft = false;
+  const providerDraftSelections = new Map<
+    string,
+    { modelId: string; credentialId: string }
+  >();
   let selectionLookupSequence = 0;
   let localGenerationSnapshotPending = false;
   let invalidatedGenerationOperationToken: number | null = null;
@@ -1433,7 +1437,16 @@ export function mountAnswerSenseApp(
     providerSelect.addEventListener('change', () => {
       clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
+      const previousProviderId = providerSelect.dataset.previousProviderId;
+      if (previousProviderId) {
+        providerDraftSelections.set(previousProviderId, {
+          modelId: modelSelect.value,
+          credentialId: credentialSelect.value,
+        });
+      }
+      providerSelect.dataset.previousProviderId = providerSelect.value;
       const active = configurationState.activeConfiguration;
+      const draft = providerDraftSelections.get(providerSelect.value);
       const activeModelId =
         active?.providerId === providerSelect.value ? active.modelId : null;
       const activeCredentialId =
@@ -1445,11 +1458,13 @@ export function mountAnswerSenseApp(
         ...models.map((model) => new Option(model.displayName, model.modelId))
       );
       modelSelect.value =
-        (models.some((model) => model.modelId === activeModelId)
-          ? activeModelId
-          : models.some((model) => model.modelId === GEMINI_MODEL)
-            ? GEMINI_MODEL
-            : models[0]?.modelId) ?? '';
+        (models.some((model) => model.modelId === draft?.modelId)
+          ? draft?.modelId
+          : models.some((model) => model.modelId === activeModelId)
+            ? activeModelId
+            : models.some((model) => model.modelId === GEMINI_MODEL)
+              ? GEMINI_MODEL
+              : models[0]?.modelId) ?? '';
       const credentials = configurationState.credentials.filter(
         (item) => item.providerId === providerSelect.value
       );
@@ -1466,10 +1481,14 @@ export function mountAnswerSenseApp(
       );
       credentialSelect.value =
         (credentials.some(
-          (credential) => credential.credentialId === activeCredentialId
+          (credential) => credential.credentialId === draft?.credentialId
         )
-          ? activeCredentialId
-          : credentials[0]?.credentialId) ?? '';
+          ? draft?.credentialId
+          : credentials.some(
+              (credential) => credential.credentialId === activeCredentialId
+            )
+            ? activeCredentialId
+            : credentials[0]?.credentialId) ?? '';
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();
@@ -1477,6 +1496,10 @@ export function mountAnswerSenseApp(
     modelSelect.addEventListener('change', () => {
       clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
+      providerDraftSelections.set(providerSelect.value, {
+        modelId: modelSelect.value,
+        credentialId: credentialSelect.value,
+      });
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();
@@ -1484,6 +1507,10 @@ export function mountAnswerSenseApp(
     credentialSelect.addEventListener('change', () => {
       clearProviderRequestFailureMessage();
       preserveConfigurationDraft = true;
+      providerDraftSelections.set(providerSelect.value, {
+        modelId: modelSelect.value,
+        credentialId: credentialSelect.value,
+      });
       updateDeleteConfirmationCopy();
       resetGenerationForConfigurationChange();
       void refreshSelectedConfigurationValidation();

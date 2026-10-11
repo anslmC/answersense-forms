@@ -8,11 +8,16 @@ import type {
 import { systemInstruction } from './SystemInstructions';
 
 export const NVIDIA_MODEL = 'nvidia/nemotron-3-super-120b-a12b';
+export const NVIDIA_GPT_OSS_MODEL = 'openai/gpt-oss-20b';
 export const NVIDIA_ENDPOINT =
   'https://integrate.api.nvidia.com/v1/chat/completions';
 export const NVIDIA_HOST_PERMISSION = 'https://integrate.api.nvidia.com/*';
 export const NVIDIA_REQUEST_TIMEOUT_MS = 30_000;
-const NVIDIA_MAX_TOKENS = 16384;
+const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze({
+  [NVIDIA_MODEL]: 16384,
+  [NVIDIA_GPT_OSS_MODEL]: 4096,
+});
+const NVIDIA_MODELS = new Set(Object.keys(NVIDIA_MODEL_MAX_TOKENS));
 
 const SAFE_MESSAGES: Record<ProviderErrorCode, string> = {
   AUTHENTICATION_FAILED: 'Credential invalid.',
@@ -77,6 +82,10 @@ function createPayload(
   request: GenerationRequest,
   modelId: string
 ): Record<string, unknown> {
+  const maxTokens = NVIDIA_MODEL_MAX_TOKENS[modelId];
+  if (maxTokens === undefined) {
+    throw new NvidiaProviderError('INVALID_REQUEST');
+  }
   return {
     model: modelId,
     messages: [
@@ -85,7 +94,7 @@ function createPayload(
     ],
     temperature: 1.0,
     top_p: 0.95,
-    max_tokens: NVIDIA_MAX_TOKENS,
+    max_tokens: maxTokens,
     reasoning_effort: 'low',
     stream: false,
   };
@@ -230,7 +239,7 @@ export class NvidiaProvider implements GenerationInterface {
   ) {}
 
   async generate(request: GenerationRequest): Promise<GenerationResponse> {
-    if (this.modelId !== NVIDIA_MODEL) {
+    if (!NVIDIA_MODELS.has(this.modelId)) {
       throw new NvidiaProviderError('INVALID_REQUEST');
     }
     const content = await requestCompletion(
@@ -250,7 +259,7 @@ export async function validateNvidiaCredential(
   fetchImpl: FetchImplementation = fetch,
   timeoutMs = NVIDIA_REQUEST_TIMEOUT_MS
 ): Promise<void> {
-  if (modelId !== NVIDIA_MODEL) {
+  if (!NVIDIA_MODELS.has(modelId)) {
     throw new NvidiaProviderError('INVALID_REQUEST');
   }
 

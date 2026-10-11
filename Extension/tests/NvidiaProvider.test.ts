@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   NVIDIA_ENDPOINT,
+  NVIDIA_GPT_OSS_MODEL,
   NVIDIA_MODEL,
   NvidiaProvider,
   NvidiaProviderError,
@@ -88,6 +89,23 @@ describe('NVIDIA Nemotron provider', () => {
     expect(payload.stream).toBe(false);
     expect(payload.reasoning_effort).toBe('low');
     expect(payload.max_tokens).toBe(16384);
+  });
+
+  it('uses GPT-OSS model-specific request settings', async () => {
+    const fetchMock = successfulFetch(JSON.stringify(validGenerationResponse()));
+    const provider = new NvidiaProvider(
+      'synthetic-test-key',
+      NVIDIA_GPT_OSS_MODEL,
+      fetchMock
+    );
+
+    await provider.generate(request);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const payload = JSON.parse(String(init.body));
+    expect(payload.model).toBe(NVIDIA_GPT_OSS_MODEL);
+    expect(payload.max_tokens).toBe(4096);
+    expect(payload.reasoning_effort).toBe('low');
   });
 
   it('sends the unchanged system instruction and explicit response-contract directions', async () => {
@@ -260,6 +278,33 @@ describe('NVIDIA Nemotron provider', () => {
     ).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(NVIDIA_REQUEST_TIMEOUT_MS).toBe(30_000);
+  });
+
+  it('accepts GPT-OSS for the bounded credential validation probe', async () => {
+    const fetchMock = successfulFetch(JSON.stringify({
+      cycleId: 'nvidia-credential-validation',
+      results: [{
+        questionId: 'nvidia-validation-question',
+        status: 'GENERATED',
+        answer: {
+          questionId: 'nvidia-validation-question',
+          value: 'Labels help return tools.',
+        },
+      }],
+    }));
+
+    await expect(
+      validateNvidiaCredential(
+        'synthetic-test-key',
+        NVIDIA_GPT_OSS_MODEL,
+        fetchMock
+      )
+    ).resolves.toBeUndefined();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const payload = JSON.parse(String(init.body));
+    expect(payload.model).toBe(NVIDIA_GPT_OSS_MODEL);
+    expect(payload.max_tokens).toBe(4096);
+    expect(payload.reasoning_effort).toBe('low');
   });
 
   it('rejects validation for a non-registered model without making a request', async () => {
