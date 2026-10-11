@@ -182,6 +182,26 @@ describe('BYOK credential storage', () => {
     );
   });
 
+  it('rejects replacing a credential with a different provider association', async () => {
+    const local = storage();
+    const credential = await createCredential(
+      { providerId: 'gemini', label: 'Primary', secret: 'original-secret' },
+      local
+    );
+
+    await expect(
+      replaceCredential(
+        credential.credentialId,
+        { providerId: 'nvidia', label: 'Replacement', secret: 'new-secret' },
+        local
+      )
+    ).rejects.toThrow('Credential does not belong to the selected provider.');
+    expect(await readCredentialSecret(credential.credentialId, local)).toBe(
+      'original-secret'
+    );
+    expect(await listCredentials(local)).toEqual([credential]);
+  });
+
   it('migrates the legacy Gemini key once without retaining the legacy key', async () => {
     const local = storage();
     await local.set({ geminiApiKey: 'legacy-secret' });

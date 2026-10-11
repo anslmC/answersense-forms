@@ -59,15 +59,20 @@ export async function resolveActiveProviderConfiguration(
   const startingRevision = await getConfigurationStateRevision(storage);
   const configured = await getActiveConfiguration(storage);
   const credentials = await listCredentials(storage);
-  const configuration =
-    configured ??
-    (() => {
-      const geminiCredentials = credentials.filter(
+  const hasNonGeminiCredentials = credentials.some(
+    (credential) => credential.providerId !== GEMINI_PROVIDER_ID
+  );
+  const geminiCredentials = hasNonGeminiCredentials
+    ? []
+    : credentials.filter(
         (credential) => credential.providerId === GEMINI_PROVIDER_ID
       );
-      const credential = geminiCredentials[geminiCredentials.length - 1];
-      return credential ? defaultGeminiConfiguration(credential.credentialId) : null;
-    })();
+  const defaultCredential = geminiCredentials[geminiCredentials.length - 1];
+  const configuration = configured ?? (
+    defaultCredential
+      ? defaultGeminiConfiguration(defaultCredential.credentialId)
+      : null
+  );
 
   if (!configuration || !isProviderConfiguration(configuration)) {
     throw new Error('Configuration required.');

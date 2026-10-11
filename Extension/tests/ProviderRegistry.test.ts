@@ -5,6 +5,7 @@ import {
   GEMINI_PROVIDER_ID,
   PROVIDER_REGISTRY,
   resolveAdapter,
+  resolveCredentialValidator,
   resolveModel,
   resolveProvider,
   resolveProviderAdapter,
@@ -65,6 +66,14 @@ describe('compiled provider registry', () => {
     expect(resolveAdapter('unsupported-adapter')).toBeNull();
     expect(resolveProvider(null)).toBeNull();
     expect(resolveModel(GEMINI_PROVIDER_ID, 42)).toBeNull();
+  });
+
+  it('resolves credential validation only for supported provider/model pairs', () => {
+    expect(resolveCredentialValidator(GEMINI_PROVIDER_ID, GEMINI_MODEL)).toBeTypeOf(
+      'function'
+    );
+    expect(resolveCredentialValidator('unsupported-provider', GEMINI_MODEL)).toBeNull();
+    expect(resolveCredentialValidator(GEMINI_PROVIDER_ID, 'unsupported-model')).toBeNull();
   });
 
   it('keeps registry metadata and static mappings internally consistent', () => {

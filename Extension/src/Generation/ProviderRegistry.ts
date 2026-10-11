@@ -2,6 +2,7 @@ import type { GenerationInterface } from './Contract';
 import {
   GeminiProvider,
   GEMINI_MODEL,
+  validateGeminiCredential,
 } from './GeminiProvider';
 
 export const GEMINI_PROVIDER_ID = 'gemini';
@@ -68,11 +69,22 @@ export type ProviderAdapterFactory = (
   modelId?: string
 ) => GenerationInterface;
 
+export type ProviderCredentialValidator = (
+  secret: string,
+  modelId: string
+) => Promise<void>;
+
 const STATIC_ADAPTERS: Readonly<Record<string, ProviderAdapterFactory>> =
   Object.freeze({
     [GEMINI_ADAPTER_ID]: (secret, modelId = GEMINI_MODEL) =>
       new GeminiProvider(secret, undefined, modelId),
   });
+
+const STATIC_CREDENTIAL_VALIDATORS: Readonly<
+  Record<string, ProviderCredentialValidator>
+> = Object.freeze({
+  [GEMINI_PROVIDER_ID]: (secret) => validateGeminiCredential(secret),
+});
 
 export function resolveProvider(
   providerId: unknown
@@ -120,4 +132,15 @@ export function resolveProviderAdapter(
 ): ProviderAdapterFactory | null {
   const resolved = resolveProviderModel(providerId, modelId);
   return resolved ? resolveAdapter(resolved.provider.adapterId) : null;
+}
+
+export function resolveCredentialValidator(
+  providerId: unknown,
+  modelId: unknown
+): ProviderCredentialValidator | null {
+  const resolved = resolveProviderModel(providerId, modelId);
+  if (!resolved || !resolved.provider.supportsValidation) {
+    return null;
+  }
+  return STATIC_CREDENTIAL_VALIDATORS[resolved.provider.providerId] ?? null;
 }

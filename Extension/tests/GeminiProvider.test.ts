@@ -9,6 +9,7 @@ import {
   type GeminiTransport,
 } from '../src/Generation/GeminiProvider';
 import type { GenerationRequest } from '../src/Generation/Contract';
+import { resolveCredentialValidator } from '../src/Generation/ProviderRegistry';
 
 const request: GenerationRequest = {
   cycleId: 'cycle-provider',
@@ -187,9 +188,9 @@ describe('direct Gemini provider', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { validateGeminiCredential } =
-      await import('../src/Generation/GeminiProvider');
-    await expect(validateGeminiCredential('test-key')).resolves.toBeUndefined();
+    const validator = resolveCredentialValidator('gemini', GEMINI_MODEL);
+    expect(validator).not.toBeNull();
+    await expect(validator?.('test-key', GEMINI_MODEL)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
   });

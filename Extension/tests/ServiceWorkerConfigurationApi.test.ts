@@ -299,6 +299,34 @@ describe('Service Worker configuration API boundary', () => {
     expect(validationMock.validate).toHaveBeenCalledWith('raw-secret');
   });
 
+  it('fails unsupported provider validation without calling the Gemini validator', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const created = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Primary',
+        secret: 'raw-secret',
+      },
+      popupSender()
+    )) as { credentialId: string };
+
+    await expect(
+      handleMessage(
+        {
+          type: 'configuration-set',
+          providerId: 'unsupported-provider',
+          modelId: 'unsupported-model',
+          credentialId: created.credentialId,
+        },
+        popupSender()
+      )
+    ).rejects.toThrow('Unsupported provider configuration');
+    expect(validationMock.validate).not.toHaveBeenCalled();
+  });
+
   it('restores both validated key configurations when switching between them', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);
@@ -398,7 +426,7 @@ describe('Service Worker configuration API boundary', () => {
     expect(validationMock.validate).toHaveBeenCalledTimes(2);
   });
 
-  it('persists failed validation as INVALID and exposes only a readable safe message', async () => {
+  it('persists INVALID only for authentication failures', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);
     const handleMessage = await loadHandler();
@@ -420,9 +448,10 @@ describe('Service Worker configuration API boundary', () => {
       },
       popupSender()
     );
+    await handleMessage({ type: 'configuration-validate' }, popupSender());
     validationMock.validate.mockRejectedValueOnce(
       new (await import('../src/Generation/GeminiProvider')).GeminiProviderError(
-        'PERMISSION_DENIED',
+        'AUTHENTICATION_FAILED',
         'provider response details'
       )
     );
@@ -430,9 +459,8 @@ describe('Service Worker configuration API boundary', () => {
     await expect(
       handleMessage({ type: 'configuration-validate' }, popupSender())
     ).rejects.toMatchObject({
-      code: 'PERMISSION_DENIED',
-      message:
-        'This key or project doesn’t have access to the selected model. Check your API key and project permissions.',
+      code: 'AUTHENTICATION_FAILED',
+      message: 'Credential invalid.',
     });
     const configuration = (await handleMessage(
       { type: 'configuration-state' },
@@ -440,7 +468,54 @@ describe('Service Worker configuration API boundary', () => {
     )) as { validation: { status: string; failureCode?: string } | null };
     expect(configuration.validation).toMatchObject({
       status: 'INVALID',
-      failureCode: 'PERMISSION_DENIED',
+      failureCode: 'AUTHENTICATION_FAILED',
     });
+  });
+
+  it('invalidates stale VALID state after non-authentication validation failures', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const created = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Primary',
+        secret: 'raw-secret',
+      },
+      popupSender()
+    )) as { credentialId: string };
+    await handleMessage(
+      {
+        type: 'configuration-set',
+        providerId: GEMINI_PROVIDER_ID,
+        modelId: GEMINI_MODEL,
+        credentialId: created.credentialId,
+      },
+      popupSender()
+    );
+
+    const { GeminiProviderError } = await import('../src/Generation/GeminiProvider');
+    const failures = [
+      [new GeminiProviderError('PERMISSION_DENIED', 'denied'), 'PERMISSION_DENIED'],
+      [new GeminiProviderError('RATE_LIMITED', 'limited'), 'RATE_LIMITED'],
+      [new GeminiProviderError('PROVIDER_UNAVAILABLE', 'unavailable'), 'PROVIDER_UNAVAILABLE'],
+      [new GeminiProviderError('PROVIDER_UNAVAILABLE', 'timeout', 'TIMEOUT'), 'TIMEOUT'],
+      [new TypeError('network failure'), 'NETWORK_FAILURE'],
+    ] as const;
+
+    for (const [failure, safeCode] of failures) {
+      await handleMessage({ type: 'configuration-validate' }, popupSender());
+      validationMock.validate.mockRejectedValueOnce(failure);
+      await expect(
+        handleMessage({ type: 'configuration-validate' }, popupSender())
+      ).rejects.toMatchObject({ code: safeCode });
+
+      const configuration = (await handleMessage(
+        { type: 'configuration-state' },
+        popupSender()
+      )) as { validation: { status: string } | null };
+      expect(configuration.validation).toBeNull();
+    }
   });
 });

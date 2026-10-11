@@ -35,3 +35,6 @@ Thumbs.db
 
 # Release packages
 *.zip
+
+# Tools
+tools

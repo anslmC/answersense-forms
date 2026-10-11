@@ -8,16 +8,17 @@ import {
   getConfigurationStateRevision,
   getValidation,
   hasGeminiCredential,
+  invalidateValidation,
   listCredentials,
   replaceCredential,
   saveValidation,
   setActiveConfiguration,
   storeGeminiCredential,
 } from '../Generation/Credentials';
-import { validateGeminiCredential } from '../Generation/GeminiProvider';
 import {
   PROVIDER_REGISTRY,
   resolveProvider,
+  resolveCredentialValidator,
   resolveProviderModel,
 } from '../Generation/ProviderRegistry';
 import { configurationIdentity } from '../Generation/Credentials';
@@ -197,11 +198,19 @@ async function configurationState(
 
 async function validateActiveConfiguration(): Promise<{ valid: true }> {
   const resolved = await resolveActiveProviderConfiguration();
-  if (resolved.provider.providerId !== 'gemini') {
-    throw new Error('Provider validation unavailable.');
+  const validator = resolveCredentialValidator(
+    resolved.provider.providerId,
+    resolved.model.modelId
+  );
+  if (!validator) {
+    await invalidateValidation(resolved.configurationDigest);
+    throw new SafeServiceWorkerError(
+      'PROVIDER_FAILURE',
+      'Provider request failed.'
+    );
   }
   try {
-    await validateGeminiCredential(resolved.secret);
+    await validator(resolved.secret, resolved.model.modelId);
   } catch (error) {
     const safe = sanitizeProviderError(error);
     const current = await resolveActiveProviderConfiguration();
@@ -211,15 +220,19 @@ async function validateActiveConfiguration(): Promise<{ valid: true }> {
         'Configuration changed during validation.'
       );
     }
-    await saveValidation({
-      configurationDigest: resolved.configurationDigest,
-      providerId: resolved.provider.providerId,
-      modelId: resolved.model.modelId,
-      credentialId: resolved.configuration.credentialId,
-      status: 'INVALID',
-      validatedAt: new Date().toISOString(),
-      failureCode: safe.code,
-    });
+    if (safe.code === 'AUTHENTICATION_FAILED') {
+      await saveValidation({
+        configurationDigest: resolved.configurationDigest,
+        providerId: resolved.provider.providerId,
+        modelId: resolved.model.modelId,
+        credentialId: resolved.configuration.credentialId,
+        status: 'INVALID',
+        validatedAt: new Date().toISOString(),
+        failureCode: safe.code,
+      });
+    } else {
+      await invalidateValidation(resolved.configurationDigest);
+    }
     throw new SafeServiceWorkerError(safe.code, safe.message);
   }
   const current = await resolveActiveProviderConfiguration();

@@ -359,6 +359,9 @@ export async function replaceCredential(
   if (!existing) {
     throw new Error('Credential not found.');
   }
+  if (existing.providerId !== normalized.providerId) {
+    throw new Error('Credential does not belong to the selected provider.');
+  }
   const timestamp = now();
   const replacement: CredentialRecord = {
     credentialId: createId(),

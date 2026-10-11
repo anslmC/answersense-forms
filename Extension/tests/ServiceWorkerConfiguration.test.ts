@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONFIGURATION_STATE_STORAGE_KEY,
+  clearActiveConfiguration,
   configurationIdentity,
   createCredential,
   deleteCredential,
@@ -141,6 +142,38 @@ describe('Service Worker provider configuration resolution', () => {
 
     expect(resolved.provider.providerId).toBe(GEMINI_PROVIDER_ID);
     expect(resolved.model.modelId).toBe(GEMINI_MODEL);
+  });
+
+  it('does not use the implicit Gemini default when another provider credential exists', async () => {
+    const local = storage();
+    const geminiCredential = await createCredential(
+      { providerId: GEMINI_PROVIDER_ID, label: 'Gemini', secret: 'gemini-secret' },
+      local
+    );
+    const geminiConfiguration = {
+      providerId: GEMINI_PROVIDER_ID,
+      modelId: GEMINI_MODEL,
+      credentialId: geminiCredential.credentialId,
+      providerConfig: {},
+    };
+    await setActiveConfiguration(geminiConfiguration, local);
+    const identity = await configurationIdentity(geminiConfiguration);
+    await saveValidation({
+      configurationDigest: identity.digest,
+      providerId: GEMINI_PROVIDER_ID,
+      modelId: GEMINI_MODEL,
+      credentialId: geminiCredential.credentialId,
+      status: 'VALID',
+      validatedAt: '2026-09-08T00:00:00.000Z',
+    }, local);
+    await clearActiveConfiguration(local);
+    await createCredential(
+      { providerId: 'nvidia', label: 'NVIDIA', secret: 'nvidia-secret' },
+      local
+    );
+
+    await expect(resolveAuthorizedProviderConfiguration(undefined, local))
+      .rejects.toThrow('Configuration required');
   });
 
   it('authorizes only the exact current configuration digest with VALID state', async () => {
