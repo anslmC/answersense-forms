@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isSupportedGoogleFormsPage } from '../src/Forms/Detection';
+import {
+  isGoogleFormsRespondentPage,
+  isSupportedGoogleFormsPage,
+} from '../src/Forms/Detection';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { questionTitleRejectionReason } from '../../Shared/QuestionTypes';
@@ -231,6 +234,19 @@ describe('Google Forms detection', () => {
     ).toBe(false);
     expect(
       isSupportedGoogleFormsPage('https://docs.google.com/document/d/abc')
+    ).toBe(false);
+  });
+
+  it('distinguishes respondent pages from form editor pages', () => {
+    expect(
+      isGoogleFormsRespondentPage(
+        'https://docs.google.com/forms/d/e/abc/viewform'
+      )
+    ).toBe(true);
+    expect(
+      isGoogleFormsRespondentPage(
+        'https://docs.google.com/forms/d/abc/edit'
+      )
     ).toBe(false);
   });
 });

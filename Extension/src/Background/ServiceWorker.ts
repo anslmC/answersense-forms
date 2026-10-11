@@ -71,7 +71,7 @@ interface WorkerMessage {
 
 const stateStore = new IntegrationStateStore(chrome.storage.session);
 const UNSUPPORTED_PAGE_ALERT =
-  'Page not supported\nPlease open a Google Form in respondent view to use AnswerSense.';
+  "This page isn't supported.\nOpen a Google Forms respondent page to use AnswerSense.";
 
 function showUnsupportedPageAlert(message: string): void {
   window.alert(message);

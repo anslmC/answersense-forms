@@ -78,7 +78,7 @@ describe('browser-action entry point', () => {
     await Promise.resolve();
 
     expect(window.alert).toHaveBeenCalledWith(
-      'Page not supported\nPlease open a Google Form in respondent view to use AnswerSense.'
+      "This page isn't supported.\nOpen a Google Forms respondent page to use AnswerSense."
     );
     expect(executeScript).toHaveBeenCalledTimes(1);
     expect(sendMessage).not.toHaveBeenCalled();

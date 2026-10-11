@@ -1,6 +1,9 @@
 import { EXTENSION_NAME, log } from '../Shared/Utils';
 import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
-import { isSupportedGoogleFormsPage } from '../Forms/Detection';
+import {
+  isGoogleFormsRespondentPage,
+  isSupportedGoogleFormsPage,
+} from '../Forms/Detection';
 import { normalizeDiscoveredActivePage } from '../Forms/Normalization';
 import { GenerationCoordinator } from '../Generation/Pipeline';
 import { createAcceptedReviewDecisions } from '../Review/Decisions';
@@ -24,6 +27,7 @@ import {
   type LifecyclePublicationMessage,
 } from './LifecyclePublication';
 import { mountOverlay, type OverlayHandle } from '../Overlay/Overlay';
+import logoHeadSvg from '../../icon-source/logo-head.svg?raw';
 import type {
   GenerationRequest,
   GenerationResponse,
@@ -40,19 +44,136 @@ import type { DiscoveredPage } from '../Forms/Discovery';
 log(`${EXTENSION_NAME} content script initialized.`);
 
 const supportedPage = isSupportedGoogleFormsPage(window.location);
+const showLauncher =
+  supportedPage &&
+  window.top === window &&
+  isGoogleFormsRespondentPage(window.location);
 const generation = new GenerationCoordinator(() => crypto.randomUUID());
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
+const LAUNCHER_HOST_ID = 'answersense-launcher-host';
 const UNSUPPORTED_PAGE_ALERT =
-  'Page not supported\nPlease open a Google Form in respondent view to use AnswerSense.';
+  "This page isn't supported.\nOpen a Google Forms respondent page to use AnswerSense.";
 
 let lifecycle: PageLifecycle | null = null;
 let lifecycleInitialization: Promise<void> | null = null;
 let lifecyclePublicationError: string | null = null;
 let overlayHandle: OverlayHandle | null = null;
 let overlayMount: Promise<OverlayHandle> | null = null;
+let launcherHost: HTMLDivElement | null = null;
+let launcherButton: HTMLButtonElement | null = null;
 const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
+
+function setLauncherOpen(open: boolean): void {
+  if (!launcherHost || !launcherButton) return;
+  launcherHost.classList.toggle('is-open', open);
+  launcherHost.inert = open;
+  launcherHost.setAttribute('aria-hidden', String(open));
+  launcherButton.tabIndex = open ? -1 : 0;
+}
+
+function ensureLauncher(): void {
+  if (!showLauncher) return;
+  if (!document.documentElement) {
+    document.addEventListener('DOMContentLoaded', ensureLauncher, { once: true });
+    return;
+  }
+  const existing = document.getElementById(LAUNCHER_HOST_ID) as
+    | HTMLDivElement
+    | null;
+  if (existing) {
+    launcherHost = existing;
+    launcherButton = existing.shadowRoot?.querySelector('button') ?? null;
+    return;
+  }
+
+  const host = document.createElement('div');
+  host.id = LAUNCHER_HOST_ID;
+  host.style.cssText =
+    'all:initial;position:fixed;right:24px;top:24px;z-index:2147483646;';
+  const root = host.attachShadow({ mode: 'open' });
+  const style = document.createElement('style');
+  style.textContent = `
+    :host { all: initial; }
+    .launcher-button {
+      position: relative;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 50px;
+      height: 50px;
+      padding: 0;
+      border: 1px solid rgb(255 255 255 / 28%);
+      border-radius: 14px;
+      background: #000;
+      box-shadow: 0 3px 14px rgb(0 0 0 / 20%);
+      cursor: pointer;
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      transition: opacity 160ms ease, transform 160ms ease, visibility 0s;
+      visibility: visible;
+    }
+    .launcher-button:hover { box-shadow: 0 5px 18px rgb(0 0 0 / 25%); }
+    .launcher-button:focus-visible { outline: 3px solid #397b61; outline-offset: 3px; }
+    .launcher-button svg { display: block; flex: 0 0 36px; width: 36px; height: 36px; }
+    .tooltip {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      padding: 5px 8px;
+      border-radius: 4px;
+      background: #202725;
+      color: #fff;
+      font: 12px/1.3 system-ui, sans-serif;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-3px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    .launcher-button:hover .tooltip,
+    .launcher-button:focus-visible .tooltip { opacity: 1; transform: translateY(0); }
+    :host(.is-open) .launcher-button {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px) scale(.9);
+      transition: opacity 160ms ease, transform 160ms ease, visibility 0s linear 160ms;
+      visibility: hidden;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .launcher-button, .tooltip { transition: none !important; }
+    }
+  `;
+  const button = document.createElement('button');
+  button.className = 'launcher-button';
+  button.type = 'button';
+  button.setAttribute('aria-label', 'Open AnswerSense');
+  const logoDocument = new DOMParser().parseFromString(
+    logoHeadSvg,
+    'image/svg+xml'
+  );
+  const logo = logoDocument.documentElement;
+  logo.setAttribute('aria-hidden', 'true');
+  logo.setAttribute('focusable', 'false');
+  const tooltip = document.createElement('span');
+  tooltip.className = 'tooltip';
+  tooltip.textContent = 'Open AnswerSense';
+  tooltip.setAttribute('aria-hidden', 'true');
+  button.append(logo, tooltip);
+  button.addEventListener('click', () => {
+    void toggleOverlay().catch((error: unknown) => {
+      console.error('AnswerSense launcher failed to open the overlay.', error);
+    });
+  });
+  root.append(style, button);
+  document.documentElement.append(host);
+  launcherHost = host;
+  launcherButton = button;
+}
+
+ensureLauncher();
 
 async function setOverlayPreference(open: boolean): Promise<void> {
   await chrome.storage.local.set({ [OVERLAY_UI_STORAGE_KEY]: open });
@@ -73,6 +194,7 @@ async function ensureOverlay(): Promise<OverlayHandle | null> {
   overlayMount = mountOverlay({
     onClose: () => {
       overlayHandle = null;
+      setLauncherOpen(false);
     },
     onRefresh: async () => {
       await resynchronizeCurrentPage();
@@ -80,6 +202,7 @@ async function ensureOverlay(): Promise<OverlayHandle | null> {
     },
   }).then((handle) => {
     overlayHandle = handle;
+    setLauncherOpen(true);
     return handle;
   });
   try {
@@ -364,19 +487,7 @@ async function handleRequest(request: {
   intent?: unknown;
 }): Promise<unknown> {
   if (request.type === 'toggle-overlay') {
-    if (!supportedPage || !document.body) {
-      window.alert(UNSUPPORTED_PAGE_ALERT);
-      return { status: 'unsupported-page', supported: false };
-    }
-    if (overlayHandle) {
-      overlayHandle.close();
-      overlayHandle = null;
-      await setOverlayPreference(false);
-      return { status: 'closed', supported: true };
-    }
-    await ensureOverlay();
-    await setOverlayPreference(true);
-    return { status: 'opened', supported: true };
+    return toggleOverlay();
   }
 
   if (request.type === 'discover-active-page') {
@@ -585,6 +696,24 @@ async function handleRequest(request: {
   }
 
   return { status: 'ready', extension: EXTENSION_NAME };
+}
+
+async function toggleOverlay(): Promise<unknown> {
+  if (!supportedPage || !document.body) {
+    window.alert(UNSUPPORTED_PAGE_ALERT);
+    return { status: 'unsupported-page', supported: false };
+  }
+  if (overlayHandle) {
+    overlayHandle.close();
+    overlayHandle = null;
+    await setOverlayPreference(false);
+    setLauncherOpen(false);
+    return { status: 'closed', supported: true };
+  }
+  await ensureOverlay();
+  await setOverlayPreference(true);
+  setLauncherOpen(true);
+  return { status: 'opened', supported: true };
 }
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
