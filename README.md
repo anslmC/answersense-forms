@@ -8,7 +8,7 @@ AnswerSense: Forms is a Chromium browser extension that helps answer supported G
 
 ## Providers
 
-AnswerSense uses an AI provider abstraction that allows additional providers to be integrated in the future. Gemini is the currently supported and recommended provider.
+AnswerSense currently supports Google Gemini and NVIDIA. Gemini is the easiest recommended starting point. The available models are Gemini 3.5 Flash-Lite, Gemini 3.1 Flash-Lite, NVIDIA Nemotron 3 Super, and OpenAI GPT-OSS 20B through NVIDIA's API.
 
 ## Get Started
 
@@ -16,34 +16,36 @@ Install AnswerSense: Forms from the [Chrome Web Store](https://chromewebstore.go
 
 ## Recommended Provider: Google Gemini
 
-Gemini is currently the easiest way to get started with AnswerSense because the project directly supports Gemini and users can create and manage their own key through [Google AI Studio](https://aistudio.google.com/).
+Gemini is the easiest way to get started with AnswerSense. Create a Gemini API key through [Google AI Studio](https://aistudio.google.com/). NVIDIA is also supported; its API keys are managed through [NVIDIA Build](https://build.nvidia.com/settings/api-keys).
 
 Google's current API-key guidance is available in the official [Gemini API key documentation](https://ai.google.dev/gemini-api/docs/api-key). To create a key, open Google AI Studio, sign in if required, and use the API-key creation flow described there. Google may require selecting or creating a Google Cloud project and may show additional setup or billing choices depending on the account and current service policies.
 
-Treat the key as a secret. Do not publish it, commit it to a repository, put it in screenshots, or share it in issue reports. Gemini availability, limits, quotas, and pricing are controlled by Google and may change. Google AI Studio and the [official Gemini API documentation](https://ai.google.dev/gemini-api/docs/api-key) are authoritative for current terms and usage options.
+API availability, free usage, quotas, rate limits, and pricing are controlled by each provider and may change. Check the provider's current API documentation and terms before use.
 
-## Configure an API Key
+## Configure a Provider
 
-1. Open a supported Google Form in respondent view.
-2. Open the AnswerSense overlay.
-3. Expand **Configuration** and choose **Add API key**.
-4. Enter a label if requested, then enter the Gemini key in the native browser prompt. The key is not rendered into the Google Forms page or overlay DOM.
-5. Select Gemini, select its available model, choose the stored key, save the configuration, and validate it.
-
-The extension uses the key for direct requests to Google's Gemini API. It does not send the key to an AnswerSense server.
+1. Open a Google Forms respondent page ending in `/viewform`.
+2. Open AnswerSense with the floating launcher near the top-right, or use the extension's browser toolbar action.
+3. Expand **Configuration** and select Gemini or NVIDIA.
+4. Choose **Add API key**, enter an optional label, and enter that provider's key in the native browser prompt.
+5. Select a model and stored key, then choose **Save & Validate**.
 
 ## Basic Usage
 
-1. Navigate to a supported Google Form page.
-2. Open the AnswerSense overlay and configure a validated provider credential.
+1. Open a supported Google Forms respondent page and open the AnswerSense overlay from the launcher or browser toolbar.
+2. Configure and validate a credential for the provider and model you want to use.
 3. Choose **Generate & Auto-Fill** for the current page.
 4. Review and edit the generated answers.
 5. Use the form's own navigation controls to continue. A page enters settled context only after Google Forms accepts Next and a page transition is observed.
 6. Submit the form manually when you are satisfied with the answers.
 
+## Troubleshooting
+
+If validation fails, check that the key belongs to the selected provider and that the provider account can access the selected model. For availability, quota, or rate-limit errors, check that provider's current service status and usage terms.
+
 ## Privacy
 
-For details about AnswerSense's data handling, privacy practices, and security considerations, see the [Privacy Policy](https://github.com/anslmC/answersense-forms/blob/main/PRIVACY.md).
+For details about AnswerSense's data handling, privacy practices, and security considerations, see the [Privacy Policy](PRIVACY.md).
 
 ## Architecture
 
@@ -55,6 +57,6 @@ This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE
 
 ## Support AnswerSense
 
-Enjoying AnswerSense? Your support helps make new features and improvements possible — and AnswerSense will always remain free to use.
+Enjoying AnswerSense? Your support helps make new features and improvements possible.
 
 [![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/anslmdevgo)
