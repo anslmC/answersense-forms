@@ -237,16 +237,39 @@ describe('Google Forms detection', () => {
     ).toBe(false);
   });
 
-  it('distinguishes respondent pages from form editor pages', () => {
+  it('allows supported Forms routes except editor and account-management paths', () => {
+    for (const url of [
+      'https://docs.google.com/forms/d/e/abc/viewform',
+      'https://docs.google.com/forms/d/e/abc/formResponse?pli=1',
+      'https://docs.google.com/forms/u/0/d/e/1FAIpQLSeK0ZR6n6_A0tmCZ_VYnLDjDWv3EWlizHGMXcZKfpNla3z0-w/formResponse?pli=1',
+      'https://docs.google.com/forms/d/abc/view',
+    ]) {
+      expect(isGoogleFormsRespondentPage(url)).toBe(true);
+    }
+
+    for (const url of [
+      'https://docs.google.com/forms/d/178RTCi3eBBiuCJxGXxkpRI3vRKk4_u4dwDEsRecSJC8/edit',
+      'https://docs.google.com/forms/d/abc/edit/',
+      'https://docs.google.com/forms/u/3/',
+      'https://docs.google.com/forms/u/0/',
+    ]) {
+      expect(isGoogleFormsRespondentPage(url)).toBe(false);
+    }
+  });
+
+  it('preserves HTTPS and Google Forms host/path restrictions', () => {
     expect(
       isGoogleFormsRespondentPage(
-        'https://docs.google.com/forms/d/e/abc/viewform'
+        'http://docs.google.com/forms/d/e/abc/formResponse'
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isGoogleFormsRespondentPage(
-        'https://docs.google.com/forms/d/abc/edit'
+        'https://example.com/forms/d/e/abc/formResponse'
       )
+    ).toBe(false);
+    expect(
+      isGoogleFormsRespondentPage('https://docs.google.com/document/d/abc')
     ).toBe(false);
   });
 });

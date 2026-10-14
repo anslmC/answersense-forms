@@ -22,8 +22,10 @@ export function isGoogleFormsRespondentPage(
 ): boolean {
   const pageLocation =
     typeof location === 'string' ? new URL(location) : location;
+  const pathname = pageLocation.pathname;
   return (
     isSupportedGoogleFormsPage(pageLocation) &&
-    /\/viewform\/?$/.test(pageLocation.pathname)
+    !/^\/forms\/u\/[^/]+\/?$/.test(pathname) &&
+    !/\/edit\/?$/.test(pathname)
   );
 }
