@@ -189,6 +189,7 @@ describe('NVIDIA Nemotron provider', () => {
     [422, 'INVALID_REQUEST'],
     [429, 'RATE_LIMITED'],
     [500, 'PROVIDER_UNAVAILABLE'],
+    [503, 'PROVIDER_UNAVAILABLE'],
     [202, 'PROVIDER_UNAVAILABLE'],
   ] as const)('classifies HTTP %i as %s without exposing the provider body', async (status, safeCode) => {
     const provider = new NvidiaProvider(
@@ -200,6 +201,9 @@ describe('NVIDIA Nemotron provider', () => {
     const thrown = await provider.generate(request).catch((error: unknown) => error);
     expect(thrown).toBeInstanceOf(NvidiaProviderError);
     expect(thrown).toMatchObject({ safeCode });
+    if (status === 503) {
+      expect(thrown).toMatchObject({ safeMessageCode: 'SERVER_BUSY' });
+    }
     expect((thrown as Error).message).not.toContain('private');
     expect((thrown as Error).message).not.toContain('synthetic-test-key');
   });

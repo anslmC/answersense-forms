@@ -33,11 +33,15 @@ const SAFE_MESSAGES: Record<ProviderErrorCode, string> = {
 
 export class NvidiaProviderError extends Error implements ProviderErrorContract {
   public readonly providerId = 'nvidia';
-  public readonly safeMessageCode: undefined = undefined;
+  public readonly safeMessageCode: 'SERVER_BUSY' | undefined;
 
-  constructor(public readonly safeCode: ProviderErrorCode) {
+  constructor(
+    public readonly safeCode: ProviderErrorCode,
+    safeMessageCode?: 'SERVER_BUSY'
+  ) {
     super(SAFE_MESSAGES[safeCode]);
     this.name = 'NvidiaProviderError';
+    this.safeMessageCode = safeMessageCode;
   }
 }
 
@@ -196,7 +200,10 @@ async function requestCompletion(
     timeoutMs
   );
   if (response.status !== 200) {
-    throw new NvidiaProviderError(classifyHttpStatus(response.status));
+    throw new NvidiaProviderError(
+      classifyHttpStatus(response.status),
+      response.status === 503 ? 'SERVER_BUSY' : undefined
+    );
   }
 
   let envelope: unknown;

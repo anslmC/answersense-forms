@@ -20,7 +20,7 @@ export type ProviderFailureCode =
   | 'MALFORMED_PROVIDER_OUTPUT'
   | 'PROVIDER_ERROR';
 
-const SERVER_BUSY_MESSAGE = 'Server was busy. Try again.';
+const SERVER_BUSY_MESSAGE = "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
 
 function safeCodeForGeminiFailure(code: ProviderFailureCode): ProviderErrorCode {
   if (
@@ -204,7 +204,7 @@ function classifyStatus(status: number, body?: unknown): GeminiProviderError {
   if (status === 503) {
     return new GeminiProviderError(
       'PROVIDER_UNAVAILABLE',
-      'Server was busy. Try again.'
+      SERVER_BUSY_MESSAGE
     );
   }
   if (status >= 500) {

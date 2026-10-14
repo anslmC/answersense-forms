@@ -43,12 +43,30 @@ describe('Service Worker provider error sanitization', () => {
 
   it('preserves the sanitized 503 message for the final UI', () => {
     const safe = sanitizeProviderError(
-      new GeminiProviderError('PROVIDER_UNAVAILABLE', 'Server was busy. Try again.')
+      new GeminiProviderError(
+        'PROVIDER_UNAVAILABLE',
+        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+      )
     );
 
     expect(safe).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
-      message: 'Server was busy. Try again.',
+      message:
+        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+    });
+  });
+
+  it('sanitizes NVIDIA HTTP 503 with the shared user-facing message', () => {
+    const safe = sanitizeProviderError({
+      safeCode: 'PROVIDER_UNAVAILABLE',
+      safeMessageCode: 'SERVER_BUSY',
+      providerId: 'nvidia',
+    });
+
+    expect(safe).toEqual({
+      code: 'PROVIDER_UNAVAILABLE',
+      message:
+        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
     });
   });
 
@@ -223,12 +241,13 @@ describe('Service Worker provider error sanitization', () => {
       serviceWorkerErrorResponse(
         new SafeServiceWorkerError(
           'PROVIDER_UNAVAILABLE',
-          'Server was busy. Try again.'
+          "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
         )
       )
     ).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
-      error: 'Server was busy. Try again.',
+      error:
+        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
     });
   });
 

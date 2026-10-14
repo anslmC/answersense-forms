@@ -806,10 +806,9 @@ export function mountAnswerSenseApp(
       progressFill.style.width = '100%';
       const modelAccessErrorMessage =
         'This key or project doesn’t have access to the selected model. Check your API key and project permissions.';
-      status.textContent =
-        state.message === 'Server was busy. Try again.'
-          ? state.message
-          : "Couldn't generate answers.";
+      const serviceUnavailable503Message =
+        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
+      status.textContent = "Couldn't generate answers.";
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
       if (state.message === modelAccessErrorMessage) {
         message.replaceChildren(
@@ -820,6 +819,20 @@ export function mountAnswerSenseApp(
             "Tip: Check your API key, account, and provider access. Some providers may restrict access to certain models or require specific permissions. Read the provider's policies to avoid key restrictions."
           ),
           document.createTextNode(' Check your API key and project permissions. ')
+        );
+      } else if (state.message === serviceUnavailable503Message) {
+        const documentationLink = document.createElement('a');
+        documentationLink.href =
+          'https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/503';
+        documentationLink.target = '_blank';
+        documentationLink.rel = 'noopener noreferrer';
+        documentationLink.textContent = '503: Service Unavailable';
+        message.replaceChildren(
+          document.createTextNode(
+            "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error "
+          ),
+          documentationLink,
+          document.createTextNode('. ')
         );
       } else {
         message.textContent = state.message;

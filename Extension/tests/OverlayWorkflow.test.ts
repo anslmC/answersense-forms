@@ -2066,7 +2066,9 @@ describe('live Overlay generation workflow', () => {
       if (message.type === 'configuration-state') return configurationState;
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'p7-generate') {
-        return { error: 'Server was busy. Try again.' };
+        return {
+          error: "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+        };
       }
       return {};
     });
@@ -2093,10 +2095,19 @@ describe('live Overlay generation workflow', () => {
     primary()?.click();
     await vi.waitFor(() => expect(message()?.hidden).toBe(false));
 
-    expect(message()?.textContent).toContain('Server was busy. Try again.');
+    expect(message()?.textContent).toContain(
+      "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+    );
+    const documentationLink = message()?.querySelector<HTMLAnchorElement>('a');
+    expect(documentationLink?.textContent).toBe('503: Service Unavailable');
+    expect(documentationLink?.href).toBe(
+      'https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/503'
+    );
+    expect(documentationLink?.target).toBe('_blank');
+    expect(documentationLink?.rel).toBe('noopener noreferrer');
     expect(message()?.textContent).not.toContain("Couldn't generate answers.");
     expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe(
-      'Server was busy. Try again.'
+      "Couldn't generate answers."
     );
     expect(refresh()).not.toBeNull();
     expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);

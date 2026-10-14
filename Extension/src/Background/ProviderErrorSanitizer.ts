@@ -64,7 +64,7 @@ function providerErrorFromContract(error: unknown): SafeProviderError | null {
           :
         safeCode === 'PROVIDER_UNAVAILABLE' &&
         safeMessageCode === 'SERVER_BUSY'
-          ? 'Server was busy. Try again.'
+          ? "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
           : SAFE_MESSAGES[safeCode as ProviderErrorCode],
     };
   } catch {
