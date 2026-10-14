@@ -39,6 +39,7 @@ export interface WorkflowAppOptions {
 export interface WorkflowAppHandle {
   refresh: () => Promise<void>;
   ready: Promise<void>;
+  dispose: () => void;
 }
 
 class ServiceWorkerResponseError extends Error {
@@ -78,6 +79,10 @@ export function mountAnswerSenseApp(
   };
   let credentialAddedMessageTimeout: ReturnType<typeof setTimeout> | null = null;
   let validationOperationSequence = 0;
+  let validationTimingOperationId: number | null = null;
+  let validationStartedAt: number | null = null;
+  let validationElapsedMs: number | null = null;
+  let validationElapsedTimer: ReturnType<typeof setInterval> | null = null;
   let validatingSelection: {
     selection: ConfigurationSelection;
     revision: number;
@@ -169,6 +174,56 @@ export function mountAnswerSenseApp(
       validatingSelection.revision === configurationSelectionRevision &&
       currentSelectionMatches(validatingSelection.selection)
     );
+  }
+
+  function clearValidationElapsedTimer(): void {
+    if (validationElapsedTimer !== null) {
+      clearInterval(validationElapsedTimer);
+      validationElapsedTimer = null;
+    }
+  }
+
+  function resetValidationTiming(): void {
+    clearValidationElapsedTimer();
+    validationTimingOperationId = null;
+    validationStartedAt = null;
+    validationElapsedMs = null;
+    element<HTMLElement>('[data-validation-duration]')?.remove();
+  }
+
+  function updateValidationDurationDisplay(): void {
+    const duration = element<HTMLElement>('[data-validation-duration]');
+    if (duration && validationElapsedMs !== null) {
+      duration.textContent = ` · ${validationElapsedMs} ms`;
+    }
+  }
+
+  function beginValidationTiming(operationId: number): void {
+    resetValidationTiming();
+    validationTimingOperationId = operationId;
+    validationStartedAt = performance.now();
+    validationElapsedMs = 0;
+    validationElapsedTimer = setInterval(() => {
+      if (
+        validationTimingOperationId !== operationId ||
+        validationStartedAt === null
+      ) return;
+      validationElapsedMs = Math.floor(performance.now() - validationStartedAt);
+      updateValidationDurationDisplay();
+    }, 100);
+    renderConfiguration();
+  }
+
+  function finishValidationTiming(operationId: number): void {
+    if (
+      validationTimingOperationId !== operationId ||
+      validationStartedAt === null
+    ) return;
+    validationElapsedMs = Math.floor(performance.now() - validationStartedAt);
+    validationTimingOperationId = null;
+    validationStartedAt = null;
+    clearValidationElapsedTimer();
+    element<HTMLElement>('[data-validation-duration]')?.remove();
   }
 
   function selectedConfigurationMatchesActive(): boolean {
@@ -1195,6 +1250,13 @@ export function mountAnswerSenseApp(
         ? 'Status: Valid'
         : configurationStatusText;
     }
+    if (validationStartedAt !== null && validationElapsedMs !== null) {
+      const duration = createElement('span');
+      duration.className = 'validation-duration';
+      duration.dataset.validationDuration = '';
+      duration.textContent = ` · ${validationElapsedMs} ms`;
+      configurationStatus.append(duration);
+    }
     configurationStatus.classList.toggle(
       'is-validation-success',
       isValidationSuccessful
@@ -1385,7 +1447,11 @@ export function mountAnswerSenseApp(
     '[data-replace-credential]'
   );
   if (!primary || !forceClear) {
-    return { refresh: async () => undefined, ready: Promise.resolve() };
+    return {
+      refresh: async () => undefined,
+      ready: Promise.resolve(),
+      dispose: () => undefined,
+    };
   }
 
   const overrideAction = element<HTMLButtonElement>('[data-override-action]');
@@ -1733,6 +1799,7 @@ export function mountAnswerSenseApp(
     }
 
     providerSelect.addEventListener('change', () => {
+      resetValidationTiming();
       updateAddCredentialButtonLabel(providerSelect);
       const previousProviderId = renderedProviderId;
       if (previousProviderId) {
@@ -1803,6 +1870,7 @@ export function mountAnswerSenseApp(
       resetGenerationForConfigurationChange();
     });
     modelSelect.addEventListener('change', () => {
+      resetValidationTiming();
       selectionLookupSequence += 1;
       configurationSelectionRevision += 1;
       clearConfigurationMessage();
@@ -1822,6 +1890,7 @@ export function mountAnswerSenseApp(
       }
     });
     credentialSelect.addEventListener('change', () => {
+      resetValidationTiming();
       selectionLookupSequence += 1;
       configurationSelectionRevision += 1;
       providerCredentialSelections.set(providerSelect.value, credentialSelect.value);
@@ -2041,10 +2110,15 @@ export function mountAnswerSenseApp(
           validateAfterProviderChange ||
           !isCurrentValidationValid(configurationState)
         ) {
-          await send({
-            type: 'configuration-validate',
-            configurationDigest: savedState.configurationDigest ?? undefined,
-          });
+          beginValidationTiming(operationId);
+          try {
+            await send({
+              type: 'configuration-validate',
+              configurationDigest: savedState.configurationDigest ?? undefined,
+            });
+          } finally {
+            finishValidationTiming(operationId);
+          }
           if (!isCurrentSave()) return;
           const reloaded = await reloadConfiguration(
             false,
@@ -2221,5 +2295,11 @@ export function mountAnswerSenseApp(
 
   const ready = refresh();
 
-  return { refresh, ready };
+  return {
+    refresh,
+    ready,
+    dispose: () => {
+      resetValidationTiming();
+    },
+  };
 }

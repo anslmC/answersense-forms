@@ -51,6 +51,7 @@ const showLauncher =
 const generation = new GenerationCoordinator(() => crypto.randomUUID());
 const OVERLAY_UI_STORAGE_KEY = 'answersense-overlay-opened';
 const LAUNCHER_HOST_ID = 'answersense-launcher-host';
+const LAUNCHER_RENDER_DELAY_MS = 150;
 const UNSUPPORTED_PAGE_ALERT =
   "This page isn't supported.\nOpen a Google Forms respondent page to use AnswerSense.";
 
@@ -61,6 +62,9 @@ let overlayHandle: OverlayHandle | null = null;
 let overlayMount: Promise<OverlayHandle> | null = null;
 let launcherHost: HTMLDivElement | null = null;
 let launcherButton: HTMLButtonElement | null = null;
+let pendingLauncherRender: ReturnType<typeof setTimeout> | null = null;
+let launcherRenderGeneration = 0;
+let launcherDomReadyHandler: (() => void) | null = null;
 const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
@@ -73,12 +77,33 @@ function setLauncherOpen(open: boolean): void {
   launcherButton.tabIndex = open ? -1 : 0;
 }
 
-function ensureLauncher(): void {
-  if (!showLauncher) return;
-  if (!document.documentElement) {
-    document.addEventListener('DOMContentLoaded', ensureLauncher, { once: true });
-    return;
+function isLauncherEligibleNow(): boolean {
+  return (
+    isSupportedGoogleFormsPage(window.location) &&
+    window.top === window &&
+    isGoogleFormsRespondentPage(window.location)
+  );
+}
+
+function cancelPendingLauncherRender(): void {
+  launcherRenderGeneration += 1;
+  if (pendingLauncherRender !== null) {
+    clearTimeout(pendingLauncherRender);
+    pendingLauncherRender = null;
   }
+  if (launcherDomReadyHandler) {
+    document.removeEventListener('DOMContentLoaded', launcherDomReadyHandler);
+    launcherDomReadyHandler = null;
+  }
+}
+
+function renderLauncher(): void {
+  if (
+    !isLauncherEligibleNow() ||
+    overlayHandle ||
+    overlayMount ||
+    !document.documentElement
+  ) return;
   const existing = document.getElementById(LAUNCHER_HOST_ID) as
     | HTMLDivElement
     | null;
@@ -173,7 +198,50 @@ function ensureLauncher(): void {
   launcherButton = button;
 }
 
+async function renderDelayedLauncher(generation: number): Promise<void> {
+  if (
+    generation !== launcherRenderGeneration ||
+    !isLauncherEligibleNow() ||
+    overlayHandle ||
+    overlayMount
+  ) return;
+  const overlayIsActive = await readOverlayPreference();
+  if (
+    overlayIsActive ||
+    generation !== launcherRenderGeneration ||
+    !isLauncherEligibleNow() ||
+    overlayHandle ||
+    overlayMount
+  ) return;
+  renderLauncher();
+}
+
+function ensureLauncher(): void {
+  if (!showLauncher || !isLauncherEligibleNow()) return;
+  if (!document.documentElement) {
+    if (!launcherDomReadyHandler) {
+      launcherDomReadyHandler = () => {
+        launcherDomReadyHandler = null;
+        ensureLauncher();
+      };
+      document.addEventListener('DOMContentLoaded', launcherDomReadyHandler, {
+        once: true,
+      });
+    }
+    return;
+  }
+  if (pendingLauncherRender !== null) return;
+  const generation = ++launcherRenderGeneration;
+  pendingLauncherRender = setTimeout(() => {
+    pendingLauncherRender = null;
+    void renderDelayedLauncher(generation).catch((error: unknown) => {
+      console.error('AnswerSense launcher failed to initialize.', error);
+    });
+  }, LAUNCHER_RENDER_DELAY_MS);
+}
+
 ensureLauncher();
+window.addEventListener('pagehide', cancelPendingLauncherRender, { once: true });
 
 async function setOverlayPreference(open: boolean): Promise<void> {
   await chrome.storage.local.set({ [OVERLAY_UI_STORAGE_KEY]: open });
@@ -195,6 +263,7 @@ async function ensureOverlay(): Promise<OverlayHandle | null> {
     onClose: () => {
       overlayHandle = null;
       setLauncherOpen(false);
+      ensureLauncher();
     },
     onRefresh: async () => {
       await resynchronizeCurrentPage();
@@ -290,6 +359,8 @@ function publishTransition(
   if (!page || !lifecycle) {
     return Promise.resolve();
   }
+  cancelPendingLauncherRender();
+  ensureLauncher();
   const publication = lifecyclePublications.publish({
     type: 'lifecycle-transition-confirmed',
     pageId: page.form.activePageId,

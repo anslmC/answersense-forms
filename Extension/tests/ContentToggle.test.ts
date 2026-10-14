@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const testState = vi.hoisted(() => ({
   supported: false,
   respondent: true,
+  overlayActive: false,
   listener: null as ((request: { type: string }, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null,
 }));
 
@@ -28,7 +29,11 @@ vi.mock('../src/Content/Navigation', () => ({
 }));
 
 function installChrome(): { set: ReturnType<typeof vi.fn> } {
-  const set = vi.fn(async () => undefined);
+  const set = vi.fn(async (values: Record<string, unknown>) => {
+    if (typeof values['answersense-overlay-opened'] === 'boolean') {
+      testState.overlayActive = values['answersense-overlay-opened'];
+    }
+  });
   vi.stubGlobal('chrome', {
     runtime: {
       sendMessage: vi.fn(async () => undefined),
@@ -40,7 +45,9 @@ function installChrome(): { set: ReturnType<typeof vi.fn> } {
     },
     storage: {
       local: {
-        get: vi.fn(async () => ({})),
+        get: vi.fn(async () => ({
+          'answersense-overlay-opened': testState.overlayActive,
+        })),
         set,
       },
     },
@@ -64,6 +71,7 @@ describe('browser-action overlay toggle', () => {
     vi.resetModules();
     testState.supported = false;
     testState.respondent = true;
+    testState.overlayActive = false;
     testState.listener = null;
     mountOverlay.mockClear();
     document.getElementById('answersense-launcher-host')?.remove();
@@ -71,7 +79,48 @@ describe('browser-action overlay toggle', () => {
   });
 
   afterEach(() => {
+    window.dispatchEvent(new Event('pagehide'));
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('renders the launcher once after the initial delay', async () => {
+    vi.useFakeTimers();
+    testState.supported = true;
+    installChrome();
+    await loadContent();
+
+    expect(document.querySelector('#answersense-launcher-host')).toBeNull();
+    await vi.advanceTimersByTimeAsync(149);
+    expect(document.querySelector('#answersense-launcher-host')).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.querySelector('#answersense-launcher-host')).not.toBeNull();
+  });
+
+  it('suppresses the delayed launcher when the overlay is already active', async () => {
+    vi.useFakeTimers();
+    testState.supported = true;
+    testState.overlayActive = true;
+    installChrome();
+    await loadContent();
+
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(document.querySelector('#answersense-launcher-host')).toBeNull();
+    expect(mountOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a pending launcher render on page teardown', async () => {
+    vi.useFakeTimers();
+    testState.supported = true;
+    installChrome();
+    await loadContent();
+
+    await vi.advanceTimersByTimeAsync(75);
+    window.dispatchEvent(new Event('pagehide'));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(document.querySelector('#answersense-launcher-host')).toBeNull();
   });
 
   it('alerts and stops on an unsupported page', async () => {
@@ -93,6 +142,7 @@ describe('browser-action overlay toggle', () => {
   });
 
   it('keeps opening the overlay on a supported page', async () => {
+    vi.useFakeTimers();
     testState.supported = true;
     const { set } = installChrome();
     await loadContent();
@@ -101,13 +151,12 @@ describe('browser-action overlay toggle', () => {
       status: 'opened',
       supported: true,
     });
+    await vi.advanceTimersByTimeAsync(150);
 
     expect(window.alert).not.toHaveBeenCalled();
     expect(mountOverlay).toHaveBeenCalledTimes(1);
     expect(set).toHaveBeenCalledWith({ 'answersense-overlay-opened': true });
-    expect(
-      document.querySelector('#answersense-launcher-host')?.classList.contains('is-open')
-    ).toBe(true);
+    expect(document.querySelector('#answersense-launcher-host')).toBeNull();
   });
 
   it('does not show the launcher on a supported form editor page', async () => {
@@ -128,6 +177,7 @@ describe('browser-action overlay toggle', () => {
     testState.supported = true;
     const { set } = installChrome();
     await loadContent();
+    await new Promise((resolve) => setTimeout(resolve, 160));
 
     const host = document.querySelector<HTMLDivElement>(
       '#answersense-launcher-host'

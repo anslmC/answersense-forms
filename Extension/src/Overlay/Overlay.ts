@@ -499,6 +499,7 @@ export async function mountOverlay(
     await handle.ready;
     host.style.visibility = 'visible';
   } catch (error) {
+    handle.dispose();
     host.remove();
     throw error;
   }
@@ -506,6 +507,7 @@ export async function mountOverlay(
   return {
     refresh: () => handle.refresh(),
     close: () => {
+      handle.dispose();
       host.remove();
       options.onClose?.();
     },

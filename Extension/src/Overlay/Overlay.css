@@ -543,6 +543,12 @@
   font-size: 11px;
 }
 
+.configuration-panel [data-validation-duration] {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
 .configuration-panel [data-configuration-status].is-validation-success {
   color: #16a34a;
 }

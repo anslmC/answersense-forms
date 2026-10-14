@@ -226,6 +226,61 @@ describe('live Overlay generation workflow', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows elapsed validation time only while pending', async () => {
+    let currentState: TestConfigurationState = {
+      ...configurationState,
+      validation: null,
+    };
+    let releaseValidation!: () => void;
+    let markValidationStarted!: () => void;
+    const validationStarted = new Promise<void>((resolve) => {
+      markValidationStarted = resolve;
+    });
+    const pendingValidation = new Promise<void>((resolve) => {
+      releaseValidation = resolve;
+    });
+    const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
+      if (message.type === 'configuration-state') return currentState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'configuration-set') return currentState;
+      if (message.type === 'configuration-validate') {
+        markValidationStarted();
+        await pendingValidation;
+        currentState = {
+          ...currentState,
+          validation: {
+            ...configurationState.validation,
+            status: 'VALID',
+          },
+        };
+        return { valid: true };
+      }
+      return {};
+    });
+    const fixture = await mountProviderActionOverlay(sendMessage);
+    overlay = fixture.handle;
+    fixture.shadowRoot
+      .querySelector<HTMLButtonElement>('[data-configuration-toggle]')
+      ?.click();
+    const status = fixture.shadowRoot.querySelector<HTMLElement>(
+      '[data-configuration-status]'
+    );
+    fixture.shadowRoot
+      .querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
+      ?.click();
+
+    await validationStarted;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(status?.textContent).toMatch(/VALIDATING · \d+ ms/u);
+
+    releaseValidation();
+    await vi.waitFor(() =>
+      expect(status?.textContent).toBe('Status: Valid')
+    );
+    const finalStatus = status?.textContent;
+    expect(status?.textContent).toBe(finalStatus);
+  });
+
   it('keeps configuration collapsed until opened and preserves its controls', async () => {
     let currentConfigurationState: TestConfigurationState = {
       ...configurationState,
@@ -487,7 +542,9 @@ describe('live Overlay generation workflow', () => {
       );
     });
     await vi.waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ type: 'configuration-validate' });
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'configuration-validate' })
+      );
     });
     currentConfigurationState = {
       ...currentConfigurationState,
@@ -3247,7 +3304,7 @@ describe('live Overlay generation workflow', () => {
       })
     );
     await vi.waitFor(() =>
-      expect(configurationStatus?.textContent).toBe('Status: Valid')
+      expect(configurationStatus?.textContent).toMatch(/^Status: Valid · \d+ ms$/u)
     );
     expect(primaryAction?.disabled).toBe(false);
     expect(
