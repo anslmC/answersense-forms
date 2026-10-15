@@ -18,7 +18,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "PolyForm-Shield-1.0.0",
+  "license": "LicenseRef-AnswerSense-Source-Available-1.0",
   "devDependencies": {
     "@types/chrome": "^0.2.7",
     "@vitest/ui": "^4.1.11",

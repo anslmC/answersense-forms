@@ -53,7 +53,7 @@ See the canonical production architecture in [`docs/architecture/ARCHITECTURE.md
 
 ## License
 
-This repository is offered under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE) for the license text.
+This repository is offered under the AnswerSense Source-Available License 1.0. It permits public source access and noncommercial, noncompeting source sharing under its conditions. It also permits commercial or noncommercial tutorials, reviews, articles, documentation, explanations, and technical discussions about AnswerSense, including limited excerpts of unmodified source reasonably necessary for those purposes, but not substantial portions or a substitute for accessing the source. This limited commentary permission does not grant other commercial rights, authorize promotion of a Competing Product, or permit publication of modified source outside the license's conditions. Other commercial use and competing-product source publication require prior written authorization; distributing installable or executable versions requires prior written authorization whether free or paid. See [LICENSE](LICENSE) for the full terms.
 
 ## Support AnswerSense
 

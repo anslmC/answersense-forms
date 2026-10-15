@@ -1,164 +1,81 @@
-# PolyForm Shield License 1.0.0
+# AnswerSense Source-Available License 1.0
 
-<https://polyformproject.org/licenses/shield/1.0.0>
+SPDX-License-Identifier: LicenseRef-AnswerSense-Source-Available-1.0
 
-## Acceptance
+This custom license is not legal advice and is not represented as legally validated or approved by the Open Source Initiative (OSI).
 
-In order to get any license under these terms, you must agree
-to them as both strict obligations and conditions to all
-your licenses.
+## 1. Covered Software and Rights Holder
 
-## Copyright License
+"Covered Software" means the original source code and other materials in the AnswerSense repository that are made available under this license, and modifications or derivative works of those materials. Components owned by third parties remain subject to their own license terms; this license does not replace or extend those terms.
 
-The licensor grants you a copyright license for the
-software to do everything you might do with the software
-that would otherwise infringe the licensor's copyright
-in it for any permitted purpose.  However, you may
-only distribute the software according to [Distribution
-License](#distribution-license) and make changes or new works
-based on the software according to [Changes and New Works
-License](#changes-and-new-works-license).
+"Rights Holder" means AnslmC. This license grants permissions only to the extent AnslmC owns or is authorized to license the relevant rights in the Covered Software; it does not grant rights in third-party materials.
 
-## Distribution License
+By exercising a permission in this license, you agree to its conditions. The permissions below are granted by AnslmC only to the extent AnslmC has authority to grant them.
 
-The licensor grants you an additional copyright license
-to distribute copies of the software.  Your license
-to distribute covers distributing the software with
-changes and new works permitted by [Changes and New Works
-License](#changes-and-new-works-license).
+## 2. Public Access
 
-## Notices
+Anyone may access, view, and download publicly available source code for the Covered Software. You may clone or make a source-only fork of the public repository, including through GitHub, subject to the source-publication conditions in Section 4. These permissions do not by themselves authorize commercial use or distribution of an Installable or Executable Version.
 
-You must ensure that anyone who gets a copy of any part of
-the software from you also gets a copy of these terms or the
-URL for them above, as well as copies of any plain-text lines
-beginning with `Required Notice:` that the licensor provided
-with the software.  For example:
+## 3. Personal and Private Use
 
-> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+You may make and use modifications privately for Personal Use, including learning, experimentation, and local testing. Personal Use may include privately testing a modification that could technically be used in a Competing Product. You do not need permission merely because a private modification has competing functionality, provided that you comply with the restrictions on publication, commercial use, and executable distribution in this license.
 
-## Changes and New Works License
+Personal Use does not authorize making a Competing Product available to others, publishing source to establish or promote a Competing Product, using Covered Software commercially, or distributing an Installable or Executable Version.
 
-The licensor grants you an additional copyright license to
-make changes and new works based on the software for any
-permitted purpose.
+## 4. Permitted Source-Code Publication
 
-## Patent License
+You may publish or otherwise distribute Source Code, including modified Source Code and source-only repository forks, only for a noncommercial purpose that is not intended to establish, offer, market, or promote a Competing Product. This permission applies only to Source Code and is subject to Section 7.
 
-The licensor grants you a patent license for the software that
-covers patent claims the licensor can license, or becomes able
-to license, that you would infringe by using the software.
+Publishing Source Code as the code for, or as a means to establish or promote, a Competing Product is not permitted without the Rights Holder's prior written authorization, even if the publication itself is free. A permitted source publication does not grant its recipients permission to use the Covered Software commercially or to distribute an Installable or Executable Version.
 
-## Noncompete
+Sharing Source Code is distinct from distributing a built, bundled, compiled, or otherwise installable or executable version. A public repository or source-only fork is not an Installable or Executable Version merely because a recipient could independently build or package it.
 
-Any purpose is a permitted purpose, except for providing any
-product that competes with the software or any product the
-licensor or any of its affiliates provides using the software.
+### Commentary, Documentation, and Technical Discussion
 
-## Competition
+Notwithstanding Sections 4 and 6, you may create, reproduce, publish, and distribute tutorials, reviews, articles, documentation, explanations, and technical discussions about AnswerSense for commercial or noncommercial purposes. This permission includes reproducing limited excerpts of unmodified Source Code only to the extent reasonably necessary for explanation, criticism, review, or discussion. The excerpts, individually and in the aggregate, must not reproduce substantial portions of the Source Code or provide it as a substitute for accessing the Covered Software.
 
-Goods and services compete even when they provide functionality
-through different kinds of interfaces or for different technical
-platforms.  Applications can compete with services, libraries
-with plugins, frameworks with development tools, and so on,
-even if they're written in different programming languages
-or for different computer architectures.  Goods and services
-compete even when provided free of charge.  If you market a
-product as a practical substitute for the software or another
-product, it definitely competes.
+This permission is limited to those publications and necessary excerpts. It does not authorize publishing modified Source Code, establishing, offering, marketing, or promoting a Competing Product, distributing an Installable or Executable Version under Section 5, or any other Commercial Use under Section 6. Those activities remain subject to the restrictions and authorization requirements elsewhere in this license.
 
-## New Products
+## 5. Installable or Executable Distribution
 
-If you are using the software to provide a product that does
-not compete, but the licensor or any of its affiliates brings
-your product into competition by providing a new version of
-the software or another product using the software, you may
-continue using versions of the software available under these
-terms beforehand to provide your competing product, but not
-any later versions.
+You may not distribute, publish, offer, transmit, or otherwise make an Installable or Executable Version of the Covered Software, or a derivative extension based on it, available to another person without the Rights Holder's prior written authorization. This restriction applies whether distribution is free or paid and includes, without limitation, the Chrome Web Store, other extension stores, GitHub Releases, direct downloads, and equivalent channels.
 
-## Discontinued Products
+This restriction does not prohibit you from running Covered Software locally for Personal Use under Section 3. This license does not claim to prevent anyone from technically building or packaging publicly available source code; it grants no permission to distribute the resulting Installable or Executable Version without authorization.
 
-You may begin using the software to compete with a product
-or service that the licensor or any of its affiliates has
-stopped providing, unless the licensor includes a plain-text
-line beginning with `Licensor Line of Business:` with the
-software that mentions that line of business.  For example:
+## 6. Commercial Use
 
-> Licensor Line of Business: YoyodyneCMS Content Management
-> System (http://example.com/cms)
+Any Commercial Use of Covered Software requires the Rights Holder's prior written authorization, including use in an unrelated commercial product or service. No permission in this license grants commercial rights, whether or not the use involves distribution, a Competing Product, or revenue directly attributable to the Covered Software.
 
-## Sales of Business
+Selling, offering, or commercially distributing a Competing Product derived from Covered Software requires prior written authorization under this section and Section 5. A free use or distribution is not thereby commercial, but it must still comply with the other restrictions, including Sections 4 and 5.
 
-If the licensor or any of its affiliates sells a line of
-business developing the software or using the software to
-provide a product, the buyer can also enforce
-[Noncompete](#noncompete) for that product.
+## 7. Conditions for Permitted Source Publication
 
-## Fair Use
+For a source publication permitted by Section 4, you must:
 
-You may have "fair use" rights for the software under the
-law.  These terms do not limit them.
+- include a copy of this license with the Source Code;
+- retain copyright, attribution, and license notices that accompany the Covered Software, and identify material changes you made; and
+- not state or imply that the Rights Holder endorses you, your fork, or your project.
 
-## No Other Rights
+Do not add or invent any copyright-holder name or ownership notice beyond the identification of AnslmC in this license, unless the additional name or notice is supported by the materials or your own rights. Each recipient receives directly from the Rights Holder only the same limited permissions and conditions stated in this license; you may not sublicense, remove, or expand those permissions.
 
-These terms do not allow you to sublicense or transfer any of
-your licenses to anyone else, or prevent the licensor from
-granting licenses to anyone else.  These terms do not imply
-any other licenses.
+## 8. Authorization and Other Rights
 
-## Patent Defense
+An authorization required by this license must be given in a separate writing by AnslmC or by a representative expressly authorized by AnslmC to grant that authorization, and must clearly cover the otherwise restricted activity. No authorization is implied by public availability, repository access, a source publication, or the ability to build the software.
 
-If you make any written claim that the software infringes or
-contributes to infringement of any patent, your patent license
-for the software granted under these terms ends immediately.  If
-your company makes such a claim, your patent license ends
-immediately for work on behalf of your company.
+Except for the limited copyright permissions expressly stated here, no rights are granted by implication, estoppel, or otherwise. This license grants no trademark rights and no patent license. Rights and exceptions that applicable law provides independently of this license are not waived.
 
-## Violations
+## 9. Disclaimer of Warranty and Liability
 
-The first time you are notified in writing that you have
-violated any of these terms, or done anything with the software
-not covered by your licenses, your licenses can nonetheless
-continue if you come into full compliance with these terms,
-and take practical steps to correct past violations, within
-32 days of receiving notice.  Otherwise, all your licenses
-end immediately.
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COVERED SOFTWARE IS PROVIDED "AS IS," WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE RIGHTS HOLDER WILL NOT BE LIABLE FOR ANY CLAIM, LOSS, OR DAMAGES ARISING FROM THIS LICENSE OR THE COVERED SOFTWARE, UNDER ANY THEORY OF LIABILITY. NOTHING IN THIS SECTION EXCLUDES OR LIMITS LIABILITY THAT CANNOT LAWFULLY BE EXCLUDED OR LIMITED.
 
-## No Liability
+## 10. Definitions
 
-***As far as the law allows, the software comes as is, without
-any warranty or condition, and the licensor will not be liable
-to you for any damages arising out of these terms or the use
-or nature of the software, under any kind of legal claim.***
+**Commercial Use** means use in connection with a business, employment, trade, or other activity intended to generate revenue or commercial advantage, whether or not revenue is received directly. It includes incorporating, providing, or using Covered Software as part of an unrelated commercial product or service.
 
-## Definitions
+**Competing Product** means a product or service offered, marketed, or provided as an alternative or practical substitute for AnswerSense's principal purpose of AI-assisted answering or autofilling of online forms, or that substantially provides that same core function for substantially the same users or use cases. A product may compete regardless of its price, whether it is free, its technical platform, or its interface. A source publication is intended to establish or promote a Competing Product when it is presented or promoted as the source for such a product or to help launch, attract users to, or market such a product.
 
-The **licensor** is the individual or entity offering these
-terms, and the **software** is the software the licensor makes
-available under these terms.
+**Installable or Executable Version** means a built, compiled, bundled, packaged, or otherwise prepared version of Covered Software that is made available for installation or execution by another person, including a browser-extension package. It does not include Source Code shared only in source form, even if a recipient could independently build or package it.
 
-A **product** can be a good or service, or a combination of
-them.
+**Personal Use** means an individual's private, noncommercial use for that individual's learning, experimentation, or local testing, not use on behalf of a business or to provide a product or service to others.
 
-**You** refers to the individual or entity agreeing to these
-terms.
-
-**Your company** is any legal entity, sole proprietorship, or
-other kind of organization that you work for, plus all its
-affiliates.
-
-**Affiliates** means the other organizations than an
-organization has control over, is under the control of, or is
-under common control with.
-
-**Control** means ownership of substantially all the assets of
-an entity, or the power to direct its management and policies
-by vote, contract, or otherwise.  Control can be direct or
-indirect.
-
-**Your licenses** are all the licenses granted to you for the
-software under these terms.
-
-**Use** means anything you do with the software requiring one
-of your licenses.
+**Source Code** means the preferred form of Covered Software for making modifications, together with source-form materials reasonably needed to understand or modify it. It excludes an Installable or Executable Version.
