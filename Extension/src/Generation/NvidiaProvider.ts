@@ -7,7 +7,7 @@ import type {
 } from './Contract';
 import { systemInstruction } from './SystemInstructions';
 
-export const NVIDIA_MODEL = 'nvidia/nemotron-3-super-120b-a12b';
+export const NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 export const NVIDIA_GPT_OSS_MODEL = 'openai/gpt-oss-20b';
 export const NVIDIA_ENDPOINT =
   'https://integrate.api.nvidia.com/v1/chat/completions';

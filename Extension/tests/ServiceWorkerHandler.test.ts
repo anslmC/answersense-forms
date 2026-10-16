@@ -273,7 +273,7 @@ describe('Service Worker generation handler security boundary', () => {
     const authorized = await authorizedState(
       testStorage(),
       'nvidia',
-      'nvidia/nemotron-3-super-120b-a12b'
+      'nvidia/nemotron-3.5-super-vl-120b-a12b'
     );
     const handleMessage = await loadHandler();
 

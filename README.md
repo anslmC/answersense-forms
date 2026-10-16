@@ -8,7 +8,7 @@ AnswerSense: Forms is a Chromium browser extension that helps answer supported G
 
 ## Providers
 
-AnswerSense currently supports Google Gemini and NVIDIA. Gemini is the easiest recommended starting point. The available models are Gemini 3.5 Flash-Lite, Gemini 3.1 Flash-Lite, NVIDIA Nemotron 3 Super, and OpenAI GPT-OSS 20B through NVIDIA's API.
+AnswerSense currently supports Google Gemini and NVIDIA. Gemini is the easiest recommended starting point. The available models are Gemini 3.5 Flash-Lite, Gemini 3.1 Flash-Lite, Nemotron 3.5 Super VL 120B A12B, and OpenAI GPT-OSS 20B through NVIDIA's API.
 
 ## Get Started
 

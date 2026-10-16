@@ -255,7 +255,7 @@ describe('Service Worker configuration API boundary', () => {
           providerId: 'nvidia',
           models: expect.arrayContaining([
             expect.objectContaining({
-              modelId: 'nvidia/nemotron-3-super-120b-a12b',
+              modelId: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
             }),
           ]),
         }),
@@ -338,7 +338,7 @@ describe('Service Worker configuration API boundary', () => {
       {
         type: 'configuration-set',
         providerId: 'nvidia',
-        modelId: 'nvidia/nemotron-3-super-120b-a12b',
+        modelId: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
         credentialId: created.credentialId,
       },
       popupSender()
@@ -366,7 +366,7 @@ describe('Service Worker configuration API boundary', () => {
     ).resolves.toEqual({ valid: true });
     expect(validationMock.validateNvidia).toHaveBeenCalledWith(
       'nvidia-secret',
-      'nvidia/nemotron-3-super-120b-a12b'
+      'nvidia/nemotron-3.5-super-vl-120b-a12b'
     );
   });
 

@@ -65,7 +65,7 @@ const geminiProvider: ProviderDefinition = Object.freeze({
 const nvidiaModels: readonly ModelDefinition[] = Object.freeze([
   Object.freeze({
     modelId: NVIDIA_MODEL,
-    displayName: 'NVIDIA Nemotron 3 Super',
+    displayName: 'NVIDIA Nemotron 3.5 Super',
     providerId: NVIDIA_PROVIDER_ID,
     endpointHost: NVIDIA_ENDPOINT_HOST,
   }),

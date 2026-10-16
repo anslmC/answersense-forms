@@ -2965,7 +2965,7 @@ describe('live Overlay generation workflow', () => {
           providerId: NVIDIA_PROVIDER_ID,
           displayName: 'NVIDIA',
           models: [
-            { modelId: NVIDIA_MODEL, displayName: 'NVIDIA Nemotron 3 Super' },
+            { modelId: NVIDIA_MODEL, displayName: 'Nemotron 3.5 Super VL 120B A12B' },
             { modelId: NVIDIA_GPT_OSS_MODEL, displayName: 'OpenAI GPT-OSS 20B' },
           ],
           supportsValidation: true,

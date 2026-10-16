@@ -94,6 +94,7 @@ describe('compiled provider registry', () => {
     });
     expect(resolveModel(NVIDIA_PROVIDER_ID, NVIDIA_MODEL)).toMatchObject({
       modelId: NVIDIA_MODEL,
+      displayName: 'Nemotron 3.5 Super VL 120B A12B',
       providerId: NVIDIA_PROVIDER_ID,
       endpointHost: NVIDIA_ENDPOINT_HOST,
     });

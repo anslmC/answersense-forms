@@ -130,7 +130,7 @@ The provider boundary isolates provider-specific transport and response handling
 The registry currently exposes these models:
 
 - Gemini: `gemini-3.5-flash-lite` (Gemini 3.5 Flash-Lite) and `gemini-3.1-flash-lite` (Gemini 3.1 Flash-Lite)
-- NVIDIA: `nvidia/nemotron-3-super-120b-a12b` (NVIDIA Nemotron 3 Super) and `openai/gpt-oss-20b` (OpenAI GPT-OSS 20B, served through NVIDIA's API)
+- NVIDIA: `nvidia/nemotron-3.5-super-vl-120b-a12b` (Nemotron 3.5 Super VL 120B A12B) and `openai/gpt-oss-20b` (OpenAI GPT-OSS 20B, served through NVIDIA's API)
 
 The configured provider/model determines which adapter receives the authorized credential. There is no automatic provider routing or fallback.
 
