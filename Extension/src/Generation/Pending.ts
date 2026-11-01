@@ -137,11 +137,3 @@ export function commitPendingPageAfterSuccessfulTransition(
     })),
   };
 }
-
-export function abandonPendingPage(): null {
-  return null;
-}
-
-export function restartPendingPage(): null {
-  return null;
-}

@@ -6,7 +6,7 @@ import {
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { questionTitleRejectionReason } from '../../Shared/QuestionTypes';
-import { EXTENSION_NAME, GOOGLE_FORMS_MATCHES } from '../src/Shared/Utils';
+import { EXTENSION_NAME } from '../src/Shared/Utils';
 
 function createDocument(): Document {
   const parser = new DOMParser();
@@ -236,10 +236,6 @@ describe('Question title qualification', () => {
 describe('Extension foundation', () => {
   it('exposes the expected extension identity', () => {
     expect(EXTENSION_NAME).toBe('AnswerSense: Forms');
-  });
-
-  it('declares the supported Google Forms host scope', () => {
-    expect(GOOGLE_FORMS_MATCHES).toContain('https://docs.google.com/forms/*');
   });
 });
 

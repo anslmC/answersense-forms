@@ -4,14 +4,13 @@
   "type": "module",
   "version": "1.0.0",
   "description": "AnswerSense shared tooling workspace",
-  "main": "eslint.config.js",
   "workspaces": [
     "Extension"
   ],
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
+    "build": "npm run build --workspace @answersense/extension",
+    "type-check": "npm run type-check --workspace @answersense/extension",
+    "test": "npm run test --workspace @answersense/extension",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --check ."
   },
@@ -19,8 +18,6 @@
     "type": "git",
     "url": "git+https://github.com/anslmC/answersense-forms.git"
   },
-  "keywords": [],
-  "author": "",
   "license": "LicenseRef-AnswerSense-Source-Available-1.0",
   "bugs": {
     "url": "https://github.com/anslmC/answersense-forms/issues"

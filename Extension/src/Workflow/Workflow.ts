@@ -1,5 +1,3 @@
-import type { FillReport } from '../Fill/Filler';
-import type { GenerationReport } from '../Generation/Report';
 import type {
   PageSummary,
   UiGenerationResult,
@@ -96,11 +94,4 @@ export function createBrowserWorkflow(): Workflow {
       };
     },
   };
-}
-
-export function createUiGenerationResult(
-  report: GenerationReport,
-  fillReport: FillReport
-): UiGenerationResult {
-  return { report, fillReport };
 }

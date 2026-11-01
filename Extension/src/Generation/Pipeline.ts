@@ -161,9 +161,3 @@ export class GenerationCoordinator {
     return createGenerationReport(cycle.cycleId, results);
   }
 }
-
-export function createGenerationCoordinator(
-  cycleIdFactory: () => string = () => crypto.randomUUID()
-): GenerationCoordinator {
-  return new GenerationCoordinator(cycleIdFactory);
-}

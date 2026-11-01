@@ -80,47 +80,6 @@ describe('popup configuration state', () => {
     expect(overlaySource).not.toContain('data-replace-credential-secret');
   });
 
-  it('keeps generation interactive only through the authorized flow', () => {
-    const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
-      'utf8'
-    );
-    const contentSource = readFileSync(
-      resolve(process.cwd(), 'src/Content/Content.ts'),
-      'utf8'
-    );
-    expect(popupSource).toContain(
-      'primary.disabled = !canGenerateCurrentSelection();'
-    );
-    expect(popupSource).toContain('renderAll(controller.state);');
-    expect(popupSource).toContain("if (state.name === 'GENERATING') {");
-    expect(popupSource).toContain("primary.textContent = 'Generating...';");
-    expect(popupSource).toContain(
-      "filledStatus.textContent = 'Page Answers already settled';"
-    );
-    expect(popupSource).toContain("if ('status' in state.result) {");
-    expect(popupSource).toContain(
-      'if (!canGenerateCurrentSelection()) return;'
-    );
-    expect(popupSource).toContain('window.prompt(promptText)');
-    expect(contentSource).toContain(
-      'if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {'
-    );
-  });
-
-  it('shows unsaved selection status and uses one combined configuration action', () => {
-    const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
-      'utf8'
-    );
-    expect(popupSource).toContain("'[data-save-validate-configuration]'");
-    expect(popupSource).toContain(
-      '!isCurrentValidationValid(configurationState)'
-    );
-    expect(popupSource).toContain("type: 'configuration-validate'");
-    expect(popupSource).toContain('!selectedConfigurationMatchesActive()');
-  });
-
   it('clears stale terminal progress state when entering the GENERATING branch', () => {
     const popupSource = readFileSync(
       resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),

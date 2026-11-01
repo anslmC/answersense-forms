@@ -19,11 +19,9 @@ import {
 } from '../src/Generation/Intent';
 import { createGenerationReport } from '../src/Generation/Report';
 import {
-  abandonPendingPage,
   commitPendingPageAfterSuccessfulTransition,
   createPendingPageStateFromReport,
   editPendingAnswer,
-  restartPendingPage,
 } from '../src/Generation/Pending';
 import type {
   GenerationInterface,
@@ -452,8 +450,6 @@ describe('Settled context and pending page state', () => {
       questionText: 'Question name',
       answer: 'Edited before Next',
     });
-    expect(abandonPendingPage()).toBeNull();
-    expect(restartPendingPage()).toBeNull();
   });
 });
 

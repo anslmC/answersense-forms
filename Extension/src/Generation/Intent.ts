@@ -107,15 +107,3 @@ export function validOverrideQuestionIds(
     (questionId) => !invalidQuestionIds.has(questionId)
   );
 }
-
-export function assertValidOverrideSelection(
-  page: NormalizedActivePage,
-  intent: GenerationIntent
-): void {
-  const validation = validateOverrideSelection(page, intent);
-  if (!validation.valid) {
-    throw new Error(
-      `Override selection is invalid: ${validation.invalidQuestionIds.join(', ')}`
-    );
-  }
-}

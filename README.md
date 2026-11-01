@@ -47,6 +47,21 @@ If validation fails, check that the key belongs to the selected provider and tha
 
 For details about AnswerSense's data handling, privacy practices, and security considerations, see the [Privacy Policy](PRIVACY.md).
 
+## Development
+
+Requires Node.js and npm. Run these from the repository root:
+
+```bash
+npm install
+npm run type-check   # TypeScript, application and tests
+npm test             # Vitest suite
+npm run lint         # ESLint
+npm run format       # Prettier check (use npx prettier --write . to fix)
+npm run build        # production extension bundles
+```
+
+The extension workspace lives in `Extension`. Load `Extension/dist` as an unpacked extension after building.
+
 ## Architecture
 
 See the canonical production architecture in [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
