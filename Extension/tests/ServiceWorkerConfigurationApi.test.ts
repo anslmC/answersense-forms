@@ -375,6 +375,54 @@ describe('Service Worker configuration API boundary', () => {
     );
   });
 
+  it('keeps a saved NVIDIA key usable with the Nemotron 3.5 Lightning model', async () => {
+    const state: ChromeTestState = { values: {} };
+    installChrome(state);
+    const handleMessage = await loadHandler();
+    const created = (await handleMessage(
+      {
+        type: 'credential-create',
+        providerId: 'nvidia',
+        label: 'NVIDIA key',
+        secret: 'nvidia-secret',
+      },
+      popupSender()
+    )) as { credentialId: string };
+    const configured = (await handleMessage(
+      {
+        type: 'configuration-set',
+        providerId: 'nvidia',
+        modelId: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+        credentialId: created.credentialId,
+      },
+      popupSender()
+    )) as { configurationDigest: string };
+
+    await expect(
+      handleMessage(
+        {
+          type: 'configuration-validate',
+          configurationDigest: configured.configurationDigest,
+        },
+        popupSender()
+      )
+    ).resolves.toEqual({ valid: true });
+    expect(validationMock.validateNvidia).toHaveBeenCalledWith(
+      'nvidia-secret',
+      'nvidia/nemotron-3.5-lightning-30b-a3b'
+    );
+
+    await expect(
+      handleMessage({ type: 'configuration-state' }, popupSender())
+    ).resolves.toMatchObject({
+      activeConfiguration: {
+        providerId: 'nvidia',
+        modelId: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+        credentialId: created.credentialId,
+      },
+    });
+  });
+
   it('fails unsupported provider validation without calling the Gemini validator', async () => {
     const state: ChromeTestState = { values: {} };
     installChrome(state);

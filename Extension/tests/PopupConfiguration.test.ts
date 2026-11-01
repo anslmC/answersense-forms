@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { extensionPath } from './utils/projectPaths';
 import {
   isCurrentValidationValid,
   modelsForProvider,
@@ -42,7 +42,7 @@ const baseState: ConfigurationState = {
 describe('popup configuration state', () => {
   it('restores the configuration controls in the overlay scaffold', () => {
     const overlaySource = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.ts'),
+      extensionPath('src/Overlay/Overlay.ts'),
       'utf8'
     );
     for (const token of [
@@ -82,7 +82,7 @@ describe('popup configuration state', () => {
 
   it('clears stale terminal progress state when entering the GENERATING branch', () => {
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
+      extensionPath('src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
 
@@ -97,11 +97,11 @@ describe('popup configuration state', () => {
 
   it('toggles a generating-only overlay border state and defines the 0.7s animated glint', () => {
     const popupSource = readFileSync(
-      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
+      extensionPath('src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
     const overlayStyles = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      extensionPath('src/Overlay/Overlay.css'),
       'utf8'
     );
 

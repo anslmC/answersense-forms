@@ -1,4 +1,5 @@
 import type { QuestionResult } from '../Models/Logical';
+import { cloneAnswerValue } from '../Shared/Utils';
 
 export type GenerationReportStatus = 'complete' | 'partial';
 
@@ -39,9 +40,7 @@ export function createGenerationReport(
       answer: result.answer
         ? {
             questionId: result.answer.questionId,
-            value: Array.isArray(result.answer.value)
-              ? [...result.answer.value]
-              : result.answer.value,
+            value: cloneAnswerValue(result.answer.value),
           }
         : null,
       reason: result.reason,

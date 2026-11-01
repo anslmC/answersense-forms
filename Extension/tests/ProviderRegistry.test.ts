@@ -16,7 +16,7 @@ import {
 } from '../src/Generation/ProviderRegistry';
 import { GeminiProvider, GEMINI_MODEL } from '../src/Generation/GeminiProvider';
 import {
-  NVIDIA_GPT_OSS_MODEL,
+  NVIDIA_NEMOTRON_LIGHTNING_MODEL,
   NVIDIA_MODEL,
   NvidiaProvider,
 } from '../src/Generation/NvidiaProvider';
@@ -108,21 +108,25 @@ describe('compiled provider registry', () => {
     });
     expect(
       resolveProvider(NVIDIA_PROVIDER_ID)?.models.map((model) => model.modelId)
-    ).toEqual([NVIDIA_MODEL, NVIDIA_GPT_OSS_MODEL]);
+    ).toEqual([NVIDIA_MODEL, 'nvidia/nemotron-3.5-lightning-30b-a3b']);
     expect(
-      resolveModel(NVIDIA_PROVIDER_ID, NVIDIA_GPT_OSS_MODEL)
+      resolveModel(NVIDIA_PROVIDER_ID, 'nvidia/nemotron-3.5-lightning-30b-a3b')
     ).toMatchObject({
-      modelId: NVIDIA_GPT_OSS_MODEL,
+      modelId: 'nvidia/nemotron-3.5-lightning-30b-a3b',
       providerId: NVIDIA_PROVIDER_ID,
       endpointHost: NVIDIA_ENDPOINT_HOST,
     });
+    expect(
+      resolveModel(NVIDIA_PROVIDER_ID, 'nemotron-3.5-lightning-30b-a3b')
+    ).toBeNull();
+    expect(resolveModel(NVIDIA_PROVIDER_ID, 'openai/gpt-oss-20b')).toBeNull();
     expect(
       resolveProviderAdapter(NVIDIA_PROVIDER_ID, NVIDIA_MODEL)?.('test-key')
     ).toBeInstanceOf(NvidiaProvider);
     expect(
       resolveProviderAdapter(
         NVIDIA_PROVIDER_ID,
-        NVIDIA_GPT_OSS_MODEL
+        NVIDIA_NEMOTRON_LIGHTNING_MODEL
       )?.('test-key')
     ).toBeInstanceOf(NvidiaProvider);
     expect(

@@ -5,6 +5,7 @@ const __dirname = import.meta.dirname;
 
 export default defineConfig(({ mode }) => {
   const contentBuild = mode === 'content';
+  const developmentWatch = process.env.ANSWERSENSE_DEV_WATCH === '1';
 
   return {
     build: {
@@ -26,7 +27,7 @@ export default defineConfig(({ mode }) => {
             },
       },
       outDir: 'dist',
-      emptyOutDir: !contentBuild,
+      emptyOutDir: !contentBuild && !developmentWatch,
     },
     resolve: {
       alias: {

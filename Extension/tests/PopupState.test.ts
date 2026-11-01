@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { WorkflowController } from '../src/Workflow/Controller';
+import { extensionPath } from './utils/projectPaths';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
@@ -147,7 +147,7 @@ describe('P6 popup state machine', () => {
 
   it('exposes Override controls without invoking generation', () => {
     const source = readPopupSource(
-      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
+      extensionPath('src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
     expect(source).toContain(
@@ -290,7 +290,7 @@ describe('P6 popup workflow boundary', () => {
 
   it('keeps the completed bar and includes preserved answers in the summary', () => {
     const source = readFileSync(
-      resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
+      extensionPath('src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
 

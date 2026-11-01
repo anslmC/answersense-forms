@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   NVIDIA_ENDPOINT,
-  NVIDIA_GPT_OSS_MODEL,
+  NVIDIA_NEMOTRON_LIGHTNING_MODEL,
   NVIDIA_MODEL,
   NvidiaProvider,
   NvidiaProviderError,
@@ -114,16 +114,17 @@ describe('NVIDIA Nemotron provider', () => {
     expect(payload.model).toBe(NVIDIA_MODEL);
     expect(payload.stream).toBe(false);
     expect(payload.reasoning_effort).toBe('low');
+    expect(payload).not.toHaveProperty('chat_template_kwargs');
     expect(payload.max_tokens).toBe(16384);
   });
 
-  it('uses GPT-OSS model-specific request settings', async () => {
+  it('uses Nemotron 3.5 Lightning model-specific request settings', async () => {
     const fetchMock = successfulFetch(
       JSON.stringify(validGenerationResponse())
     );
     const provider = new NvidiaProvider(
       'synthetic-test-key',
-      NVIDIA_GPT_OSS_MODEL,
+      NVIDIA_NEMOTRON_LIGHTNING_MODEL,
       fetchMock
     );
 
@@ -134,9 +135,13 @@ describe('NVIDIA Nemotron provider', () => {
       RequestInit,
     ];
     const payload = JSON.parse(String(init.body));
-    expect(payload.model).toBe(NVIDIA_GPT_OSS_MODEL);
+    expect(payload.model).toBe('nvidia/nemotron-3.5-lightning-30b-a3b');
+    expect(payload.model).toBe(NVIDIA_NEMOTRON_LIGHTNING_MODEL);
+    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(payload).not.toHaveProperty('reasoning_effort');
+    expect(payload).not.toHaveProperty('reasoning_budget');
+    expect(payload).not.toHaveProperty('enable_thinking');
     expect(payload.max_tokens).toBe(4096);
-    expect(payload.reasoning_effort).toBe('low');
   });
 
   it('sends the unchanged system instruction and explicit response-contract directions', async () => {
@@ -378,7 +383,7 @@ describe('NVIDIA Nemotron provider', () => {
     expect(NVIDIA_REQUEST_TIMEOUT_MS).toBe(30_000);
   });
 
-  it('accepts GPT-OSS for the bounded credential validation probe', async () => {
+  it('accepts Nemotron 3.5 Lightning for the bounded credential validation probe', async () => {
     const fetchMock = successfulFetch(
       JSON.stringify({
         cycleId: 'nvidia-credential-validation',
@@ -398,7 +403,7 @@ describe('NVIDIA Nemotron provider', () => {
     await expect(
       validateNvidiaCredential(
         'synthetic-test-key',
-        NVIDIA_GPT_OSS_MODEL,
+        NVIDIA_NEMOTRON_LIGHTNING_MODEL,
         fetchMock
       )
     ).resolves.toBeUndefined();
@@ -407,9 +412,12 @@ describe('NVIDIA Nemotron provider', () => {
       RequestInit,
     ];
     const payload = JSON.parse(String(init.body));
-    expect(payload.model).toBe(NVIDIA_GPT_OSS_MODEL);
+    expect(payload.model).toBe('nvidia/nemotron-3.5-lightning-30b-a3b');
+    expect(payload.model).toBe(NVIDIA_NEMOTRON_LIGHTNING_MODEL);
+    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(payload).not.toHaveProperty('reasoning_effort');
+    expect(payload).not.toHaveProperty('reasoning_budget');
     expect(payload.max_tokens).toBe(4096);
-    expect(payload.reasoning_effort).toBe('low');
   });
 
   it('rejects validation for a non-registered model without making a request', async () => {

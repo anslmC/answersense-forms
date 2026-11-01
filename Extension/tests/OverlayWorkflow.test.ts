@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { mountOverlay, type OverlayHandle } from '../src/Overlay/Overlay';
 import { discoverActiveGoogleFormsPage } from '../src/Forms/Discovery';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { waitForInitialDiscovery } from '../src/Content/Navigation';
 import type { QuestionResult } from '../src/Models/Logical';
 import {
-  NVIDIA_GPT_OSS_MODEL,
+  NVIDIA_NEMOTRON_LIGHTNING_MODEL,
   NVIDIA_MODEL,
 } from '../src/Generation/NvidiaProvider';
 import { NVIDIA_PROVIDER_ID } from '../src/Generation/ProviderRegistry';
+import { extensionPath } from './utils/projectPaths';
 
 const configurationState = {
   providers: [
@@ -173,7 +173,10 @@ function providerActionConfigurationState() {
         displayName: 'NVIDIA',
         models: [
           { modelId: NVIDIA_MODEL, displayName: 'NVIDIA model' },
-          { modelId: NVIDIA_GPT_OSS_MODEL, displayName: 'NVIDIA alternate' },
+          {
+            modelId: NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+            displayName: 'NVIDIA alternate',
+          },
         ],
         supportsValidation: true,
       },
@@ -499,7 +502,7 @@ describe('live Overlay generation workflow', () => {
     expect(geminiResource?.textContent?.trim()).toBe('Get Gemini API key');
     expect(geminiResource?.href).toBe('https://aistudio.google.com/app/apikey');
     const overlayStyles = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      extensionPath('src/Overlay/Overlay.css'),
       'utf8'
     );
     expect(overlayStyles).toContain('.generation-panel');
@@ -914,7 +917,7 @@ describe('live Overlay generation workflow', () => {
       shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
 
     expect(
-      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+      readFileSync(extensionPath('src/Overlay/Overlay.css'), 'utf8')
     ).toMatch(/\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/);
 
     expect(overrideAction()?.hidden).toBe(true);
@@ -965,7 +968,7 @@ describe('live Overlay generation workflow', () => {
       ).not.toBeNull();
       expect(shadowRoot?.querySelector('style')).not.toBeNull();
       expect(
-        readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+        readFileSync(extensionPath('src/Overlay/Overlay.css'), 'utf8')
       ).toContain('animation: overlay-border-gradient 0.7s linear infinite');
     });
     expect(configurationControlStates.length).toBeGreaterThan(0);
@@ -1021,10 +1024,10 @@ describe('live Overlay generation workflow', () => {
         shadowRoot?.querySelector<HTMLElement>('.all-filled-note')
       ).not.toBeNull();
       expect(
-        readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+        readFileSync(extensionPath('src/Overlay/Overlay.css'), 'utf8')
       ).toContain('.result-note.all-filled-note');
       const overlayStyles = readFileSync(
-        resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+        extensionPath('src/Overlay/Overlay.css'),
         'utf8'
       );
       expect(overlayStyles).toContain('margin: 4px 0 0;');
@@ -1471,7 +1474,7 @@ describe('live Overlay generation workflow', () => {
     };
 
     expect(
-      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+      readFileSync(extensionPath('src/Overlay/Overlay.css'), 'utf8')
     ).toMatch(/\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/);
 
     await vi.waitFor(() =>
@@ -1668,10 +1671,10 @@ describe('live Overlay generation workflow', () => {
     expect(inlineRefresh?.title).toBe('Refresh');
     expect(inlineRefresh?.tagName).toBe('BUTTON');
     expect(
-      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+      readFileSync(extensionPath('src/Overlay/Overlay.css'), 'utf8')
     ).toContain('color: #c2410c;');
     expect(
-      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+      readFileSync(extensionPath('src/Overlay/Overlay.css'), 'utf8')
     ).not.toContain('color: #9a3412;');
     shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
@@ -2017,7 +2020,7 @@ describe('live Overlay generation workflow', () => {
     expect(tooltipItems[10]?.textContent).not.toContain('failed-12');
     expect(tooltipItems[10]?.textContent).not.toContain('unfilled-only');
     const overlayCss = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      extensionPath('src/Overlay/Overlay.css'),
       'utf8'
     );
     expect(overlayCss).toMatch(
@@ -2535,7 +2538,7 @@ describe('live Overlay generation workflow', () => {
     );
     const questionSpans = longLabel?.querySelectorAll<HTMLSpanElement>('span');
     const overlayCss = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      extensionPath('src/Overlay/Overlay.css'),
       'utf8'
     );
     expect(toggle).not.toBeNull();
@@ -3552,8 +3555,8 @@ describe('live Overlay generation workflow', () => {
               displayName: 'Nemotron 3.5 Super VL 120B A12B',
             },
             {
-              modelId: NVIDIA_GPT_OSS_MODEL,
-              displayName: 'OpenAI GPT-OSS 20B',
+              modelId: NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+              displayName: 'Nemotron 3.5 Lightning 30B A3B',
             },
           ],
           supportsValidation: true,
@@ -3798,7 +3801,13 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
     expect(Array.from(modelSelect.options, (option) => option.value)).toEqual([
       NVIDIA_MODEL,
-      NVIDIA_GPT_OSS_MODEL,
+      'nvidia/nemotron-3.5-lightning-30b-a3b',
+    ]);
+    expect(
+      Array.from(modelSelect.options, (option) => option.textContent)
+    ).toEqual([
+      'Nemotron 3.5 Super VL 120B A12B',
+      'Nemotron 3.5 Lightning 30B A3B',
     ]);
     expect(
       Array.from(credentialSelect.options, (option) => option.value)
@@ -3842,10 +3851,13 @@ describe('live Overlay generation workflow', () => {
       )
     ).toHaveLength(1);
 
-    modelSelect.value = NVIDIA_GPT_OSS_MODEL;
+    modelSelect.value = NVIDIA_NEMOTRON_LIGHTNING_MODEL;
     modelSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() =>
-      expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL)
+      expect(modelSelect.value).toBe('nvidia/nemotron-3.5-lightning-30b-a3b')
+    );
+    expect(modelSelect.selectedOptions[0]?.textContent).toBe(
+      'Nemotron 3.5 Lightning 30B A3B'
     );
     credentialSelect.value = 'nvidia-backup';
     credentialSelect.dispatchEvent(new Event('change'));

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { mountOverlay } from '../src/Overlay/Overlay';
+import { extensionPath } from './utils/projectPaths';
 
 const workflowRefresh = vi.fn(async () => undefined);
 const mountAnswerSenseApp = vi.hoisted(() => vi.fn());
@@ -112,7 +112,7 @@ describe('overlay refresh operation', () => {
     const header = shadowRoot?.querySelector('.overlay-header');
     const logo = shadowRoot?.querySelector<SVGElement>('.overlay-logo');
     const stylesheet = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      extensionPath('src/Overlay/Overlay.css'),
       'utf8'
     );
 
@@ -204,7 +204,7 @@ describe('overlay refresh operation', () => {
     const close =
       shadowRoot?.querySelector<HTMLButtonElement>('.overlay-close');
     const stylesheet = readFileSync(
-      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      extensionPath('src/Overlay/Overlay.css'),
       'utf8'
     );
 

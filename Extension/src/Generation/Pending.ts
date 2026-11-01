@@ -3,6 +3,7 @@ import type { GenerationReport } from './Report';
 import type { SettledPageState } from './Context';
 import { snapshotAnswer, type FinalizedPageHandoff } from '../Fill/Handoff';
 import { computePageFingerprint } from '../Forms/Normalization';
+import { cloneAnswerValue } from '../Shared/Utils';
 
 export type PendingAnswer = Answer & {
   questionId: string;
@@ -36,9 +37,7 @@ export function createPendingPageStateFromHandoff(
               {
                 questionId: entry.answer.questionId as string,
                 questionText: entry.questionText,
-                value: Array.isArray(entry.answer.value)
-                  ? [...entry.answer.value]
-                  : entry.answer.value,
+                value: cloneAnswerValue(entry.answer.value),
               },
             ]
       )
@@ -65,9 +64,7 @@ export function createPendingPageStateFromReport(
       {
         questionId: result.questionId as string,
         questionText: question.text,
-        value: Array.isArray(result.answer.value)
-          ? [...result.answer.value]
-          : result.answer.value,
+        value: cloneAnswerValue(result.answer.value),
       },
     ];
   });
@@ -88,7 +85,7 @@ export function editPendingAnswer(
 ): PendingPageState {
   const answers = state.answers.map((answer) =>
     answer.questionId === questionId
-      ? { ...answer, value: Array.isArray(value) ? [...value] : value }
+      ? { ...answer, value: cloneAnswerValue(value) }
       : answer
   );
   if (!answers.some((answer) => answer.questionId === questionId)) {
@@ -107,9 +104,7 @@ export function capturePendingPageAtSettlement(
     return current
       ? {
           ...answer,
-          value: Array.isArray(current.value)
-            ? [...current.value]
-            : current.value,
+          value: cloneAnswerValue(current.value),
         }
       : answer;
   });
@@ -131,7 +126,7 @@ export function commitPendingPageAfterSuccessfulTransition(
     answers: state.answers.map((answer) => ({
       answer: {
         questionId: answer.questionId,
-        value: Array.isArray(answer.value) ? [...answer.value] : answer.value,
+        value: cloneAnswerValue(answer.value),
       },
       questionText: answer.questionText,
     })),

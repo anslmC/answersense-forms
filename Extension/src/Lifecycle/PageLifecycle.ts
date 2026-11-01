@@ -23,6 +23,7 @@ import {
   type SettledPageState,
 } from '../Generation/Context';
 import { GenerationCoordinator } from '../Generation/Pipeline';
+import { cloneAnswerValue } from '../Shared/Utils';
 import {
   beginNextNavigation,
   confirmPageTransition,
@@ -425,9 +426,7 @@ export class PageLifecycle {
         answersById.set(question.id, {
           answer: {
             questionId: question.id,
-            value: Array.isArray(question.existingInput.value)
-              ? [...question.existingInput.value]
-              : question.existingInput.value,
+            value: cloneAnswerValue(question.existingInput.value),
           },
           questionText:
             answersById.get(question.id)?.questionText ?? question.text ?? '',
@@ -500,9 +499,7 @@ export class PageLifecycle {
           ? {
               ...question,
               existingInput: {
-                value: Array.isArray(answer.value)
-                  ? [...answer.value]
-                  : answer.value,
+                value: cloneAnswerValue(answer.value),
                 hasValue: true,
               },
             }
@@ -604,9 +601,7 @@ export class PageLifecycle {
       if (capture.status !== 'unavailable') {
         return question;
       }
-      const value = Array.isArray(previousQuestion.existingInput.value)
-        ? [...previousQuestion.existingInput.value]
-        : previousQuestion.existingInput.value;
+      const value = cloneAnswerValue(previousQuestion.existingInput.value);
       const selectedValues = new Set(Array.isArray(value) ? value : [value]);
       return {
         ...question,
@@ -680,9 +675,7 @@ export class PageLifecycle {
       ) {
         return question;
       }
-      const value = Array.isArray(previousInput.value)
-        ? [...previousInput.value]
-        : previousInput.value;
+      const value = cloneAnswerValue(previousInput.value);
       const selectedValues = new Set(Array.isArray(value) ? value : [value]);
       return {
         ...question,

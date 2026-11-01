@@ -8,14 +8,15 @@ import type {
 import { systemInstruction } from './SystemInstructions';
 
 export const NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
-export const NVIDIA_GPT_OSS_MODEL = 'openai/gpt-oss-20b';
+export const NVIDIA_NEMOTRON_LIGHTNING_MODEL =
+  'nvidia/nemotron-3.5-lightning-30b-a3b';
 export const NVIDIA_ENDPOINT =
   'https://integrate.api.nvidia.com/v1/chat/completions';
 export const NVIDIA_REQUEST_TIMEOUT_MS = 30_000;
 const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze(
   {
     [NVIDIA_MODEL]: 16384,
-    [NVIDIA_GPT_OSS_MODEL]: 4096,
+    [NVIDIA_NEMOTRON_LIGHTNING_MODEL]: 4096,
   }
 );
 const NVIDIA_MODELS = new Set(Object.keys(NVIDIA_MODEL_MAX_TOKENS));
@@ -95,6 +96,10 @@ function createPayload(
   if (maxTokens === undefined) {
     throw new NvidiaProviderError('INVALID_REQUEST');
   }
+  const reasoningParameters =
+    modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL
+      ? { chat_template_kwargs: { enable_thinking: false } }
+      : { reasoning_effort: 'low' };
   return {
     model: modelId,
     messages: [
@@ -104,7 +109,7 @@ function createPayload(
     temperature: 1.0,
     top_p: 0.95,
     max_tokens: maxTokens,
-    reasoning_effort: 'low',
+    ...reasoningParameters,
     stream: false,
   };
 }
