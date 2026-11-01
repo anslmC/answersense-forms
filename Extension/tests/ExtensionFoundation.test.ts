@@ -119,7 +119,9 @@ describe('Question title qualification', () => {
     ['one-letter title with spaced question-number prefix', '4. j *', false],
   ])('qualifies %s title independently', (_label, title, expected) => {
     expect(questionTitleRejectionReason(title)).toBe(
-      expected ? null : 'Question title must contain at least two letters or numbers.'
+      expected
+        ? null
+        : 'Question title must contain at least two letters or numbers.'
     );
   });
 
@@ -132,12 +134,14 @@ describe('Question title qualification', () => {
       </div>`
     );
 
-    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
-      kind: 'unsupported',
-      id: 'no-title',
-      text: null,
-      reason: 'Question text is unavailable.',
-    });
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject(
+      {
+        kind: 'unsupported',
+        id: 'no-title',
+        text: null,
+        reason: 'Question text is unavailable.',
+      }
+    );
   });
 
   it('keeps a numbered required one-letter title unsupported without rewriting its title', () => {
@@ -168,12 +172,14 @@ describe('Question title qualification', () => {
       </div>`
     );
 
-    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
-      kind: 'unsupported',
-      id: 'q4',
-      text: 'j',
-      reason: 'Question title must contain at least two letters or numbers.',
-    });
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject(
+      {
+        kind: 'unsupported',
+        id: 'q4',
+        text: 'j',
+        reason: 'Question title must contain at least two letters or numbers.',
+      }
+    );
   });
 
   it.each([
@@ -181,34 +187,50 @@ describe('Question title qualification', () => {
     ['paragraph', 'paragraph', '<textarea></textarea>'],
     ['multiple choice', 'multiple-choice', '<div role="checkbox"></div>'],
     ['single choice', 'single-choice', '<div role="radio"></div>'],
-  ])('rejects the one-letter title j for %s questions', (_label, type, control) => {
-    const document = createRespondentQuestionDocument(
-      `<div role="listitem" data-question-id="one-letter" data-question-type="${type}" data-question-text="j">${control}</div>`
-    );
+  ])(
+    'rejects the one-letter title j for %s questions',
+    (_label, type, control) => {
+      const document = createRespondentQuestionDocument(
+        `<div role="listitem" data-question-id="one-letter" data-question-type="${type}" data-question-text="j">${control}</div>`
+      );
 
-    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
-      kind: 'unsupported',
-      id: 'one-letter',
-      text: 'j',
-      reason: 'Question title must contain at least two letters or numbers.',
-    });
-  });
+      expect(
+        discoverActiveGoogleFormsPage(document)?.questions[0]
+      ).toMatchObject({
+        kind: 'unsupported',
+        id: 'one-letter',
+        text: 'j',
+        reason: 'Question title must contain at least two letters or numbers.',
+      });
+    }
+  );
 
   it.each([
-    ['multiple choice', '<div role="radio" aria-label="Long option one"></div><div role="radio" aria-label="Long option two"></div>'],
-    ['checkboxes', '<div role="checkbox" aria-label="Long option one"></div><div role="checkbox" aria-label="Long option two"></div>'],
-  ])('does not let populated %s options qualify an empty title', (_label, options) => {
-    const document = createRespondentQuestionDocument(
-      `<div role="listitem" data-question-id="empty-title" data-question-text="">${options}</div>`
-    );
+    [
+      'multiple choice',
+      '<div role="radio" aria-label="Long option one"></div><div role="radio" aria-label="Long option two"></div>',
+    ],
+    [
+      'checkboxes',
+      '<div role="checkbox" aria-label="Long option one"></div><div role="checkbox" aria-label="Long option two"></div>',
+    ],
+  ])(
+    'does not let populated %s options qualify an empty title',
+    (_label, options) => {
+      const document = createRespondentQuestionDocument(
+        `<div role="listitem" data-question-id="empty-title" data-question-text="">${options}</div>`
+      );
 
-    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
-      kind: 'unsupported',
-      id: 'empty-title',
-      text: null,
-      reason: 'Question text is unavailable.',
-    });
-  });
+      expect(
+        discoverActiveGoogleFormsPage(document)?.questions[0]
+      ).toMatchObject({
+        kind: 'unsupported',
+        id: 'empty-title',
+        text: null,
+        reason: 'Question text is unavailable.',
+      });
+    }
+  );
 });
 
 describe('Extension foundation', () => {
@@ -342,7 +364,10 @@ describe('Active Google Forms page discovery', () => {
 
   it('falls back to container data-question-id and id for question identity', () => {
     const identityCases = [
-      { attribute: 'data-question-id="dummy-data-id"', expectedId: 'dummy-data-id' },
+      {
+        attribute: 'data-question-id="dummy-data-id"',
+        expectedId: 'dummy-data-id',
+      },
       { attribute: 'id="dummy-element-id"', expectedId: 'dummy-element-id' },
     ];
 
@@ -381,13 +406,15 @@ describe('Active Google Forms page discovery', () => {
       </div>`
     );
 
-    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject({
-      kind: 'supported',
-      id: 'stable-question-id',
-      text: 'True or False',
-      type: 'single-choice',
-      existingValue: 'True',
-    });
+    expect(discoverActiveGoogleFormsPage(document)?.questions[0]).toMatchObject(
+      {
+        kind: 'supported',
+        id: 'stable-question-id',
+        text: 'True or False',
+        type: 'single-choice',
+        existingValue: 'True',
+      }
+    );
   });
 
   it('marks a visible short-answer question without an identity source unsupported', () => {
@@ -578,7 +605,11 @@ describe('Active Google Forms page discovery', () => {
       pageId: 'questions:301',
       formId: 'example',
       questions: [
-        expect.objectContaining({ id: '301', kind: 'supported', text: 'What is your name?' }),
+        expect.objectContaining({
+          id: '301',
+          kind: 'supported',
+          text: 'What is your name?',
+        }),
       ],
     });
   });

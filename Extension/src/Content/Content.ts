@@ -69,6 +69,22 @@ const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
 
+type FrameHandle = number | ReturnType<typeof setTimeout>;
+
+function requestFrame(callback: () => void): FrameHandle {
+  return typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(callback)
+    : setTimeout(callback, 0);
+}
+
+function cancelFrame(handle: FrameHandle): void {
+  if (typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(handle as number);
+  } else {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  }
+}
+
 function setLauncherOpen(open: boolean): void {
   if (!launcherHost || !launcherButton) return;
   launcherHost.classList.toggle('is-open', open);
@@ -103,10 +119,11 @@ function renderLauncher(): void {
     overlayHandle ||
     overlayMount ||
     !document.documentElement
-  ) return;
-  const existing = document.getElementById(LAUNCHER_HOST_ID) as
-    | HTMLDivElement
-    | null;
+  )
+    return;
+  const existing = document.getElementById(
+    LAUNCHER_HOST_ID
+  ) as HTMLDivElement | null;
   if (existing) {
     launcherHost = existing;
     launcherButton = existing.shadowRoot?.querySelector('button') ?? null;
@@ -204,7 +221,8 @@ async function renderDelayedLauncher(generation: number): Promise<void> {
     !isLauncherEligibleNow() ||
     overlayHandle ||
     overlayMount
-  ) return;
+  )
+    return;
   const overlayIsActive = await readOverlayPreference();
   if (
     overlayIsActive ||
@@ -212,7 +230,8 @@ async function renderDelayedLauncher(generation: number): Promise<void> {
     !isLauncherEligibleNow() ||
     overlayHandle ||
     overlayMount
-  ) return;
+  )
+    return;
   renderLauncher();
 }
 
@@ -241,7 +260,9 @@ function ensureLauncher(): void {
 }
 
 ensureLauncher();
-window.addEventListener('pagehide', cancelPendingLauncherRender, { once: true });
+window.addEventListener('pagehide', cancelPendingLauncherRender, {
+  once: true,
+});
 
 async function setOverlayPreference(open: boolean): Promise<void> {
   await chrome.storage.local.set({ [OVERLAY_UI_STORAGE_KEY]: open });
@@ -298,13 +319,15 @@ function publishResetSnapshot(): Promise<void> {
   if (!lifecycle) {
     return Promise.resolve();
   }
-  return lifecyclePublications.publish({
-    type: 'lifecycle-snapshot',
-    reset: true,
-    snapshot: lifecycle.getSnapshot(window.location.pathname),
-  } satisfies LifecyclePublicationMessage).then(() => {
-    lifecyclePublicationError = null;
-  });
+  return lifecyclePublications
+    .publish({
+      type: 'lifecycle-snapshot',
+      reset: true,
+      snapshot: lifecycle.getSnapshot(window.location.pathname),
+    } satisfies LifecyclePublicationMessage)
+    .then(() => {
+      lifecyclePublicationError = null;
+    });
 }
 
 async function forceClearAnswerSenseState(): Promise<
@@ -313,9 +336,7 @@ async function forceClearAnswerSenseState(): Promise<
   await hydration;
   const pageLifecycle = ensureLifecycle();
   pageLifecycle.forceClear();
-  const resetSnapshot = pageLifecycle.getSnapshot(
-    window.location.pathname
-  );
+  const resetSnapshot = pageLifecycle.getSnapshot(window.location.pathname);
   await publishResetSnapshot();
 
   lifecycle = null;
@@ -330,7 +351,7 @@ async function resynchronizeCurrentPage(): Promise<void> {
     throw new Error('Active page could not be discovered for refresh.');
   }
   const pageLifecycle = ensureLifecycle(discovered);
-  pageLifecycle.captureCurrentAnswers(document, false);
+  pageLifecycle.captureCurrentAnswers(document);
   pageLifecycle.resynchronizeCurrentPage(discovered);
   await publishResetSnapshot();
 }
@@ -344,7 +365,7 @@ async function synchronizeCurrentPage(): Promise<
   }
   const pageLifecycle = ensureLifecycle(discovered);
   if (!pageLifecycle.pendingNavigation) {
-    pageLifecycle.captureCurrentAnswers(document, false);
+    pageLifecycle.captureCurrentAnswers(document);
   }
   const synchronization = pageLifecycle.synchronizeCurrentPage(discovered);
   if (synchronization === 'resynchronized') {
@@ -389,14 +410,24 @@ function isNextNavigationButton(button: HTMLElement): boolean {
 }
 
 function observeNextIntent(): void {
-  const captureCurrentAnswers = (): void => {
-    if (!lifecycle) return;
-    lifecycle.captureCurrentAnswers(document);
-    void publishLifecycleSnapshot().catch(recordLifecyclePublicationFailure);
+  let answerCaptureFrame: FrameHandle | null = null;
+  let navigationScanFrame: FrameHandle | null = null;
+
+  // Answer capture and page-navigation scans are coalesced per frame so that
+  // bursts of input events and DOM mutations do not each trigger a full
+  // question scan and a lifecycle round trip.
+  const scheduleAnswerCapture = (): void => {
+    if (!lifecycle || answerCaptureFrame !== null) return;
+    answerCaptureFrame = requestFrame(() => {
+      answerCaptureFrame = null;
+      if (!lifecycle) return;
+      lifecycle.captureCurrentAnswers(document);
+      void publishLifecycleSnapshot().catch(recordLifecyclePublicationFailure);
+    });
   };
 
-  document.addEventListener('input', captureCurrentAnswers);
-  document.addEventListener('change', captureCurrentAnswers);
+  document.addEventListener('input', scheduleAnswerCapture);
+  document.addEventListener('change', scheduleAnswerCapture);
   document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) {
@@ -416,20 +447,38 @@ function observeNextIntent(): void {
   });
 
   const observer = new MutationObserver(() => {
-    if (!lifecycle) {
-      return;
-    }
-    void processObservedNavigation(
-      lifecycle,
-      document,
-      discoverPage,
-      publishTransition,
-      recordLifecyclePublicationFailure
-    ).catch(recordLifecyclePublicationFailure);
+    if (!lifecycle || navigationScanFrame !== null) return;
+    navigationScanFrame = requestFrame(() => {
+      navigationScanFrame = null;
+      if (!lifecycle) return;
+      void processObservedNavigation(
+        lifecycle,
+        document,
+        discoverPage,
+        publishTransition,
+        recordLifecyclePublicationFailure
+      ).catch(recordLifecyclePublicationFailure);
+    });
   });
   if (document.documentElement) {
     observer.observe(document.documentElement, pageNavigationMutationOptions);
   }
+
+  window.addEventListener(
+    'pagehide',
+    () => {
+      if (answerCaptureFrame !== null) {
+        cancelFrame(answerCaptureFrame);
+        answerCaptureFrame = null;
+      }
+      if (navigationScanFrame !== null) {
+        cancelFrame(navigationScanFrame);
+        navigationScanFrame = null;
+      }
+      observer.disconnect();
+    },
+    { once: true }
+  );
 }
 
 function discoverPage() {
@@ -522,8 +571,9 @@ async function hydrateLifecycle(discovered: DiscoveredPage): Promise<void> {
   return lifecycleInitialization;
 }
 
-const hydration = waitForInitialDiscovery(document, discoverPage)
-  .then((discovered) => (discovered ? hydrateLifecycle(discovered) : undefined));
+const hydration = waitForInitialDiscovery(document, discoverPage).then(
+  (discovered) => (discovered ? hydrateLifecycle(discovered) : undefined)
+);
 void hydration.catch(recordLifecyclePublicationFailure);
 void hydration.then(async () => {
   if (await readOverlayPreference()) {
@@ -608,20 +658,30 @@ async function handleRequest(request: {
     }
     const synchronization = await synchronizeCurrentPage();
     if (synchronization === 'pending') {
-      throw new Error('Generation is unavailable while page transition is pending.');
+      throw new Error(
+        'Generation is unavailable while page transition is pending.'
+      );
     }
     if (synchronization === 'resynchronized') {
-      throw new Error('Override generation requires a synchronized current page.');
+      throw new Error(
+        'Override generation requires a synchronized current page.'
+      );
     }
     const intent = parseGenerationIntent(request.intent);
     const validation = validateOverrideSelection(
       ensureLifecycle().currentPage,
       intent
     );
-    if (intent.type === 'OVERRIDE_FILLED' && intent.selectedQuestionIds.length === 0) {
+    if (
+      intent.type === 'OVERRIDE_FILLED' &&
+      intent.selectedQuestionIds.length === 0
+    ) {
       throw new Error('Override selection is invalid: <empty-selection>');
     }
-    return { status: 'valid', invalidQuestionIds: validation.invalidQuestionIds };
+    return {
+      status: 'valid',
+      invalidQuestionIds: validation.invalidQuestionIds,
+    };
   }
 
   if (request.type === 'generate-current-page') {
@@ -634,7 +694,9 @@ async function handleRequest(request: {
     }
     const synchronization = await synchronizeCurrentPage();
     if (synchronization === 'pending') {
-      throw new Error('Generation is unavailable while page transition is pending.');
+      throw new Error(
+        'Generation is unavailable while page transition is pending.'
+      );
     }
     if (synchronization === 'resynchronized') {
       throw new Error('Generation requires a synchronized current page.');
@@ -646,7 +708,10 @@ async function handleRequest(request: {
     let executionIntent = intent;
     let invalidOverrideQuestionIds: readonly string[] = [];
     if (intent.type === 'OVERRIDE_FILLED') {
-      const validation = validateOverrideSelection(pageLifecycle.currentPage, intent);
+      const validation = validateOverrideSelection(
+        pageLifecycle.currentPage,
+        intent
+      );
       if (intent.selectedQuestionIds.length === 0) {
         throw new Error('Override selection is invalid: <empty-selection>');
       }
@@ -701,10 +766,7 @@ async function handleRequest(request: {
     );
     const fillReport = {
       cycleId: filledReport.cycleId,
-      outcomes: Object.freeze([
-        ...filledReport.outcomes,
-        ...invalidOutcomes,
-      ]),
+      outcomes: Object.freeze([...filledReport.outcomes, ...invalidOutcomes]),
     };
     const handoff = createFinalizedPageHandoff(
       document,
@@ -714,9 +776,11 @@ async function handleRequest(request: {
     pageLifecycle.acceptFinalizedHandoff(handoff);
     if (typeof globalThis !== 'undefined') {
       const skipDiagnostics = createSkipDiagnostics(report, fillReport);
-      (globalThis as typeof globalThis & {
-        __answersenseSkipDiagnostics?: readonly object[];
-      }).__answersenseSkipDiagnostics = skipDiagnostics;
+      (
+        globalThis as typeof globalThis & {
+          __answersenseSkipDiagnostics?: readonly object[];
+        }
+      ).__answersenseSkipDiagnostics = skipDiagnostics;
     }
     await publishLifecycleSnapshot();
     return { report, fillReport };

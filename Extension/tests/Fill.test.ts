@@ -10,10 +10,7 @@ import {
   editReviewedAnswer,
   skipReviewedAnswer,
 } from '../src/Review/Decisions';
-import {
-  createSkipDiagnostics,
-  fillReviewedAnswers,
-} from '../src/Fill/Filler';
+import { createSkipDiagnostics, fillReviewedAnswers } from '../src/Fill/Filler';
 import { resolveCurrentQuestionTarget } from '../src/Fill/Resolver';
 
 function question(
@@ -217,11 +214,9 @@ describe('skip cause traceability', () => {
       },
     };
 
-    const report = await new GenerationCoordinator(() => 'dummy-cycle').generate(
-      page,
-      [],
-      generator
-    );
+    const report = await new GenerationCoordinator(
+      () => 'dummy-cycle'
+    ).generate(page, [], generator);
     expect(generatorCalled).toBe(false);
     expect(report?.results).toMatchObject([
       {
@@ -238,14 +233,21 @@ describe('skip cause traceability', () => {
       createAcceptedReviewDecisions(report!)
     );
 
-    expect({ generation: report?.results, fill: fillReport.outcomes }).toMatchObject({
-      generation: [{ status: 'unsupported', reason: 'Dummy unsupported question reason' }],
-      fill: [{
-        questionId: 'dummy-question',
-        status: 'SKIPPED',
-        reason: 'The reviewed answer was skipped.',
-        code: null,
-      }],
+    expect({
+      generation: report?.results,
+      fill: fillReport.outcomes,
+    }).toMatchObject({
+      generation: [
+        { status: 'unsupported', reason: 'Dummy unsupported question reason' },
+      ],
+      fill: [
+        {
+          questionId: 'dummy-question',
+          status: 'SKIPPED',
+          reason: 'The reviewed answer was skipped.',
+          code: null,
+        },
+      ],
     });
   });
 
@@ -268,11 +270,9 @@ describe('skip cause traceability', () => {
       }),
     };
 
-    const report = await new GenerationCoordinator(() => 'dummy-cycle').generate(
-      page,
-      [],
-      generator
-    );
+    const report = await new GenerationCoordinator(
+      () => 'dummy-cycle'
+    ).generate(page, [], generator);
     expect(report?.results).toMatchObject([
       {
         questionId: 'dummy-question',
@@ -288,8 +288,16 @@ describe('skip cause traceability', () => {
       createAcceptedReviewDecisions(report!)
     );
 
-    expect({ generation: report?.results, fill: fillReport.outcomes }).toMatchObject({
-      generation: [{ status: 'GENERATION_FAILED', reason: 'Dummy generation failure reason' }],
+    expect({
+      generation: report?.results,
+      fill: fillReport.outcomes,
+    }).toMatchObject({
+      generation: [
+        {
+          status: 'GENERATION_FAILED',
+          reason: 'Dummy generation failure reason',
+        },
+      ],
       fill: [{ questionId: 'dummy-question', status: 'SKIPPED' }],
     });
   });
@@ -312,11 +320,9 @@ describe('skip cause traceability', () => {
       }),
     };
 
-    const report = await new GenerationCoordinator(() => 'dummy-cycle').generate(
-      page,
-      [],
-      generator
-    );
+    const report = await new GenerationCoordinator(
+      () => 'dummy-cycle'
+    ).generate(page, [], generator);
     const document = createDocument(
       '<div role="listitem" data-question-id="dummy-question" data-question-type="short-text"></div>'
     );
@@ -327,14 +333,21 @@ describe('skip cause traceability', () => {
       createAcceptedReviewDecisions(report!)
     );
 
-    expect({ generation: report?.results, fill: fillReport.outcomes }).toMatchObject({
-      generation: [{ status: 'GENERATED', answer: { value: 'Dummy generated answer' } }],
-      fill: [{
-        questionId: 'dummy-question',
-        status: 'FILL_FAILED',
-        reason: 'The current DOM question has no text input.',
-        code: 'TARGET_NOT_FOUND',
-      }],
+    expect({
+      generation: report?.results,
+      fill: fillReport.outcomes,
+    }).toMatchObject({
+      generation: [
+        { status: 'GENERATED', answer: { value: 'Dummy generated answer' } },
+      ],
+      fill: [
+        {
+          questionId: 'dummy-question',
+          status: 'FILL_FAILED',
+          reason: 'The current DOM question has no text input.',
+          code: 'TARGET_NOT_FOUND',
+        },
+      ],
     });
     expect(fillReport.outcomes[0].status).not.toBe('SKIPPED');
   });
@@ -391,7 +404,9 @@ describe('P4 current DOM resolver', () => {
       if (result.target.kind === 'single-choice') {
         expect(result.target.options).toHaveLength(2);
         expect(
-          result.target.options.map((option) => option.getAttribute('aria-label'))
+          result.target.options.map((option) =>
+            option.getAttribute('aria-label')
+          )
         ).toEqual(['Dummy option A', 'Dummy option B']);
       }
     }
@@ -516,7 +531,7 @@ describe('P4 sequential filling and preservation', () => {
         ) as HTMLTextAreaElement
       ).value
     ).toBe('Paris, Rome');
-    expect(('Paris, Rome').split(',').map((part) => part.trim())).toEqual([
+    expect('Paris, Rome'.split(',').map((part) => part.trim())).toEqual([
       'Paris',
       'Rome',
     ]);
@@ -562,9 +577,7 @@ describe('P4 sequential filling and preservation', () => {
 
   it('leaves a single-blank paragraph answer as a single plain value string without comma splitting', async () => {
     const document = createDocument();
-    const report = reportFor([
-      { questionId: 'paragraph', value: 'Mona Lisa' },
-    ]);
+    const report = reportFor([{ questionId: 'paragraph', value: 'Mona Lisa' }]);
 
     const result = await fillReviewedAnswers(
       document,
@@ -877,7 +890,11 @@ describe('P4 sequential filling and preservation', () => {
 
     const decisions = createAcceptedReviewDecisions(report);
     expect(decisions).toMatchObject([
-      { questionId: 'short', decision: 'accept', answer: { questionId: 'short', value: 'Generated' } },
+      {
+        questionId: 'short',
+        decision: 'accept',
+        answer: { questionId: 'short', value: 'Generated' },
+      },
       { questionId: 'paragraph', decision: 'skip', answer: null },
       { questionId: 'choice', decision: 'skip', answer: null },
     ]);
@@ -907,11 +924,9 @@ describe('P4 sequential filling and preservation', () => {
       ],
     });
     const generator: GenerationInterface = { generate: vi.fn() };
-    const report = await new GenerationCoordinator(() => 'cycle-title-skip').generate(
-      rejectedPage,
-      [],
-      generator
-    );
+    const report = await new GenerationCoordinator(
+      () => 'cycle-title-skip'
+    ).generate(rejectedPage, [], generator);
     expect(generator.generate).not.toHaveBeenCalled();
     expect(report?.results).toMatchObject([
       {
@@ -935,12 +950,17 @@ describe('P4 sequential filling and preservation', () => {
       {
         questionId: 'short',
         generationStatus: 'unsupported',
-        generationReason: 'Question title must contain at least two letters or numbers.',
+        generationReason:
+          'Question title must contain at least two letters or numbers.',
         fillStatus: 'SKIPPED',
       },
     ]);
     expect(
-      (document.querySelector('[data-question-id="short"] input') as HTMLInputElement).value
+      (
+        document.querySelector(
+          '[data-question-id="short"] input'
+        ) as HTMLInputElement
+      ).value
     ).toBe('');
   });
 
@@ -1092,11 +1112,10 @@ describe('P4 sequential filling and preservation', () => {
 
   it('waits for all asynchronous checkbox selections as one outcome', async () => {
     const document = createDocument();
-    const options = ['One', 'Three'].map(
-      (label) =>
-        document.querySelector<HTMLElement>(
-          `[data-question-id="checks"] [aria-label="${label}"]`
-        )!
+    const options = ['One', 'Three'].map((label) =>
+      document.querySelector<HTMLElement>(
+        `[data-question-id="checks"] [aria-label="${label}"]`
+      )!
     );
     for (const option of options) {
       option.click = () => {

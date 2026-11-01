@@ -2,7 +2,10 @@ const KEY_DATABASE = 'answersense-credential-security';
 const KEY_STORE = 'keys';
 const KEY_ID = 'credential-encryption-key';
 const ENVELOPE_VERSION = 1;
+
 let ephemeralKey: CryptoKey | null = null;
+let databasePromise: Promise<IDBDatabase> | null = null;
+let encryptionKeyPromise: Promise<CryptoKey> | null = null;
 
 interface EncryptedValue {
   version: number;
@@ -25,32 +28,47 @@ function encode(value: ArrayBuffer): string {
 }
 
 function decode(value: string): ArrayBuffer {
-  const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(value), (character) =>
+    character.charCodeAt(0)
+  );
   return bytes.buffer as ArrayBuffer;
 }
 
 function openKeyDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (databasePromise) {
+    return databasePromise;
+  }
+  databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(KEY_DATABASE, 1);
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(KEY_STORE);
+      const database = request.result;
+      if (!database.objectStoreNames.contains(KEY_STORE)) {
+        database.createObjectStore(KEY_STORE);
+      }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Credential key storage failed.'));
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => {
+        database.close();
+        databasePromise = null;
+      };
+      resolve(database);
+    };
+    request.onerror = () => {
+      databasePromise = null;
+      reject(request.error ?? new Error('Credential key storage failed.'));
+    };
+    request.onblocked = () => {
+      databasePromise = null;
+      reject(
+        new Error('Credential key storage is blocked by another connection.')
+      );
+    };
   });
+  return databasePromise;
 }
 
-async function readEncryptionKey(): Promise<CryptoKey> {
-  if (typeof indexedDB === 'undefined') {
-    if (!ephemeralKey) {
-      ephemeralKey = await crypto.subtle.generateKey(
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt', 'decrypt']
-      );
-    }
-    return ephemeralKey;
-  }
+async function loadOrCreateEncryptionKey(): Promise<CryptoKey> {
   const database = await openKeyDatabase();
   return new Promise((resolve, reject) => {
     const request = database
@@ -72,7 +90,9 @@ async function readEncryptionKey(): Promise<CryptoKey> {
         transaction.objectStore(KEY_STORE).put(key, KEY_ID);
         transaction.oncomplete = () => resolve(key);
         transaction.onerror = () =>
-          reject(transaction.error ?? new Error('Credential key storage failed.'));
+          reject(
+            transaction.error ?? new Error('Credential key storage failed.')
+          );
       } catch (error) {
         reject(error);
       }
@@ -80,6 +100,28 @@ async function readEncryptionKey(): Promise<CryptoKey> {
     request.onerror = () =>
       reject(request.error ?? new Error('Credential key storage failed.'));
   });
+}
+
+async function readEncryptionKey(): Promise<CryptoKey> {
+  if (typeof indexedDB === 'undefined') {
+    if (!ephemeralKey) {
+      ephemeralKey = await crypto.subtle.generateKey(
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+    }
+    return ephemeralKey;
+  }
+  if (!encryptionKeyPromise) {
+    encryptionKeyPromise = loadOrCreateEncryptionKey();
+  }
+  try {
+    return await encryptionKeyPromise;
+  } catch (error) {
+    encryptionKeyPromise = null;
+    throw error;
+  }
 }
 
 async function encrypt(value: unknown): Promise<EncryptedValue> {
@@ -109,13 +151,24 @@ async function decrypt(value: EncryptedValue): Promise<unknown> {
 export async function getEncryptedCredentialState(
   value: unknown
 ): Promise<unknown> {
-  return isEncryptedValue(value) ? decrypt(value) : value;
+  if (!isEncryptedValue(value)) {
+    return value;
+  }
+  try {
+    return await decrypt(value);
+  } catch {
+    throw new Error(
+      'Stored credentials could not be decrypted. Re-add your API keys to restore the configuration.'
+    );
+  }
 }
 
 export function isEncryptedCredentialState(value: unknown): boolean {
   return isEncryptedValue(value);
 }
 
-export async function encryptCredentialState(value: unknown): Promise<EncryptedValue> {
+export async function encryptCredentialState(
+  value: unknown
+): Promise<EncryptedValue> {
   return encrypt(value);
 }

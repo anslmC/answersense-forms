@@ -41,7 +41,9 @@ export function parseGenerationIntent(value: unknown): GenerationIntent {
     value.type === 'OVERRIDE_FILLED' &&
     'selectedQuestionIds' in value &&
     Array.isArray(value.selectedQuestionIds) &&
-    value.selectedQuestionIds.every((questionId) => typeof questionId === 'string')
+    value.selectedQuestionIds.every(
+      (questionId) => typeof questionId === 'string'
+    )
   ) {
     return createOverrideFilledIntent(value.selectedQuestionIds);
   }
@@ -84,7 +86,8 @@ export function validateOverrideSelection(
   }
 
   return {
-    valid: invalidQuestionIds.length === 0 && intent.selectedQuestionIds.length > 0,
+    valid:
+      invalidQuestionIds.length === 0 && intent.selectedQuestionIds.length > 0,
     invalidQuestionIds:
       intent.selectedQuestionIds.length > 0
         ? invalidQuestionIds

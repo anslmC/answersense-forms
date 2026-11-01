@@ -77,7 +77,8 @@ export function mountAnswerSenseApp(
     configurationRevision: 0,
     validation: null,
   };
-  let credentialAddedMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let credentialAddedMessageTimeout: ReturnType<typeof setTimeout> | null =
+    null;
   let validationOperationSequence = 0;
   let validationTimingOperationId: number | null = null;
   let validationStartedAt: number | null = null;
@@ -119,16 +120,15 @@ export function mountAnswerSenseApp(
 
   function currentConfigurationSelection(): ConfigurationSelection {
     return {
-      providerId: element<HTMLSelectElement>('[data-provider-select]')?.value ?? '',
+      providerId:
+        element<HTMLSelectElement>('[data-provider-select]')?.value ?? '',
       modelId: element<HTMLSelectElement>('[data-model-select]')?.value ?? '',
       credentialId:
         element<HTMLSelectElement>('[data-credential-select]')?.value ?? '',
     };
   }
 
-  function currentSelectionMatches(
-    selection: ConfigurationSelection
-  ): boolean {
+  function currentSelectionMatches(selection: ConfigurationSelection): boolean {
     const current = currentConfigurationSelection();
     return (
       current.providerId === selection.providerId &&
@@ -207,7 +207,8 @@ export function mountAnswerSenseApp(
       if (
         validationTimingOperationId !== operationId ||
         validationStartedAt === null
-      ) return;
+      )
+        return;
       validationElapsedMs = Math.floor(performance.now() - validationStartedAt);
       updateValidationDurationDisplay();
     }, 100);
@@ -218,7 +219,8 @@ export function mountAnswerSenseApp(
     if (
       validationTimingOperationId !== operationId ||
       validationStartedAt === null
-    ) return;
+    )
+      return;
     validationElapsedMs = Math.floor(performance.now() - validationStartedAt);
     validationTimingOperationId = null;
     validationStartedAt = null;
@@ -233,7 +235,8 @@ export function mountAnswerSenseApp(
       active &&
       element<HTMLSelectElement>('[data-provider-select]')?.value ===
         active.providerId &&
-      element<HTMLSelectElement>('[data-model-select]')?.value === active.modelId &&
+      element<HTMLSelectElement>('[data-model-select]')?.value ===
+        active.modelId &&
       element<HTMLSelectElement>('[data-credential-select]')?.value ===
         active.credentialId
     );
@@ -270,7 +273,8 @@ export function mountAnswerSenseApp(
       selected &&
       element<HTMLSelectElement>('[data-provider-select]')?.value ===
         selected.providerId &&
-      element<HTMLSelectElement>('[data-model-select]')?.value === selected.modelId &&
+      element<HTMLSelectElement>('[data-model-select]')?.value ===
+        selected.modelId &&
       element<HTMLSelectElement>('[data-credential-select]')?.value ===
         selected.credentialId
     );
@@ -285,7 +289,8 @@ export function mountAnswerSenseApp(
     return {
       ...configurationState,
       activeConfiguration: selected,
-      configurationDigest: configurationState.selectedConfigurationDigest ?? null,
+      configurationDigest:
+        configurationState.selectedConfigurationDigest ?? null,
       validation: configurationState.selectedValidation ?? null,
     };
   }
@@ -296,8 +301,14 @@ export function mountAnswerSenseApp(
     pendingOverrideIntent = null;
     pendingAllQuestionIds = null;
     selectedSpecificQuestionIds = [];
-    element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
-    element<HTMLElement>('[data-override-specific-list]')?.setAttribute('hidden', '');
+    element<HTMLElement>('[data-override-confirmation]')?.setAttribute(
+      'hidden',
+      ''
+    );
+    element<HTMLElement>('[data-override-specific-list]')?.setAttribute(
+      'hidden',
+      ''
+    );
     const overrideMessage = element<HTMLElement>('[data-override-message]');
     if (overrideMessage) overrideMessage.textContent = '';
   }
@@ -371,8 +382,7 @@ export function mountAnswerSenseApp(
     tooltipText = 'Key was invalid. Please check if you entered the correct key.'
   ): HTMLElement {
     const infoTooltip = createElement('span');
-    infoTooltip.className =
-      'overlay-tooltip validation-failure-info-tooltip';
+    infoTooltip.className = 'overlay-tooltip validation-failure-info-tooltip';
     infoTooltip.dataset.tooltip = tooltipText;
     infoTooltip.setAttribute('role', 'img');
     infoTooltip.setAttribute('aria-label', tooltipText);
@@ -543,9 +553,9 @@ export function mountAnswerSenseApp(
     const icon = createValidationFailureInfoIcon();
     icon.classList.add('skipped-details-icon');
     icon.removeAttribute('id');
-    icon.querySelectorAll('[id]').forEach((element) =>
-      element.removeAttribute('id')
-    );
+    icon
+      .querySelectorAll('[id]')
+      .forEach((element) => element.removeAttribute('id'));
     trigger.append(icon);
 
     const panel = createElement('div');
@@ -624,7 +634,10 @@ export function mountAnswerSenseApp(
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const panelWidth = Math.min(panel.offsetWidth || 320, viewportWidth - 24);
-      const panelHeight = Math.min(panel.offsetHeight || 220, viewportHeight - 24);
+      const panelHeight = Math.min(
+        panel.offsetHeight || 220,
+        viewportHeight - 24
+      );
       const left = Math.min(
         Math.max(12, triggerRect.left),
         Math.max(12, viewportWidth - panelWidth - 12)
@@ -667,7 +680,10 @@ export function mountAnswerSenseApp(
     panel.addEventListener('pointerleave', (event) => {
       lastPointerType = null;
       hoveringDetails = false;
-      if (event.relatedTarget instanceof Node && details.contains(event.relatedTarget)) {
+      if (
+        event.relatedTarget instanceof Node &&
+        details.contains(event.relatedTarget)
+      ) {
         hovered = true;
         updateVisibility();
       } else {
@@ -716,7 +732,8 @@ export function mountAnswerSenseApp(
     const progressText = element<HTMLElement>('[data-workflow-progress-text]');
     const progressFill = element<HTMLElement>('[data-workflow-progress-fill]');
     const forceClearNote = element<HTMLElement>('[data-force-clear-note]');
-    const overlayPanel = scope instanceof HTMLElement ? scope.parentElement : null;
+    const overlayPanel =
+      scope instanceof HTMLElement ? scope.parentElement : null;
     if (
       !status ||
       !detail ||
@@ -734,12 +751,14 @@ export function mountAnswerSenseApp(
     primaryActionContainer ??= primary.parentElement;
 
     if (overlayPanel) {
-      overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');
+      overlayPanel.classList.toggle(
+        'is-generating',
+        state.name === 'GENERATING'
+      );
     }
     renderConfigurationGenerationLock(state.name === 'GENERATING');
 
-    const hideOverride =
-      state.name !== 'REVIEW' || 'status' in state.result;
+    const hideOverride = state.name !== 'REVIEW' || 'status' in state.result;
     if (overrideAction) {
       overrideAction.toggleAttribute('hidden', hideOverride);
       overrideAction.disabled = state.name === 'GENERATING';
@@ -768,9 +787,17 @@ export function mountAnswerSenseApp(
       primary.hidden = false;
     }
     filledStatus.hidden = true;
-    element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute('hidden', true);
+    element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute(
+      'hidden',
+      true
+    );
     progress.hidden = true;
-    progress.classList.remove('is-processing', 'is-complete', 'is-partial', 'is-error');
+    progress.classList.remove(
+      'is-processing',
+      'is-complete',
+      'is-partial',
+      'is-error'
+    );
     progressText.textContent = '';
     primary.disabled = !canGenerateCurrentSelection();
     if (state.name === 'UNSUPPORTED') {
@@ -818,7 +845,9 @@ export function mountAnswerSenseApp(
           createValidationFailureInfoTooltip(
             "Tip: Check your API key, account, and provider access. Some providers may restrict access to certain models or require specific permissions. Read the provider's policies to avoid key restrictions."
           ),
-          document.createTextNode(' Check your API key and project permissions. ')
+          document.createTextNode(
+            ' Check your API key and project permissions. '
+          )
         );
       } else if (state.message === serviceUnavailable503Message) {
         const documentationLink = document.createElement('a');
@@ -849,7 +878,10 @@ export function mountAnswerSenseApp(
         filledStatus.textContent = 'Page Answers already settled';
         filledStatus.classList.add('is-settled');
         filledStatus.hidden = false;
-        element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute('hidden', false);
+        element<HTMLButtonElement>('[data-force-clear]')?.toggleAttribute(
+          'hidden',
+          false
+        );
         if (forceClearNote) forceClearNote.hidden = false;
         return;
       }
@@ -867,17 +899,21 @@ export function mountAnswerSenseApp(
       primary.hidden = true;
       const outcomes = state.result.fillReport.outcomes;
       const activeOverridePresentation =
-        overridePresentation && state.result === overridePresentation.overrideResult
+        overridePresentation &&
+        state.result === overridePresentation.overrideResult
           ? overridePresentation
           : null;
       const isOverrideResult = activeOverridePresentation !== null;
       const summaryOutcomes = isOverrideResult
-        ? activeOverridePresentation.normalResult.fillReport.outcomes.map((outcome) => {
-            const overrideOutcome = activeOverridePresentation.overrideResult.fillReport.outcomes.find(
-              (candidate) => candidate.questionId === outcome.questionId
-            );
-            return overrideOutcome ?? outcome;
-          })
+        ? activeOverridePresentation.normalResult.fillReport.outcomes.map(
+            (outcome) => {
+              const overrideOutcome =
+                activeOverridePresentation.overrideResult.fillReport.outcomes.find(
+                  (candidate) => candidate.questionId === outcome.questionId
+                );
+              return overrideOutcome ?? outcome;
+            }
+          )
         : outcomes;
       const filledCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILLED'
@@ -898,12 +934,28 @@ export function mountAnswerSenseApp(
             typeof outcome.questionId === 'string' ? [outcome.questionId] : []
           )
       );
-      for (const question of filledOverrideCandidates(state.page)) {
-        if (
-          question.id !== null &&
-          !newlyFilledQuestionIds.has(question.id)
-        ) {
-          alreadyFilledQuestionIds.add(question.id);
+      const attemptedQuestionIds = new Set(
+        summaryOutcomes
+          .filter(
+            ({ status }) =>
+              status === 'FILLED' ||
+              status === 'FILL_FAILED' ||
+              status === 'PARTIAL_FILL' ||
+              status === 'PRESERVED_EXISTING'
+          )
+          .flatMap((outcome) =>
+            typeof outcome.questionId === 'string' ? [outcome.questionId] : []
+          )
+      );
+      if (summaryOutcomes.length > 0) {
+        for (const question of filledOverrideCandidates(state.page)) {
+          if (
+            question.id !== null &&
+            !newlyFilledQuestionIds.has(question.id) &&
+            !attemptedQuestionIds.has(question.id)
+          ) {
+            alreadyFilledQuestionIds.add(question.id);
+          }
         }
       }
       const alreadyFilledCount = alreadyFilledQuestionIds.size;
@@ -914,7 +966,8 @@ export function mountAnswerSenseApp(
         ({ status }) => status === 'SKIPPED'
       ).length;
       const overridedCount =
-        overridePresentation && state.result === overridePresentation.overrideResult
+        overridePresentation &&
+        state.result === overridePresentation.overrideResult
           ? overridePresentation.overrideResult.fillReport.outcomes.filter(
               ({ status }) => status === 'FILLED'
             ).length
@@ -937,10 +990,12 @@ export function mountAnswerSenseApp(
       summaryRow.append(summary);
       const generationResults = new Map<string | null, QuestionResult>();
       if (activeOverridePresentation) {
-        for (const result of activeOverridePresentation.normalResult.report.results) {
+        for (const result of activeOverridePresentation.normalResult.report
+          .results) {
           generationResults.set(result.questionId, result);
         }
-        for (const result of activeOverridePresentation.overrideResult.report.results) {
+        for (const result of activeOverridePresentation.overrideResult.report
+          .results) {
           generationResults.set(result.questionId, result);
         }
       } else {
@@ -963,11 +1018,12 @@ export function mountAnswerSenseApp(
       results.append(summaryRow);
       let hasFailureAction = false;
       if (isOverrideResult) {
-        const failedOverrides = activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
-          (outcome) =>
-            outcome.status === 'FILL_FAILED' &&
-            typeof outcome.questionId === 'string'
-        );
+        const failedOverrides =
+          activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
+            (outcome) =>
+              outcome.status === 'FILL_FAILED' &&
+              typeof outcome.questionId === 'string'
+          );
         if (failedOverrides.length > 0) {
           const labels = failedOverrides.map(({ questionId }) => {
             const questionIndex = state.page.questions?.findIndex(
@@ -975,7 +1031,7 @@ export function mountAnswerSenseApp(
             );
             return questionIndex !== undefined && questionIndex >= 0
               ? `Q${questionIndex + 1}`
-              : questionId as string;
+              : (questionId as string);
           });
           const failureNote = createElement('p');
           failureNote.className = 'result-note override-failure';
@@ -1013,7 +1069,8 @@ export function mountAnswerSenseApp(
     const credentialSelect = element<HTMLSelectElement>(
       '[data-credential-select]'
     );
-    if (!saveButton || !providerSelect || !modelSelect || !credentialSelect) return;
+    if (!saveButton || !providerSelect || !modelSelect || !credentialSelect)
+      return;
 
     saveButton.disabled =
       isValidatingCurrentSelection() ||
@@ -1114,33 +1171,35 @@ export function mountAnswerSenseApp(
     for (const provider of configurationState.providers) {
       providerSelect.add(new Option(provider.displayName, provider.providerId));
     }
-    providerSelect.value = preserveConfigurationDraft && configurationState.providers.some(
-      (provider) => provider.providerId === previousProviderId
-    )
-      ? previousProviderId
-      : (configurationState.providers.some(
+    providerSelect.value =
+      preserveConfigurationDraft &&
+      configurationState.providers.some(
+        (provider) => provider.providerId === previousProviderId
+      )
+        ? previousProviderId
+        : ((configurationState.providers.some(
             (provider) => provider.providerId === active?.providerId
           )
-          ? active?.providerId
-          : configurationState.providers[0]?.providerId) ?? '';
+            ? active?.providerId
+            : configurationState.providers[0]?.providerId) ?? '');
     updateAddCredentialButtonLabel(providerSelect);
-        renderedProviderId = providerSelect.value;
+    renderedProviderId = providerSelect.value;
     const models = modelsForProvider(configurationState, providerSelect.value);
     modelSelect.replaceChildren();
     for (const model of models)
       modelSelect.add(new Option(model.displayName, model.modelId));
-    const selectedModelId = preserveConfigurationDraft && models.some(
-      (model) => model.modelId === previousModelId
-    )
-      ? previousModelId
-      : models.some((model) => model.modelId === active?.modelId)
-        ? active?.modelId
-        : undefined;
+    const selectedModelId =
+      preserveConfigurationDraft &&
+      models.some((model) => model.modelId === previousModelId)
+        ? previousModelId
+        : models.some((model) => model.modelId === active?.modelId)
+          ? active?.modelId
+          : undefined;
     modelSelect.value =
       selectedModelId ??
       (models.some((model) => model.modelId === GEMINI_MODEL)
         ? GEMINI_MODEL
-        : models[0]?.modelId ?? '');
+        : (models[0]?.modelId ?? ''));
     credentialSelect.replaceChildren();
     const providerCredentials = configurationState.credentials.filter(
       (item) => item.providerId === providerSelect.value
@@ -1154,18 +1213,23 @@ export function mountAnswerSenseApp(
     }
     for (const credential of providerCredentials) {
       credentialSelect.add(
-        new Option(credential.label || 'Unnamed API key', credential.credentialId)
+        new Option(
+          credential.label || 'Unnamed API key',
+          credential.credentialId
+        )
       );
     }
-    credentialSelect.value = preserveConfigurationDraft && providerCredentials.some(
-      (credential) => credential.credentialId === previousCredentialId
-    )
-      ? previousCredentialId
-      : (providerCredentials.some(
+    credentialSelect.value =
+      preserveConfigurationDraft &&
+      providerCredentials.some(
+        (credential) => credential.credentialId === previousCredentialId
+      )
+        ? previousCredentialId
+        : ((providerCredentials.some(
             (credential) => credential.credentialId === active?.credentialId
           )
-          ? active?.credentialId
-          : providerCredentials[0]?.credentialId) ?? '';
+            ? active?.credentialId
+            : providerCredentials[0]?.credentialId) ?? '');
 
     if (replaceCredentialSelect) {
       replaceCredentialSelect.replaceChildren();
@@ -1177,7 +1241,10 @@ export function mountAnswerSenseApp(
       }
       for (const credential of replaceableCredentials) {
         replaceCredentialSelect.add(
-          new Option(credential.label || 'Unnamed API key', credential.credentialId)
+          new Option(
+            credential.label || 'Unnamed API key',
+            credential.credentialId
+          )
         );
       }
     }
@@ -1192,7 +1259,10 @@ export function mountAnswerSenseApp(
         (credentialCountsByProvider.get(credential.providerId) ?? 0) + 1
       );
     }
-    credentialStatus.classList.add('overlay-tooltip', 'credential-count-tooltip');
+    credentialStatus.classList.add(
+      'overlay-tooltip',
+      'credential-count-tooltip'
+    );
     credentialStatus.dataset.tooltip = [
       ...configurationState.providers.map(
         (provider) =>
@@ -1206,8 +1276,7 @@ export function mountAnswerSenseApp(
       configurationGuidance.textContent =
         (selectedConfigurationMatchesActive()
           ? validGenerationMessage(configurationState)
-          : null) ??
-        'Configure the extension before generating.';
+          : null) ?? 'Configure the extension before generating.';
     }
     const selectionConfigurationState = configurationStateForSelection();
     const configurationStatusText = authorizationStatus(
@@ -1215,7 +1284,8 @@ export function mountAnswerSenseApp(
       isValidatingCurrentSelection(),
       !selectedConfigurationMatchesActive()
     );
-    const isValidationSuccessful = configurationStatusText === 'Already validated.';
+    const isValidationSuccessful =
+      configurationStatusText === 'Already validated.';
     const needsResave =
       configurationStatusText ===
       'Already validated. Save & Validate to use this configuration.';
@@ -1295,8 +1365,7 @@ export function mountAnswerSenseApp(
     message: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     const response = (await chrome.runtime.sendMessage(message)) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (response?.error) {
       throw new ServiceWorkerResponseError(
         typeof response.code === 'string' ? response.code : '',
@@ -1325,7 +1394,8 @@ export function mountAnswerSenseApp(
       return false;
     }
     configurationState = nextState;
-    preserveConfigurationDraft = shouldRender && expectedSelection !== undefined;
+    preserveConfigurationDraft =
+      shouldRender && expectedSelection !== undefined;
     if (shouldRender) {
       renderAll(controller.state);
     }
@@ -1357,7 +1427,8 @@ export function mountAnswerSenseApp(
       if (
         lookupSequence !== selectionLookupSequence ||
         !currentSelectionMatches(selectedConfiguration)
-      ) return;
+      )
+        return;
       configurationState = {
         ...configurationState,
         selectedConfiguration: selectedState.selectedConfiguration ?? null,
@@ -1369,7 +1440,8 @@ export function mountAnswerSenseApp(
       if (
         lookupSequence !== selectionLookupSequence ||
         !currentSelectionMatches(selectedConfiguration)
-      ) return;
+      )
+        return;
       configurationState = {
         ...configurationState,
         selectedConfiguration: null,
@@ -1455,7 +1527,9 @@ export function mountAnswerSenseApp(
   const replaceCredentialForm = element<HTMLElement>(
     '[data-replace-credential-form]'
   );
-  const addCredentialButton = element<HTMLButtonElement>('[data-add-credential]');
+  const addCredentialButton = element<HTMLButtonElement>(
+    '[data-add-credential]'
+  );
   const replaceCredentialButton = element<HTMLButtonElement>(
     '[data-replace-credential]'
   );
@@ -1480,8 +1554,12 @@ export function mountAnswerSenseApp(
   }
   const overrideAll = element<HTMLButtonElement>('[data-override-all]');
   const overrideUncheck = element<HTMLButtonElement>('[data-override-uncheck]');
-  const overrideConfirmation = element<HTMLElement>('[data-override-confirmation]');
-  const overrideConfirmationText = element<HTMLElement>('[data-override-confirmation-text]');
+  const overrideConfirmation = element<HTMLElement>(
+    '[data-override-confirmation]'
+  );
+  const overrideConfirmationText = element<HTMLElement>(
+    '[data-override-confirmation-text]'
+  );
   const overrideCancel = element<HTMLButtonElement>('[data-override-cancel]');
   const overrideConfirm = element<HTMLButtonElement>('[data-override-confirm]');
   const overrideMessage = element<HTMLElement>('[data-override-message]');
@@ -1525,7 +1603,10 @@ export function mountAnswerSenseApp(
       preview.hidden = expanded;
       fullText.hidden = !expanded;
       toggle.setAttribute('aria-expanded', String(expanded));
-      toggle.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} question`);
+      toggle.setAttribute(
+        'aria-label',
+        `${expanded ? 'Collapse' : 'Expand'} question`
+      );
       toggle.textContent = expanded ? '▼' : '►';
     });
     label.append(preview, fullText, toggle);
@@ -1555,8 +1636,7 @@ export function mountAnswerSenseApp(
             createSpecificOverrideIntent(selectedSpecificQuestionIds)
           );
           if (overrideConfirmationText) {
-            overrideConfirmationText.textContent =
-              `Override ${selectedSpecificQuestionIds.length} filled answer${selectedSpecificQuestionIds.length === 1 ? '' : 's'}?`;
+            overrideConfirmationText.textContent = `Override ${selectedSpecificQuestionIds.length} filled answer${selectedSpecificQuestionIds.length === 1 ? '' : 's'}?`;
           }
           overrideConfirmation?.removeAttribute('hidden');
         } else {
@@ -1580,7 +1660,10 @@ export function mountAnswerSenseApp(
       pendingAllQuestionIds = null;
       pendingOverrideIntent = null;
       selectedSpecificQuestionIds = [];
-      element<HTMLElement>('[data-override-confirmation]')?.setAttribute('hidden', '');
+      element<HTMLElement>('[data-override-confirmation]')?.setAttribute(
+        'hidden',
+        ''
+      );
       renderSpecificQuestions();
       if (overrideMessage) overrideMessage.textContent = '';
     }
@@ -1673,8 +1756,7 @@ export function mountAnswerSenseApp(
           : null;
         options.onOverrideIntent?.(updatedIntent);
         if (overrideConfirmationText) {
-          overrideConfirmationText.textContent =
-            `Override ${selectedSpecificQuestionIds.length} filled answer${selectedSpecificQuestionIds.length === 1 ? '' : 's'}?`;
+          overrideConfirmationText.textContent = `Override ${selectedSpecificQuestionIds.length} filled answer${selectedSpecificQuestionIds.length === 1 ? '' : 's'}?`;
         }
         overrideConfirmation?.removeAttribute('hidden');
       }
@@ -1682,8 +1764,11 @@ export function mountAnswerSenseApp(
       if (flow && !flow.hidden) {
         renderSpecificQuestions();
       }
-    } catch {
-      return;
+    } catch (error) {
+      console.error(
+        'AnswerSense could not refresh Override candidates.',
+        error
+      );
     }
   }
 
@@ -1702,8 +1787,7 @@ export function mountAnswerSenseApp(
       });
     pendingAllQuestionIds = selected;
     if (overrideConfirmationText) {
-      overrideConfirmationText.textContent =
-        `Override ${selected.length} filled answer${selected.length === 1 ? '' : 's'}?`;
+      overrideConfirmationText.textContent = `Override ${selected.length} filled answer${selected.length === 1 ? '' : 's'}?`;
     }
     overrideConfirmation?.removeAttribute('hidden');
   });
@@ -1733,17 +1817,23 @@ export function mountAnswerSenseApp(
       return;
     }
     const normalResult =
-      controller.state.name === 'REVIEW' && !('status' in controller.state.result)
+      controller.state.name === 'REVIEW' &&
+      !('status' in controller.state.result)
         ? controller.state.result
         : null;
     pendingAllQuestionIds = null;
     overrideConfirmation?.setAttribute('hidden', '');
-    if (overrideMessage) overrideMessage.textContent = 'Override selection ready.';
+    if (overrideMessage)
+      overrideMessage.textContent = 'Override selection ready.';
     publishOverrideIntent(intent);
     const generation = controller.generate(renderAll, intent);
     localGenerationSnapshotPending = controller.state.name === 'GENERATING';
     void generation.then((state) => {
-      if (normalResult && state.name === 'REVIEW' && !('status' in state.result)) {
+      if (
+        normalResult &&
+        state.name === 'REVIEW' &&
+        !('status' in state.result)
+      ) {
         overridePresentation = { normalResult, overrideResult: state.result };
         resetOverrideFlow();
       } else {
@@ -1764,7 +1854,6 @@ export function mountAnswerSenseApp(
     addCredentialButton &&
     replaceCredentialButton
   ) {
-
     const addCredentialFormElement = addCredentialForm;
     const replaceCredentialFormElement = replaceCredentialForm;
     const credentialLabelElement = credentialLabel;
@@ -1828,7 +1917,10 @@ export function mountAnswerSenseApp(
       hideCredentialForms();
       requiresExplicitConfigurationSave = true;
       preserveConfigurationDraft = true;
-      const models = modelsForProvider(configurationState, providerSelect.value);
+      const models = modelsForProvider(
+        configurationState,
+        providerSelect.value
+      );
       modelSelect.replaceChildren(
         ...models.map((model) => new Option(model.displayName, model.modelId))
       );
@@ -1858,20 +1950,19 @@ export function mountAnswerSenseApp(
         providerSelect.value
       );
       const activeCredentialId =
-        configurationState.activeConfiguration?.providerId === providerSelect.value
+        configurationState.activeConfiguration?.providerId ===
+        providerSelect.value
           ? configurationState.activeConfiguration.credentialId
           : null;
-      credentialSelect.value =
-        credentials.some(
-          (credential) =>
-            credential.credentialId === rememberedCredentialId
-        )
-          ? rememberedCredentialId ?? ''
-          : credentials.some(
-                (credential) => credential.credentialId === activeCredentialId
+      credentialSelect.value = credentials.some(
+        (credential) => credential.credentialId === rememberedCredentialId
+      )
+        ? (rememberedCredentialId ?? '')
+        : credentials.some(
+              (credential) => credential.credentialId === activeCredentialId
             )
-            ? activeCredentialId ?? ''
-            : credentials[0]?.credentialId ?? '';
+          ? (activeCredentialId ?? '')
+          : (credentials[0]?.credentialId ?? '');
       renderedProviderId = providerSelect.value;
       configurationState = {
         ...configurationState,
@@ -1906,7 +1997,10 @@ export function mountAnswerSenseApp(
       resetValidationTiming();
       selectionLookupSequence += 1;
       configurationSelectionRevision += 1;
-      providerCredentialSelections.set(providerSelect.value, credentialSelect.value);
+      providerCredentialSelections.set(
+        providerSelect.value,
+        credentialSelect.value
+      );
       clearConfigurationMessage();
       preserveConfigurationDraft = true;
       updateDeleteConfirmationCopy();
@@ -1960,127 +2054,130 @@ export function mountAnswerSenseApp(
           if (!ownsConfigurationSelection(owner)) return;
           showMessage(
             '[data-credential-message]',
-            error instanceof Error ? error.message : 'API key could not be added.'
+            error instanceof Error
+              ? error.message
+              : 'API key could not be added.'
           );
         }
       }
     );
-    element<HTMLButtonElement>('[data-cancel-add-credential]')?.addEventListener(
-      'click',
-      () => {
-        hideCredentialForms();
-      }
-    );
-    element<HTMLButtonElement>('[data-save-replace-credential]')?.addEventListener(
-      'click',
-      async () => {
-        const owner = captureConfigurationOwnership();
-        try {
-          const selectedCredentialId = replaceCredentialSelect.value;
-          if (!selectedCredentialId) {
-            showMessage(
-              '[data-credential-message]',
-              'Select an existing API key to replace.'
-            );
-            return;
-          }
-          const selectedCredential = configurationState.credentials.find(
-            (credential) => credential.credentialId === selectedCredentialId
-          );
-          const replacingActiveConfiguration =
-            configurationState.activeConfiguration?.providerId ===
-              owner.selection.providerId &&
-            configurationState.activeConfiguration?.modelId ===
-              owner.selection.modelId &&
-            configurationState.activeConfiguration?.credentialId ===
-              selectedCredentialId;
-          const secret = promptForCredentialSecret('replace');
-          if (secret === null) {
-            return;
-          }
-          const replacement = await send({
-            type: 'credential-replace',
-            credentialId: selectedCredentialId,
-            providerId: owner.selection.providerId,
-            label: selectedCredential?.label || 'Unnamed API key',
-            secret,
-          });
-          if (!ownsConfigurationSelection(owner)) return;
-          credentialLabel.value = '';
-          hideCredentialForms();
-          const reloaded = await reloadConfiguration(
-            false,
-            owner.selection,
-            owner.revision
-          );
-          if (!reloaded || !ownsConfigurationSelection(owner)) return;
-          const replacementCredentialId =
-            typeof replacement.credentialId === 'string'
-              ? replacement.credentialId
-              : null;
-          if (replacingActiveConfiguration && replacementCredentialId) {
-            const replacementState = configurationState;
-            const replacementIsActive =
-              replacementState.activeConfiguration?.providerId ===
-                owner.selection.providerId &&
-              replacementState.activeConfiguration?.modelId ===
-                owner.selection.modelId &&
-              replacementState.activeConfiguration?.credentialId ===
-                replacementCredentialId &&
-              replacementState.credentials.some(
-                (credential) =>
-                  credential.credentialId === replacementCredentialId &&
-                  credential.providerId === owner.selection.providerId
-            );
-            if (replacementIsActive) {
-              preserveConfigurationDraft = false;
-              renderAll(controller.state);
-            }
-          } else {
-            const replacementIsSelected =
-              replacementCredentialId !== null &&
-              owner.selection.credentialId === selectedCredentialId &&
-              configurationState.credentials.some(
-                (credential) =>
-                  credential.credentialId === replacementCredentialId &&
-                  credential.providerId === owner.selection.providerId
-              );
-            if (replacementIsSelected && replacementCredentialId) {
-              credentialSelectElement.value = replacementCredentialId;
-              providerCredentialSelections.set(
-                owner.selection.providerId,
-                replacementCredentialId
-              );
-            }
-            preserveConfigurationDraft = true;
-            renderAll(controller.state);
-          }
-          if (!ownsProviderRevision(owner)) return;
-          showMessage('[data-credential-message]', 'API key replaced.');
-          if (
-            replacingActiveConfiguration &&
-            replacementCredentialId &&
-            currentConfigurationSelection().providerId === owner.selection.providerId &&
-            currentConfigurationSelection().modelId === owner.selection.modelId &&
-            currentConfigurationSelection().credentialId === replacementCredentialId
-          ) {
-            await saveAndValidateConfiguration();
-          }
-        } catch (error) {
-          if (!ownsConfigurationSelection(owner)) return;
+    element<HTMLButtonElement>(
+      '[data-cancel-add-credential]'
+    )?.addEventListener('click', () => {
+      hideCredentialForms();
+    });
+    element<HTMLButtonElement>(
+      '[data-save-replace-credential]'
+    )?.addEventListener('click', async () => {
+      const owner = captureConfigurationOwnership();
+      try {
+        const selectedCredentialId = replaceCredentialSelect.value;
+        if (!selectedCredentialId) {
           showMessage(
             '[data-credential-message]',
-            error instanceof Error ? error.message : 'API key could not be replaced.'
+            'Select an existing API key to replace.'
           );
+          return;
         }
-      }
-    );
-    element<HTMLButtonElement>('[data-cancel-replace-credential]')?.addEventListener(
-      'click',
-      () => {
+        const selectedCredential = configurationState.credentials.find(
+          (credential) => credential.credentialId === selectedCredentialId
+        );
+        const replacingActiveConfiguration =
+          configurationState.activeConfiguration?.providerId ===
+            owner.selection.providerId &&
+          configurationState.activeConfiguration?.modelId ===
+            owner.selection.modelId &&
+          configurationState.activeConfiguration?.credentialId ===
+            selectedCredentialId;
+        const secret = promptForCredentialSecret('replace');
+        if (secret === null) {
+          return;
+        }
+        const replacement = await send({
+          type: 'credential-replace',
+          credentialId: selectedCredentialId,
+          providerId: owner.selection.providerId,
+          label: selectedCredential?.label || 'Unnamed API key',
+          secret,
+        });
+        if (!ownsConfigurationSelection(owner)) return;
+        credentialLabel.value = '';
         hideCredentialForms();
+        const reloaded = await reloadConfiguration(
+          false,
+          owner.selection,
+          owner.revision
+        );
+        if (!reloaded || !ownsConfigurationSelection(owner)) return;
+        const replacementCredentialId =
+          typeof replacement.credentialId === 'string'
+            ? replacement.credentialId
+            : null;
+        if (replacingActiveConfiguration && replacementCredentialId) {
+          const replacementState = configurationState;
+          const replacementIsActive =
+            replacementState.activeConfiguration?.providerId ===
+              owner.selection.providerId &&
+            replacementState.activeConfiguration?.modelId ===
+              owner.selection.modelId &&
+            replacementState.activeConfiguration?.credentialId ===
+              replacementCredentialId &&
+            replacementState.credentials.some(
+              (credential) =>
+                credential.credentialId === replacementCredentialId &&
+                credential.providerId === owner.selection.providerId
+            );
+          if (replacementIsActive) {
+            preserveConfigurationDraft = false;
+            renderAll(controller.state);
+          }
+        } else {
+          const replacementIsSelected =
+            replacementCredentialId !== null &&
+            owner.selection.credentialId === selectedCredentialId &&
+            configurationState.credentials.some(
+              (credential) =>
+                credential.credentialId === replacementCredentialId &&
+                credential.providerId === owner.selection.providerId
+            );
+          if (replacementIsSelected && replacementCredentialId) {
+            credentialSelectElement.value = replacementCredentialId;
+            providerCredentialSelections.set(
+              owner.selection.providerId,
+              replacementCredentialId
+            );
+          }
+          preserveConfigurationDraft = true;
+          renderAll(controller.state);
+        }
+        if (!ownsProviderRevision(owner)) return;
+        showMessage('[data-credential-message]', 'API key replaced.');
+        if (
+          replacingActiveConfiguration &&
+          replacementCredentialId &&
+          currentConfigurationSelection().providerId ===
+            owner.selection.providerId &&
+          currentConfigurationSelection().modelId === owner.selection.modelId &&
+          currentConfigurationSelection().credentialId ===
+            replacementCredentialId
+        ) {
+          await saveAndValidateConfiguration();
+        }
+      } catch (error) {
+        if (!ownsConfigurationSelection(owner)) return;
+        showMessage(
+          '[data-credential-message]',
+          error instanceof Error
+            ? error.message
+            : 'API key could not be replaced.'
+        );
       }
-    );
+    });
+    element<HTMLButtonElement>(
+      '[data-cancel-replace-credential]'
+    )?.addEventListener('click', () => {
+      hideCredentialForms();
+    });
     async function saveAndValidateConfiguration(): Promise<void> {
       const selectedConfiguration = currentConfigurationSelection();
       const selectionRevision = configurationSelectionRevision;
@@ -2088,7 +2185,8 @@ export function mountAnswerSenseApp(
         validatingSelection &&
         validatingSelection.revision === selectionRevision &&
         currentSelectionMatches(validatingSelection.selection)
-      ) return;
+      )
+        return;
       const isCurrentSave = (): boolean =>
         selectionRevision === configurationSelectionRevision &&
         currentSelectionMatches(selectedConfiguration);
@@ -2176,10 +2274,9 @@ export function mountAnswerSenseApp(
       }
     }
 
-    element<HTMLButtonElement>('[data-save-validate-configuration]')?.addEventListener(
-      'click',
-      () => void saveAndValidateConfiguration()
-    );
+    element<HTMLButtonElement>(
+      '[data-save-validate-configuration]'
+    )?.addEventListener('click', () => void saveAndValidateConfiguration());
     const deleteConfirmation = element<HTMLElement>(
       '[data-delete-confirmation]'
     );
@@ -2200,8 +2297,7 @@ export function mountAnswerSenseApp(
         credentialSelectElement.selectedOptions[0]?.textContent?.trim() ||
         'Unnamed API key';
       if (deleteConfirmationCopy) {
-        deleteConfirmationCopy.textContent =
-          `Are you sure you want to delete “${keyName}”?`;
+        deleteConfirmationCopy.textContent = `Are you sure you want to delete “${keyName}”?`;
       }
     }
     element<HTMLButtonElement>('[data-delete-credential]')?.addEventListener(
@@ -2247,7 +2343,9 @@ export function mountAnswerSenseApp(
           if (!ownsConfigurationSelection(owner)) return;
           showMessage(
             '[data-configuration-message]',
-            error instanceof Error ? error.message : 'API key could not be deleted.'
+            error instanceof Error
+              ? error.message
+              : 'API key could not be deleted.'
           );
         }
       }
@@ -2300,7 +2398,7 @@ export function mountAnswerSenseApp(
     await Promise.all([
       reloadConfiguration(false),
       controller.discover().then((state) => {
-      options.onState?.(state);
+        options.onState?.(state);
       }),
     ]);
     renderAll(controller.state);

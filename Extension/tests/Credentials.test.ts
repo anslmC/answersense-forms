@@ -75,26 +75,33 @@ describe('BYOK credential storage', () => {
         chromeCredentialStorage.get(CONFIGURATION_STATE_STORAGE_KEY)
       ).resolves.toEqual({ [CONFIGURATION_STATE_STORAGE_KEY]: plaintext });
       expect(set).toHaveBeenCalledOnce();
-      expect(isEncryptedCredentialState(values[CONFIGURATION_STATE_STORAGE_KEY])).toBe(
-        true
-      );
-      expect(JSON.stringify(values[CONFIGURATION_STATE_STORAGE_KEY])).not.toContain(
-        'migration-secret'
-      );
+      expect(
+        isEncryptedCredentialState(values[CONFIGURATION_STATE_STORAGE_KEY])
+      ).toBe(true);
+      expect(
+        JSON.stringify(values[CONFIGURATION_STATE_STORAGE_KEY])
+      ).not.toContain('migration-secret');
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
   it('preserves plaintext configuration state when encrypted persistence fails', async () => {
-    const plaintext = { revision: 0, credentials: [], activeConfiguration: null, validations: [] };
+    const plaintext = {
+      revision: 0,
+      credentials: [],
+      activeConfiguration: null,
+      validations: [],
+    };
     const set = vi.fn(async () => {
       throw new Error('storage unavailable');
     });
     vi.stubGlobal('chrome', {
       storage: {
         local: {
-          get: vi.fn(async () => ({ [CONFIGURATION_STATE_STORAGE_KEY]: plaintext })),
+          get: vi.fn(async () => ({
+            [CONFIGURATION_STATE_STORAGE_KEY]: plaintext,
+          })),
           set,
           remove: vi.fn(async () => undefined),
         },
@@ -122,7 +129,9 @@ describe('BYOK credential storage', () => {
     vi.stubGlobal('chrome', {
       storage: {
         local: {
-          get: vi.fn(async () => ({ [CONFIGURATION_STATE_STORAGE_KEY]: encrypted })),
+          get: vi.fn(async () => ({
+            [CONFIGURATION_STATE_STORAGE_KEY]: encrypted,
+          })),
           set,
           remove: vi.fn(async () => undefined),
         },
@@ -287,7 +296,10 @@ describe('BYOK credential storage', () => {
       })
     ).not.toEqual(first);
     expect(
-      await configurationIdentity({ ...base, label: 'Display label' } as typeof base)
+      await configurationIdentity({
+        ...base,
+        label: 'Display label',
+      } as typeof base)
     ).toEqual(first);
   });
 

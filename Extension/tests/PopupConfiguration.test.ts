@@ -93,18 +93,12 @@ describe('popup configuration state', () => {
       'primary.disabled = !canGenerateCurrentSelection();'
     );
     expect(popupSource).toContain('renderAll(controller.state);');
-    expect(popupSource).toContain(
-      "if (state.name === 'GENERATING') {"
-    );
-    expect(popupSource).toContain(
-      "primary.textContent = 'Generating...';"
-    );
+    expect(popupSource).toContain("if (state.name === 'GENERATING') {");
+    expect(popupSource).toContain("primary.textContent = 'Generating...';");
     expect(popupSource).toContain(
       "filledStatus.textContent = 'Page Answers already settled';"
     );
-    expect(popupSource).toContain(
-      "if ('status' in state.result) {"
-    );
+    expect(popupSource).toContain("if ('status' in state.result) {");
     expect(popupSource).toContain(
       'if (!canGenerateCurrentSelection()) return;'
     );
@@ -119,11 +113,9 @@ describe('popup configuration state', () => {
       resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
+    expect(popupSource).toContain("'[data-save-validate-configuration]'");
     expect(popupSource).toContain(
-      "'[data-save-validate-configuration]'"
-    );
-    expect(popupSource).toContain(
-      "if (!isCurrentValidationValid(configurationState)) {"
+      '!isCurrentValidationValid(configurationState)'
     );
     expect(popupSource).toContain("type: 'configuration-validate'");
     expect(popupSource).toContain('!selectedConfigurationMatchesActive()');
@@ -136,7 +128,9 @@ describe('popup configuration state', () => {
     );
 
     expect(popupSource).toContain("progressFill.style.width = '';");
-    expect(popupSource).toContain("progressBar.removeAttribute('aria-valuetext');");
+    expect(popupSource).toContain(
+      "progressBar.removeAttribute('aria-valuetext');"
+    );
     expect(popupSource).toContain(
       "progress.classList.remove('is-complete', 'is-partial', 'is-error')"
     );
@@ -152,7 +146,10 @@ describe('popup configuration state', () => {
       'utf8'
     );
 
-    expect(popupSource).toContain("overlayPanel.classList.toggle('is-generating', state.name === 'GENERATING');");
+    // Whitespace-insensitive: the toggle may be wrapped across lines.
+    expect(popupSource).toMatch(
+      /overlayPanel\.classList\.toggle\(\s*'is-generating',\s*state\.name === 'GENERATING'\s*\)/
+    );
     expect(overlayStyles).toContain('.overlay-panel.is-generating');
     expect(overlayStyles).toContain('animation: overlay-border-gradient 0.7s');
   });
@@ -184,9 +181,7 @@ describe('popup configuration state', () => {
     expect(validationStatus(validated, false)).toBe('VALID');
     expect(isCurrentValidationValid(validated)).toBe(true);
     expect(authorizationStatus(validated, false)).toBe('Already validated.');
-    expect(validGenerationMessage(validated)).toBe(
-      'Configuration is valid.'
-    );
+    expect(validGenerationMessage(validated)).toBe('Configuration is valid.');
     expect(authorizationStatus(validated, false, true)).toBe(
       'Already validated. Save & Validate to use this configuration.'
     );

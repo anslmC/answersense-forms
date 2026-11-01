@@ -47,7 +47,9 @@ function installChrome(state: ChromeTestState): void {
       onMessage: { addListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
       sendMessage: vi.fn(),
-      getURL: vi.fn((path: string) => `chrome-extension://${extensionId}/${path}`),
+      getURL: vi.fn(
+        (path: string) => `chrome-extension://${extensionId}/${path}`
+      ),
     },
     tabs: {
       query: vi.fn(async () => [{ id: 17 }]),
@@ -310,15 +312,18 @@ describe('Service Worker configuration API boundary', () => {
     );
 
     await expect(
-      handleMessage(
-        { type: 'configuration-validate' },
-        { id: 'other-extension-id', tab: { id: 17 } } as HandlerSender
-      )
+      handleMessage({ type: 'configuration-validate' }, {
+        id: 'other-extension-id',
+        tab: { id: 17 },
+      } as HandlerSender)
     ).rejects.toThrow();
     await expect(
       handleMessage({ type: 'configuration-validate' }, untrustedSender())
     ).resolves.toEqual({ valid: true });
-    expect(validationMock.validate).toHaveBeenCalledWith('raw-secret');
+    expect(validationMock.validate).toHaveBeenCalledWith(
+      'raw-secret',
+      GEMINI_MODEL
+    );
   });
 
   it('validates NVIDIA credentials without a runtime permission request', async () => {
@@ -436,7 +441,8 @@ describe('Service Worker configuration API boundary', () => {
     await handleMessage({ type: 'configuration-validate' }, popupSender());
     await selectConfiguration(second.credentialId);
     const unvalidatedSecond = (await handleMessage(
-      { type: 'configuration-state' }, popupSender()
+      { type: 'configuration-state' },
+      popupSender()
     )) as { validation: unknown };
     expect(unvalidatedSecond.validation).toBeNull();
     await handleMessage({ type: 'configuration-validate' }, popupSender());
@@ -521,7 +527,9 @@ describe('Service Worker configuration API boundary', () => {
     );
     await handleMessage({ type: 'configuration-validate' }, popupSender());
     validationMock.validate.mockRejectedValueOnce(
-      new (await import('../src/Generation/GeminiProvider')).GeminiProviderError(
+      new (
+        await import('../src/Generation/GeminiProvider')
+      ).GeminiProviderError(
         'AUTHENTICATION_FAILED',
         'provider response details'
       )
@@ -566,12 +574,22 @@ describe('Service Worker configuration API boundary', () => {
       popupSender()
     );
 
-    const { GeminiProviderError } = await import('../src/Generation/GeminiProvider');
+    const { GeminiProviderError } =
+      await import('../src/Generation/GeminiProvider');
     const failures = [
-      [new GeminiProviderError('PERMISSION_DENIED', 'denied'), 'PERMISSION_DENIED'],
+      [
+        new GeminiProviderError('PERMISSION_DENIED', 'denied'),
+        'PERMISSION_DENIED',
+      ],
       [new GeminiProviderError('RATE_LIMITED', 'limited'), 'RATE_LIMITED'],
-      [new GeminiProviderError('PROVIDER_UNAVAILABLE', 'unavailable'), 'PROVIDER_UNAVAILABLE'],
-      [new GeminiProviderError('PROVIDER_UNAVAILABLE', 'timeout', 'TIMEOUT'), 'TIMEOUT'],
+      [
+        new GeminiProviderError('PROVIDER_UNAVAILABLE', 'unavailable'),
+        'PROVIDER_UNAVAILABLE',
+      ],
+      [
+        new GeminiProviderError('PROVIDER_UNAVAILABLE', 'timeout', 'TIMEOUT'),
+        'TIMEOUT',
+      ],
       [new TypeError('network failure'), 'NETWORK_FAILURE'],
     ] as const;
 

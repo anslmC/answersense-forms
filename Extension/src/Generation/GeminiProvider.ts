@@ -9,7 +9,11 @@ import { systemInstruction } from './SystemInstructions';
 
 export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 export const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-export const GEMINI_MODEL_INFO_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}`;
+export function geminiModelInfoUrl(modelId: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}`;
+}
+export const GEMINI_MODEL_INFO_URL = geminiModelInfoUrl(GEMINI_MODEL);
+export const GEMINI_REQUEST_TIMEOUT_MS = 30_000;
 
 export type ProviderFailureCode =
   | 'AUTHENTICATION_FAILED'
@@ -20,9 +24,12 @@ export type ProviderFailureCode =
   | 'MALFORMED_PROVIDER_OUTPUT'
   | 'PROVIDER_ERROR';
 
-const SERVER_BUSY_MESSAGE = "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
+const SERVER_BUSY_MESSAGE =
+  "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
 
-function safeCodeForGeminiFailure(code: ProviderFailureCode): ProviderErrorCode {
+function safeCodeForGeminiFailure(
+  code: ProviderFailureCode
+): ProviderErrorCode {
   if (
     code === 'AUTHENTICATION_FAILED' ||
     code === 'PERMISSION_DENIED' ||
@@ -38,7 +45,10 @@ function safeCodeForGeminiFailure(code: ProviderFailureCode): ProviderErrorCode 
     : 'PROVIDER_FAILURE';
 }
 
-export class GeminiProviderError extends Error implements ProviderErrorContract {
+export class GeminiProviderError
+  extends Error
+  implements ProviderErrorContract
+{
   public readonly safeCode: ProviderErrorCode;
   public readonly safeMessageCode: 'SERVER_BUSY' | undefined;
 
@@ -202,10 +212,7 @@ function classifyStatus(status: number, body?: unknown): GeminiProviderError {
     return new GeminiProviderError('QUOTA_EXHAUSTED', 'Quota unavailable.');
   }
   if (status === 503) {
-    return new GeminiProviderError(
-      'PROVIDER_UNAVAILABLE',
-      SERVER_BUSY_MESSAGE
-    );
+    return new GeminiProviderError('PROVIDER_UNAVAILABLE', SERVER_BUSY_MESSAGE);
   }
   if (status >= 500) {
     return new GeminiProviderError(
@@ -316,10 +323,12 @@ const fetchTransport: GeminiTransport = {
     let response: Response;
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
-      response = await fetch(
-        url,
-        {
+      const timeout = setTimeout(
+        () => controller.abort(),
+        GEMINI_REQUEST_TIMEOUT_MS
+      );
+      try {
+        response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -327,9 +336,10 @@ const fetchTransport: GeminiTransport = {
           },
           body: JSON.stringify(body),
           signal: controller.signal,
-        }
-      );
-      clearTimeout(timeout);
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new GeminiProviderError(
@@ -410,18 +420,31 @@ export class GeminiProvider implements GenerationInterface {
   }
 }
 
-export async function validateGeminiCredential(apiKey: string): Promise<void> {
+export async function validateGeminiCredential(
+  apiKey: string,
+  modelId: string = GEMINI_MODEL
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    GEMINI_REQUEST_TIMEOUT_MS
+  );
   let response: Response;
   try {
-    response = await fetch(
-      GEMINI_MODEL_INFO_URL,
-      { headers: { 'x-goog-api-key': apiKey } }
-    );
-  } catch {
+    response = await fetch(geminiModelInfoUrl(modelId), {
+      headers: { 'x-goog-api-key': apiKey },
+      signal: controller.signal,
+    });
+  } catch (error) {
     throw new GeminiProviderError(
       'PROVIDER_UNAVAILABLE',
-      'Provider unavailable.'
+      'Provider unavailable.',
+      error instanceof Error && error.name === 'AbortError'
+        ? 'TIMEOUT'
+        : undefined
     );
+  } finally {
+    clearTimeout(timeout);
   }
   if (!response.ok) {
     let body: unknown = null;

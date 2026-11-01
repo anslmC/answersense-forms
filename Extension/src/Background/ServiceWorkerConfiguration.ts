@@ -29,9 +29,7 @@ export interface ResolvedProviderConfiguration {
   secret: string;
 }
 
-function isProviderConfiguration(
-  configuration: Configuration
-): boolean {
+function isProviderConfiguration(configuration: Configuration): boolean {
   return (
     typeof configuration.providerId === 'string' &&
     typeof configuration.modelId === 'string' &&
@@ -42,9 +40,7 @@ function isProviderConfiguration(
   );
 }
 
-function defaultGeminiConfiguration(
-  credentialId: string
-): Configuration {
+function defaultGeminiConfiguration(credentialId: string): Configuration {
   return {
     providerId: GEMINI_PROVIDER_ID,
     modelId: GEMINI_MODEL,
@@ -68,11 +64,11 @@ export async function resolveActiveProviderConfiguration(
         (credential) => credential.providerId === GEMINI_PROVIDER_ID
       );
   const defaultCredential = geminiCredentials[geminiCredentials.length - 1];
-  const configuration = configured ?? (
-    defaultCredential
+  const configuration =
+    configured ??
+    (defaultCredential
       ? defaultGeminiConfiguration(defaultCredential.credentialId)
-      : null
-  );
+      : null);
 
   if (!configuration || !isProviderConfiguration(configuration)) {
     throw new Error('Configuration required.');
@@ -98,12 +94,16 @@ export async function resolveActiveProviderConfiguration(
     throw new Error('Credential configuration is invalid.');
   }
 
-  const secret = await readCredentialSecret(configuration.credentialId, storage);
+  const secret = await readCredentialSecret(
+    configuration.credentialId,
+    storage
+  );
   if (!secret) {
     throw new Error('Credential configuration is invalid.');
   }
 
-  const configurationDigest = (await configurationIdentity(configuration)).digest;
+  const configurationDigest = (await configurationIdentity(configuration))
+    .digest;
   const authorizationRevision = await getConfigurationStateRevision(storage);
   if (authorizationRevision !== startingRevision) {
     throw new Error('Configuration changed during authorization.');
@@ -133,10 +133,7 @@ export async function resolveAuthorizedProviderConfiguration(
   ) {
     throw new Error('Configuration changed during generation.');
   }
-  const validation = await getValidation(
-    resolved.configurationDigest,
-    storage
-  );
+  const validation = await getValidation(resolved.configurationDigest, storage);
   const finalRevision = await getConfigurationStateRevision(storage);
   if (finalRevision !== resolved.authorizationRevision) {
     throw new Error('Configuration changed during authorization.');

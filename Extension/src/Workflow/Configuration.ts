@@ -60,9 +60,7 @@ export function modelsForProvider(
   );
 }
 
-export function isCurrentValidationValid(
-  state: ConfigurationState
-): boolean {
+export function isCurrentValidationValid(state: ConfigurationState): boolean {
   const configuration = state.activeConfiguration;
   const validation = state.validation;
   return Boolean(
@@ -79,8 +77,7 @@ export function isCurrentValidationValid(
   );
 }
 
-export const VALID_GENERATION_MESSAGE =
-  'Configuration is valid.';
+export const VALID_GENERATION_MESSAGE = 'Configuration is valid.';
 
 export function validGenerationMessage(
   state: ConfigurationState

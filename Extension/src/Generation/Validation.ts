@@ -188,12 +188,14 @@ export function validateGenerationResponse(
   return form.questions.flatMap((question): QuestionResult[] => {
     const titleRejectionReason = questionTitleRejectionReason(question.text);
     if (!question.supported || titleRejectionReason !== null) {
-      return [{
-        questionId: question.id,
-        status: 'unsupported',
-        answer: null,
-        reason: question.unsupportedReason ?? titleRejectionReason,
-      }];
+      return [
+        {
+          questionId: question.id,
+          status: 'unsupported',
+          answer: null,
+          reason: question.unsupportedReason ?? titleRejectionReason,
+        },
+      ];
     }
     if (question.id === null || !candidateIds.has(question.id)) {
       return [];
@@ -202,37 +204,45 @@ export function validateGenerationResponse(
     const questionId = question.id as string;
     const result = resultsById.get(questionId) as GenerationResult;
     if (result.status === 'GENERATION_FAILED') {
-      return [{
-        questionId,
-        status: 'GENERATION_FAILED',
-        answer: null,
-        reason: result.failure.message,
-      }];
+      return [
+        {
+          questionId,
+          status: 'GENERATION_FAILED',
+          answer: null,
+          reason: result.failure.message,
+        },
+      ];
     }
 
     if (result.status === 'ABSTAINED') {
-      return [{
-        questionId,
-        status: 'ABSTAINED',
-        answer: null,
-        reason: result.reason,
-      }];
+      return [
+        {
+          questionId,
+          status: 'ABSTAINED',
+          answer: null,
+          reason: result.reason,
+        },
+      ];
     }
 
     if (!isValidAnswer(question, result.answer.value)) {
-      return [{
-        questionId,
-        status: 'VALIDATION_FAILED',
-        answer: null,
-        reason: 'Generated answer does not match the question contract.',
-      }];
+      return [
+        {
+          questionId,
+          status: 'VALIDATION_FAILED',
+          answer: null,
+          reason: 'Generated answer does not match the question contract.',
+        },
+      ];
     }
 
-    return [{
-      questionId,
-      status: 'GENERATED',
-      answer: { questionId, value: result.answer.value },
-      reason: null,
-    }];
+    return [
+      {
+        questionId,
+        status: 'GENERATED',
+        answer: { questionId, value: result.answer.value },
+        reason: null,
+      },
+    ];
   });
 }

@@ -2,8 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": "..",
+    "types": ["chrome", "vitest/globals", "node"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["tests/**/*.ts"],
+  "include": ["tests/**/*.ts", "src/**/*.ts", "../Shared/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

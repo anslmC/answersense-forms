@@ -1,5 +1,36 @@
-export interface QuestionIdentityOptions {
-  requireDataParams?: boolean;
+/**
+ * Resolves a stable question identity for a discovered question container.
+ *
+ * Google Forms embeds the internal question identifier in the `data-params`
+ * payload (`%.@.[<id>, ...]`). That identifier is preferred because it survives
+ * re-renders and translations. When no usable payload identifier is present,
+ * the container's own identity attributes are used in a fixed, documented
+ * order so discovery and filling always agree on the same question.
+ */
+export function extractQuestionId(question: HTMLElement): string | null {
+  const metadata = Array.from(
+    question.querySelectorAll<HTMLElement>('[data-params]')
+  );
+
+  if (metadata.length === 1) {
+    const payload = parsePayload(metadata[0].getAttribute('data-params') ?? '');
+    const value = payload?.[0];
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) {
+      return String(value);
+    }
+  }
+
+  for (const candidate of [
+    question.dataset.questionId,
+    question.id,
+    question.getAttribute('aria-labelledby'),
+  ]) {
+    const identity = candidate?.trim();
+    if (identity) {
+      return identity;
+    }
+  }
+  return null;
 }
 
 function parsePayload(raw: string): unknown[] | null {
@@ -48,37 +79,4 @@ function parsePayload(raw: string): unknown[] | null {
   } catch {
     return null;
   }
-}
-
-export function extractQuestionId(
-  question: HTMLElement,
-  _options: QuestionIdentityOptions = {}
-): string | null {
-  const metadata = Array.from(
-    question.querySelectorAll<HTMLElement>('[data-params]')
-  );
-
-  if (metadata.length === 1) {
-    const payload = parsePayload(metadata[0].getAttribute('data-params') ?? '');
-    const value = payload?.[0];
-    if (
-      typeof value === 'number' &&
-      Number.isSafeInteger(value) &&
-      value > 0
-    ) {
-      return String(value);
-    }
-  }
-
-  for (const candidate of [
-    question.dataset.questionId,
-    question.id,
-    question.getAttribute('aria-labelledby'),
-  ]) {
-    const identity = candidate?.trim();
-    if (identity) {
-      return identity;
-    }
-  }
-  return null;
 }

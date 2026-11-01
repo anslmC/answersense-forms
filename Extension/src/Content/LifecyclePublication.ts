@@ -28,13 +28,11 @@ function assertAcknowledged(
   message: LifecyclePublicationMessage,
   response: unknown
 ): void {
-  if (
-    !isRecord(response) ||
-    response.status !== expectedStatus(message.type)
-  ) {
-    const error = isRecord(response) && typeof response.error === 'string'
-      ? response.error
-      : 'Lifecycle publication was not acknowledged after persistence.';
+  if (!isRecord(response) || response.status !== expectedStatus(message.type)) {
+    const error =
+      isRecord(response) && typeof response.error === 'string'
+        ? response.error
+        : 'Lifecycle publication was not acknowledged after persistence.';
     throw new Error(error);
   }
 }
@@ -51,9 +49,12 @@ export class LifecyclePublicationQueue {
   ) {
     this.maxAttempts = Math.max(1, options.maxAttempts ?? 3);
     this.retryDelaysMs = options.retryDelaysMs ?? [50, 250];
-    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => {
-      setTimeout(resolve, milliseconds);
-    }));
+    this.sleep =
+      options.sleep ??
+      ((milliseconds) =>
+        new Promise((resolve) => {
+          setTimeout(resolve, milliseconds);
+        }));
   }
 
   publish(message: LifecyclePublicationMessage): Promise<void> {

@@ -113,14 +113,17 @@ describe('Service Worker provider error sanitization', () => {
         throw new Error('getter exposed sensitive-token');
       },
     });
-    const proxyError = new Proxy({}, {
-      get(_target, property) {
-        if (property === 'safeCode') {
-          throw new Error('proxy exposed sensitive-token');
-        }
-        return undefined;
-      },
-    });
+    const proxyError = new Proxy(
+      {},
+      {
+        get(_target, property) {
+          if (property === 'safeCode') {
+            throw new Error('proxy exposed sensitive-token');
+          }
+          return undefined;
+        },
+      }
+    );
 
     for (const error of [getterError, proxyError]) {
       expect(sanitizeProviderError(error)).toEqual({
@@ -183,10 +186,7 @@ describe('Service Worker provider error sanitization', () => {
 
   it('preserves only the sanitized provider code at the runtime response boundary', () => {
     const response = serviceWorkerErrorResponse(
-      new SafeServiceWorkerError(
-        'AUTHENTICATION_FAILED',
-        'Credential invalid.'
-      )
+      new SafeServiceWorkerError('AUTHENTICATION_FAILED', 'Credential invalid.')
     );
 
     expect(response).toEqual({
@@ -252,11 +252,14 @@ describe('Service Worker provider error sanitization', () => {
   });
 
   it('serializes hostile unexpected errors as a fixed safe response', () => {
-    const error = new Proxy({}, {
-      getPrototypeOf() {
-        throw new Error('proxy exposed sensitive-token');
-      },
-    });
+    const error = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('proxy exposed sensitive-token');
+        },
+      }
+    );
 
     const response = serviceWorkerErrorResponse(error);
 
@@ -272,10 +275,12 @@ describe('Service Worker sender provenance', () => {
   const extensionId = 'extension-id';
 
   it('accepts only the extension identity', () => {
-    expect(isTrustedExtensionSender({ id: extensionId }, extensionId)).toBe(true);
-    expect(isTrustedExtensionSender({ id: 'other-extension' }, extensionId)).toBe(
-      false
+    expect(isTrustedExtensionSender({ id: extensionId }, extensionId)).toBe(
+      true
     );
+    expect(
+      isTrustedExtensionSender({ id: 'other-extension' }, extensionId)
+    ).toBe(false);
     expect(isTrustedExtensionSender({}, extensionId)).toBe(false);
   });
 
@@ -284,29 +289,40 @@ describe('Service Worker sender provenance', () => {
     expect(
       isTrustedPopupSender({ id: extensionId, tab: { id: 1 } }, extensionId)
     ).toBe(false);
-    expect(isTrustedContentSender({ id: extensionId, tab: { id: 1 } }, extensionId)).toBe(
-      true
+    expect(
+      isTrustedContentSender({ id: extensionId, tab: { id: 1 } }, extensionId)
+    ).toBe(true);
+    expect(isTrustedContentSender({ id: extensionId }, extensionId)).toBe(
+      false
     );
-    expect(isTrustedContentSender({ id: extensionId }, extensionId)).toBe(false);
     expect(
       isTrustedContentSender({ id: extensionId, tab: {} }, extensionId)
     ).toBe(false);
     expect(
-      isTrustedContentSender({ id: 'other-extension', tab: { id: 1 } }, extensionId)
+      isTrustedContentSender(
+        { id: 'other-extension', tab: { id: 1 } },
+        extensionId
+      )
     ).toBe(false);
     expect(
-      isTrustedContentTabSender({ id: extensionId, tab: { id: 7 } }, extensionId, 7)
+      isTrustedContentTabSender(
+        { id: extensionId, tab: { id: 7 } },
+        extensionId,
+        7
+      )
     ).toBe(true);
     expect(
-      isTrustedContentTabSender({ id: extensionId, tab: { id: 7 } }, extensionId, 8)
+      isTrustedContentTabSender(
+        { id: extensionId, tab: { id: 7 } },
+        extensionId,
+        8
+      )
     ).toBe(false);
     const subframeSender = {
       id: extensionId,
       tab: { id: 7 },
       frameId: 2,
     };
-      expect(
-      isTrustedContentSender(subframeSender, extensionId)
-      ).toBe(false);
+    expect(isTrustedContentSender(subframeSender, extensionId)).toBe(false);
   });
 });

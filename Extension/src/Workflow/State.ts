@@ -7,11 +7,7 @@ import {
 } from '../Generation/Intent';
 
 export type UiStateName =
-  | 'UNSUPPORTED'
-  | 'READY'
-  | 'GENERATING'
-  | 'REVIEW'
-  | 'ERROR';
+  'UNSUPPORTED' | 'READY' | 'GENERATING' | 'REVIEW' | 'ERROR';
 
 export interface PageSummary {
   pageId: string;
@@ -42,13 +38,13 @@ export function filledOverrideCandidates(
   );
 }
 
-export function overrideQuestionLabel(
-  question: WorkflowQuestion
-): string {
+export function overrideQuestionLabel(question: WorkflowQuestion): string {
   return question.text ?? '';
 }
 
-export function createAllOverrideIntent(page: PageSummary): OverrideFilledIntent {
+export function createAllOverrideIntent(
+  page: PageSummary
+): OverrideFilledIntent {
   return createOverrideFilledIntent(
     filledOverrideCandidates(page).map((question) => question.id as string)
   );
@@ -77,7 +73,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isGeneratedUiResult(value: unknown): value is GeneratedUiResult {
-  if (!isRecord(value) || !isRecord(value.report) || !isRecord(value.fillReport)) {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.report) ||
+    !isRecord(value.fillReport)
+  ) {
     return false;
   }
   const validReportStatuses = new Set([
@@ -111,7 +111,8 @@ function isGeneratedUiResult(value: unknown): value is GeneratedUiResult {
     value.fillReport.outcomes.every(
       (outcome) =>
         isRecord(outcome) &&
-        (typeof outcome.questionId === 'string' || outcome.questionId === null) &&
+        (typeof outcome.questionId === 'string' ||
+          outcome.questionId === null) &&
         typeof outcome.status === 'string' &&
         validFillStatuses.has(outcome.status)
     )
@@ -196,13 +197,13 @@ export class WorkflowStateMachine {
 
   restore(snapshot: WorkflowSnapshot): UiState {
     this.operationToken += 1;
-    const currentPage = this.current.name === 'UNSUPPORTED'
-      ? null
-      : this.current.page;
+    const currentPage =
+      this.current.name === 'UNSUPPORTED' ? null : this.current.page;
     const page = snapshot.page
       ? {
           ...snapshot.page,
-          questions: snapshot.page.questions ??
+          questions:
+            snapshot.page.questions ??
             (currentPage?.pageId === snapshot.page.pageId
               ? currentPage.questions
               : undefined),
@@ -244,7 +245,9 @@ export class WorkflowStateMachine {
     return this.current;
   }
 
-  beginGeneration(intent: GenerationIntent = { type: 'GENERATE_UNANSWERED' }): UiState {
+  beginGeneration(
+    intent: GenerationIntent = { type: 'GENERATE_UNANSWERED' }
+  ): UiState {
     const canGenerate =
       this.current.name === 'READY' ||
       (this.current.name === 'REVIEW' && intent.type === 'OVERRIDE_FILLED');
@@ -272,7 +275,10 @@ export class WorkflowStateMachine {
       return this.current;
     }
     if (!isUiGenerationResult(result)) {
-      return this.failGeneration(token, 'Generation returned an invalid result.');
+      return this.failGeneration(
+        token,
+        'Generation returned an invalid result.'
+      );
     }
     const page =
       'status' in result

@@ -90,22 +90,21 @@ async function sendToActiveContent(message: WorkerMessage): Promise<unknown> {
   return chrome.tabs.sendMessage(await activeTabId(), message);
 }
 
-const actionApi = (chrome as unknown as {
-  action?: {
-    onClicked?: {
-      addListener?: (listener: (tab: chrome.tabs.Tab) => void) => void;
+const actionApi = (
+  chrome as unknown as {
+    action?: {
+      onClicked?: {
+        addListener?: (listener: (tab: chrome.tabs.Tab) => void) => void;
+      };
     };
-  };
-}).action;
+  }
+).action;
 if (actionApi?.onClicked?.addListener) {
   actionApi.onClicked.addListener((tab) => {
     if (tab.id === undefined) {
       return;
     }
-    if (
-      typeof tab.url !== 'string' ||
-      !isSupportedGoogleFormsPage(tab.url)
-    ) {
+    if (typeof tab.url !== 'string' || !isSupportedGoogleFormsPage(tab.url)) {
       void chrome.scripting
         .executeScript({
           target: { tabId: tab.id },
@@ -115,9 +114,11 @@ if (actionApi?.onClicked?.addListener) {
         .catch(() => undefined);
       return;
     }
-    void chrome.tabs.sendMessage(tab.id, { type: 'toggle-overlay' }).catch(() => {
-      // The content script may not be ready yet on a supported form page.
-    });
+    void chrome.tabs
+      .sendMessage(tab.id, { type: 'toggle-overlay' })
+      .catch(() => {
+        // The content script may not be ready yet on a supported form page.
+      });
   });
 }
 
@@ -141,17 +142,23 @@ async function notifyPopup(message: Record<string, unknown>): Promise<void> {
 }
 
 function notifyGenerationTerminalState(
-  snapshot: Awaited<ReturnType<IntegrationStateStore['updateIfGenerationCurrent']>>
+  snapshot: Awaited<
+    ReturnType<IntegrationStateStore['updateIfGenerationCurrent']>
+  >
 ): void {
   if (!snapshot) {
     return;
   }
-  void notifyPopup({ type: 'p7-state-updated', snapshot }).catch(() => undefined);
+  void notifyPopup({ type: 'p7-state-updated', snapshot }).catch(
+    () => undefined
+  );
 }
 
-async function configurationState(
-  selection?: { providerId: string; modelId: string; credentialId: string }
-): Promise<Record<string, unknown>> {
+async function configurationState(selection?: {
+  providerId: string;
+  modelId: string;
+  credentialId: string;
+}): Promise<Record<string, unknown>> {
   const activeConfiguration = await getActiveConfiguration();
   const identity = activeConfiguration
     ? await configurationIdentity(activeConfiguration)
@@ -381,11 +388,11 @@ export async function handleMessage(
       typeof message.selectedConfiguration === 'object' &&
       message.selectedConfiguration !== null &&
       !Array.isArray(message.selectedConfiguration)
-        ? message.selectedConfiguration as {
+        ? (message.selectedConfiguration as {
             providerId?: unknown;
             modelId?: unknown;
             credentialId?: unknown;
-          }
+          })
         : null;
     return configurationState(
       selection &&
@@ -554,7 +561,7 @@ export async function handleMessage(
             questionCount: message.snapshot.activePage.form.questions.length,
           }
         : (current?.page ?? null),
-      uiState: message.reset ? 'READY' : current?.uiState ?? 'READY',
+      uiState: message.reset ? 'READY' : (current?.uiState ?? 'READY'),
       ...(message.reset ? { result: null, error: null } : {}),
       ...(message.reset ? { generationOperationId: null } : {}),
     });
@@ -611,9 +618,10 @@ export async function handleMessage(
           lifecycle: response.lifecycle,
           page: response.page,
         } satisfies CurrentContentState);
-        const stored = reconciled === latestSnapshot
-          ? latestSnapshot
-          : await stateStore.set(tabId, reconciled);
+        const stored =
+          reconciled === latestSnapshot
+            ? latestSnapshot
+            : await stateStore.set(tabId, reconciled);
         return { supported: true, ...stored };
       }
     } catch {
@@ -643,7 +651,8 @@ export async function handleMessage(
       }
       if (
         !currentContentState ||
-        (currentContentState as { synchronized?: unknown }).synchronized === false
+        (currentContentState as { synchronized?: unknown }).synchronized ===
+          false
       ) {
         throw new SafeServiceWorkerError(
           'GENERATION_PAGE_NOT_SYNCHRONIZED',
@@ -658,15 +667,16 @@ export async function handleMessage(
           type: 'preflight-generation',
           intent: message.intent,
         });
-      } catch (error) {
+      } catch {
         throw new SafeServiceWorkerError(
           'GENERATION_PAGE_NOT_SYNCHRONIZED',
-          error instanceof Error
-            ? error.message
-            : 'Override selection could not be validated.'
+          'Override selection could not be validated.'
         );
       }
-      if (!preflight || (preflight as { status?: unknown }).status !== 'valid') {
+      if (
+        !preflight ||
+        (preflight as { status?: unknown }).status !== 'valid'
+      ) {
         throw new SafeServiceWorkerError(
           'GENERATION_PAGE_NOT_SYNCHRONIZED',
           'Override selection could not be validated.'
@@ -711,17 +721,16 @@ export async function handleMessage(
         throw new Error('Generation returned an invalid result.');
       }
       if ('status' in result && result.status === 'reused') {
-        const terminalSnapshot =
-          await stateStore.updateIfGenerationCurrent(
-            tabId,
-            generationOperationId,
-            {
-              uiState: 'READY',
-              result: null,
-              error: null,
-              generationOperationId: null,
-            }
-          );
+        const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
+          tabId,
+          generationOperationId,
+          {
+            uiState: 'READY',
+            result: null,
+            error: null,
+            generationOperationId: null,
+          }
+        );
         if (!terminalSnapshot) {
           throw new Error('Generation operation was superseded.');
         }
@@ -729,15 +738,15 @@ export async function handleMessage(
         return result;
       }
       const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
-          tabId,
-          generationOperationId,
-          {
-            uiState: 'REVIEW',
-            result,
-            error: null,
-            generationOperationId: null,
-          }
-        );
+        tabId,
+        generationOperationId,
+        {
+          uiState: 'REVIEW',
+          result,
+          error: null,
+          generationOperationId: null,
+        }
+      );
       if (!terminalSnapshot) {
         throw new Error('Generation operation was superseded.');
       }
@@ -768,7 +777,9 @@ export async function handleMessage(
   }
   if (message.type === 'p7-force-clear') {
     if (!isTrustedUiSender(sender, chrome.runtime.id)) {
-      throw new Error('Lifecycle control is only available to the extension UI.');
+      throw new Error(
+        'Lifecycle control is only available to the extension UI.'
+      );
     }
     return sendToActiveContent({ type: 'force-clear' });
   }

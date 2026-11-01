@@ -74,7 +74,10 @@ describe('browser-action entry point', () => {
     const { executeScript, sendMessage, set } = installChrome();
     const listener = await loadActionListener();
 
-    listener({ id: 17, url: 'https://freshbrewed.science/2023/06/29/btop.html' });
+    listener({
+      id: 17,
+      url: 'https://freshbrewed.science/2023/06/29/btop.html',
+    });
     await Promise.resolve();
 
     expect(window.alert).toHaveBeenCalledWith(

@@ -146,7 +146,7 @@ export function reconcileContentState(
     result: isCurrent ? current.result : null,
     error: isCurrent ? current.error : null,
     generationOperationId: isCurrent
-      ? current.generationOperationId ?? null
+      ? (current.generationOperationId ?? null)
       : null,
   };
 }
@@ -197,14 +197,13 @@ export class IntegrationStateStore {
     if (!this.storage) {
       return Promise.resolve();
     }
-    const persistence = this.writeQueue
-      .then(async () => {
-        await this.storage!.set({
-          [INTEGRATION_STATE_STORAGE_KEY]: Object.fromEntries(
-            this.snapshots.entries()
-          ),
-        });
+    const persistence = this.writeQueue.then(async () => {
+      await this.storage!.set({
+        [INTEGRATION_STATE_STORAGE_KEY]: Object.fromEntries(
+          this.snapshots.entries()
+        ),
       });
+    });
     this.writeQueue = persistence.catch((error: unknown) => {
       console.error('AnswerSense session state persistence failed.', error);
     });

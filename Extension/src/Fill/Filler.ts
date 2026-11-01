@@ -489,14 +489,17 @@ export async function fillReviewedAnswers(
     }
 
     if (decision.answer.questionId !== questionId) {
-      outcomes.push(failureOutcome(
-        questionId,
-        {
-          code: 'INVALID_ANSWER',
-          reason: 'The reviewed answer questionId does not match the decision.',
-        },
-        decision.answer
-      ));
+      outcomes.push(
+        failureOutcome(
+          questionId,
+          {
+            code: 'INVALID_ANSWER',
+            reason:
+              'The reviewed answer questionId does not match the decision.',
+          },
+          decision.answer
+        )
+      );
       continue;
     }
 
@@ -504,15 +507,17 @@ export async function fillReviewedAnswers(
       (candidate) => candidate.id === questionId
     );
     if (!question) {
-      outcomes.push(failureOutcome(
-        questionId,
-        {
-          code: 'ELEMENT_NOT_FOUND',
-          reason:
-            'The reviewed question is not present in the normalized form.',
-        },
-        decision.answer
-      ));
+      outcomes.push(
+        failureOutcome(
+          questionId,
+          {
+            code: 'ELEMENT_NOT_FOUND',
+            reason:
+              'The reviewed question is not present in the normalized form.',
+          },
+          decision.answer
+        )
+      );
       continue;
     }
 

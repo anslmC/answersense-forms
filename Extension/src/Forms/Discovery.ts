@@ -175,10 +175,9 @@ function isRequired(question: HTMLElement): boolean {
 }
 
 function discoverQuestion(
-  question: HTMLElement,
-  requireDataParams = false
+  question: HTMLElement
 ): DiscoveredQuestion | UnsupportedQuestion {
-  const id = extractQuestionId(question, { requireDataParams });
+  const id = extractQuestionId(question);
   const text = getQuestionText(question);
   const type = getQuestionType(question);
 
@@ -333,7 +332,8 @@ export function discoverActiveGoogleFormsPage(
     (respondentForm ? null : page.id || page.getAttribute('aria-label'));
   const questions = respondentForm
     ? (findTopLevelQuestionContainers(respondentForm)?.filter(
-        (question) => isVisible(question) && isRespondentQuestionContainer(question)
+        (question) =>
+          isVisible(question) && isRespondentQuestionContainer(question)
       ) ?? [])
     : Array.from(
         page.querySelectorAll<HTMLElement>(
@@ -342,9 +342,7 @@ export function discoverActiveGoogleFormsPage(
       ).filter(isVisible);
 
   const discoveredQuestions = rejectDuplicateQuestionIds(
-    questions.map((question) =>
-      discoverQuestion(question, respondentForm !== null)
-    )
+    questions.map((question) => discoverQuestion(question))
   );
   const pageEntryRange = respondentForm
     ? extractPageEntryRange(respondentForm)

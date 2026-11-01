@@ -275,9 +275,9 @@ describe('P5 page lifecycle', () => {
       activePageId: 'page-2-current',
       formId: 'form-1',
     });
-    expect(lifecycle.currentPage.form.questions.map((candidate) => candidate.id)).toEqual([
-      'current',
-    ]);
+    expect(
+      lifecycle.currentPage.form.questions.map((candidate) => candidate.id)
+    ).toEqual(['current']);
   });
 
   it('keeps current identity when synchronized and replaces same-page changed identity', () => {
@@ -286,9 +286,11 @@ describe('P5 page lifecycle', () => {
     expect(lifecycle.synchronizeCurrentPage(samePage)).toBe('unchanged');
     const cycleBeforeChange = lifecycle.currentCycle.cycleId;
 
-    expect(lifecycle.synchronizeCurrentPage(
-      discoveredPage('page-1', 0, 3, 'changed-question')
-    )).toBe('resynchronized');
+    expect(
+      lifecycle.synchronizeCurrentPage(
+        discoveredPage('page-1', 0, 3, 'changed-question')
+      )
+    ).toBe('resynchronized');
     expect(lifecycle.currentPage.form.questions[0]?.id).toBe(
       'changed-question'
     );
@@ -382,15 +384,14 @@ describe('P5 page lifecycle', () => {
     lifecycle.confirmTransition(createDocument('page-2'));
     lifecycle.handlePreviousOrBack(createDocument('page-1'));
     const discoveryGap = createDocument('page-1');
-    discoveryGap
-      .querySelector('[data-question-id="name"] input')
-      ?.remove();
-    lifecycle.captureCurrentAnswers(discoveryGap, false);
+    discoveryGap.querySelector('[data-question-id="name"] input')?.remove();
+    lifecycle.captureCurrentAnswers(discoveryGap);
 
     expect(
-      lifecycle.synchronizeCurrentPage(
-        { ...discoveredPage('page-1', 0, 3, 'name'), formId: null }
-      )
+      lifecycle.synchronizeCurrentPage({
+        ...discoveredPage('page-1', 0, 3, 'name'),
+        formId: null,
+      })
     ).toBe('unchanged');
     expect(lifecycle.currentPage.form.questions[0]?.existingInput).toEqual({
       value: 'Ada',
@@ -400,9 +401,10 @@ describe('P5 page lifecycle', () => {
     const clearedDocument = createDocument('page-1');
     (clearedDocument.querySelector('input') as HTMLInputElement).value = '';
     lifecycle.captureCurrentAnswers(clearedDocument);
-    lifecycle.synchronizeCurrentPage(
-      { ...discoveredPage('page-1', 0, 3, 'name'), formId: null }
-    );
+    lifecycle.synchronizeCurrentPage({
+      ...discoveredPage('page-1', 0, 3, 'name'),
+      formId: null,
+    });
     expect(lifecycle.currentPage.form.questions[0]?.existingInput).toEqual({
       value: null,
       hasValue: false,
@@ -428,11 +430,7 @@ describe('P5 page lifecycle', () => {
       ?.remove();
     const discovered = discoveredPage('page-1', 0, 3, 'name');
 
-    replacement.reconcileDocument(
-      discovered,
-      discoveryGapDocument,
-      'reload'
-    );
+    replacement.reconcileDocument(discovered, discoveryGapDocument, 'reload');
 
     expect(replacement.currentPage.form.questions[0]?.existingInput).toEqual({
       value: 'Ada',
@@ -464,10 +462,10 @@ describe('P5 page lifecycle', () => {
   });
 
   it('refreshes checkbox state on an unchanged page', () => {
-    const { lifecycle, result } = synchronizeAnswer(
-      'multiple-choice',
-      ['Alpha', 'Beta']
-    );
+    const { lifecycle, result } = synchronizeAnswer('multiple-choice', [
+      'Alpha',
+      'Beta',
+    ]);
 
     expect(result).toBe('unchanged');
     expect(lifecycle.currentPage.form.questions[0].existingInput).toEqual({
@@ -482,9 +480,8 @@ describe('P5 page lifecycle', () => {
   });
 
   it('excludes refreshed answers from all-filled generation', async () => {
-    const { lifecycle, coordinator, discovered } = createControlLifecycle(
-      'short-text'
-    );
+    const { lifecycle, coordinator, discovered } =
+      createControlLifecycle('short-text');
     const refreshed = {
       ...discovered,
       questions: [{ ...discovered.questions[0], existingValue: 'Filled' }],
@@ -538,11 +535,13 @@ describe('P5 page lifecycle', () => {
     const generator: GenerationInterface = {
       generate: vi.fn(async (request) => ({
         cycleId: request.cycleId,
-        results: [{
-          questionId: 'unanswered',
-          status: 'GENERATED' as const,
-          answer: { questionId: 'unanswered', value: 'Generated' },
-        }],
+        results: [
+          {
+            questionId: 'unanswered',
+            status: 'GENERATED' as const,
+            answer: { questionId: 'unanswered', value: 'Generated' },
+          },
+        ],
       })),
     };
 
@@ -565,9 +564,9 @@ describe('P5 page lifecycle', () => {
     const outgoingDocument = createDocument();
     lifecycle.beginNext(outgoingDocument);
 
-    expect(lifecycle.synchronizeCurrentPage(
-      discoveredPage('page-1', 0, 3, 'name')
-    )).toBe('pending');
+    expect(
+      lifecycle.synchronizeCurrentPage(discoveredPage('page-1', 0, 3, 'name'))
+    ).toBe('pending');
     expect(lifecycle.currentPage.form.activePageId).toBe('page-1');
   });
 
@@ -666,7 +665,9 @@ describe('P5 page lifecycle', () => {
     ]);
     expect(lifecycle.currentCycle.cycleId).toBe('cycle-reset');
 
-    const revisitedPageB = lifecycle.handlePreviousOrBack(createDocument('page-2'));
+    const revisitedPageB = lifecycle.handlePreviousOrBack(
+      createDocument('page-2')
+    );
 
     expect(revisitedPageB?.form.activePageId).toBe('page-2');
     expect(lifecycle.currentRevisitStatus).toBe('UNCHANGED_REVISIT');
@@ -1170,7 +1171,6 @@ describe('P5 page lifecycle', () => {
     expect(lifecycle.pendingPage).toBeNull();
   });
 
-
   it('revisiting a page creates a new visit and preserves settled context without duplication', () => {
     const lifecycle = createLifecycle();
     const pageDocument = createDocument();
@@ -1256,7 +1256,11 @@ describe('P5 page lifecycle', () => {
       snapshot
     );
 
-    const active = replacement.reconcileDocument(next, createDocument('page-2'), 'forward');
+    const active = replacement.reconcileDocument(
+      next,
+      createDocument('page-2'),
+      'forward'
+    );
 
     expect(active.form.activePageId).toBe('entry:3-6');
     expect(replacement.context).toEqual([
@@ -1283,11 +1287,7 @@ describe('P5 page lifecycle', () => {
       snapshot
     );
 
-    replacement.reconcileDocument(
-      previousPage,
-      createDocument(),
-      'backward'
-    );
+    replacement.reconcileDocument(previousPage, createDocument(), 'backward');
 
     expect(replacement.currentRevisitStatus).toBe('UNCHANGED_REVISIT');
     expect(replacement.context).toEqual([
@@ -1415,7 +1415,11 @@ describe('P5 page lifecycle', () => {
       { questionId: 'q1', status: 'GENERATED' },
       { questionId: 'q2', status: 'GENERATED' },
       { questionId: 'q3', status: 'unsupported' },
-      { questionId: 'q4', status: 'unsupported', reason: 'Question title must contain at least two letters or numbers.' },
+      {
+        questionId: 'q4',
+        status: 'unsupported',
+        reason: 'Question title must contain at least two letters or numbers.',
+      },
       { questionId: 'q5', status: 'unsupported' },
     ]);
   });
@@ -1449,5 +1453,160 @@ describe('P5 stale cycle protection', () => {
     });
 
     await expect(request).resolves.toBeNull();
+  });
+});
+
+describe('PageLifecycle hydration robustness', () => {
+  it('tolerates a restored snapshot without recorded visits', () => {
+    const coordinator = new GenerationCoordinator(() => 'cycle-adopted');
+    const lifecycle = new PageLifecycle(page, coordinator, {
+      activePage: page,
+      activeCycle: { cycleId: 'cycle-restored' },
+      pending: null,
+      settledPages: [],
+      visits: [],
+      navigation: null,
+      revisitStatus: 'NEW',
+    });
+
+    expect(() => lifecycle.abandon()).not.toThrow();
+    expect(() => lifecycle.restart()).not.toThrow();
+    expect(() =>
+      lifecycle.reconcileDocument(
+        { pageId: 'page-1', formId: 'form-1', questions: [] },
+        createDocument(),
+        'reload'
+      )
+    ).not.toThrow();
+    expect(lifecycle.pageVisits.at(-1)).toMatchObject({
+      pageId: 'page-1',
+      status: 'active',
+    });
+  });
+});
+
+describe('reload reconciliation answer provenance', () => {
+  function capturedLifecycle(): PageLifecycle {
+    const lifecycle = createLifecycle();
+    const answered = createDocument();
+    (answered.querySelector('input') as HTMLInputElement).value = 'Ada';
+    lifecycle.captureCurrentAnswers(answered);
+    return lifecycle;
+  }
+
+  function reloadWithFixture(document: Document): PageLifecycle {
+    const original = capturedLifecycle();
+    const snapshot = original.getSnapshot('/forms/d/e/form/viewform');
+    const replacement = new PageLifecycle(
+      page,
+      new GenerationCoordinator(() => 'cycle-reloaded'),
+      {
+        ...snapshot,
+        activePage: {
+          ...snapshot.activePage,
+          form: { ...snapshot.activePage.form, formId: null },
+        },
+      }
+    );
+    replacement.reconcileDocument(
+      { ...discoveredPage('page-1', 0, 3, 'name'), formId: null },
+      document,
+      'reload'
+    );
+    return replacement;
+  }
+
+  it('does not treat a present-but-cleared control as filled after a reload', () => {
+    const replacement = reloadWithFixture(createDocument());
+
+    expect(replacement.currentPage.form.questions[0]?.existingInput).toEqual({
+      value: null,
+      hasValue: false,
+    });
+  });
+
+  it('keeps a captured answer only while the control is missing', () => {
+    const withoutControl = createDocument();
+    withoutControl.querySelector('[data-question-id="name"] input')?.remove();
+    const replacement = reloadWithFixture(withoutControl);
+
+    expect(replacement.currentPage.form.questions[0]?.existingInput).toEqual({
+      value: 'Ada',
+      hasValue: true,
+    });
+  });
+
+  it('adopts the value of a replaced control instead of the stale answer', () => {
+    const original = capturedLifecycle();
+    const document = new DOMParser().parseFromString(
+      `<!doctype html><form data-clean-viewform-url="https://docs.google.com/forms/d/e/form-1/viewform">
+        <section data-page-id="page-1" data-answersense-active-page="true">
+          <div role="list">
+            <div role="listitem" data-question-id="name" data-question-text="name" data-question-type="short-text">
+              <input type="text" value="Grace">
+            </div>
+          </div>
+        </section>
+      </form>`,
+      'text/html'
+    );
+    const discovered = discoverActiveGoogleFormsPage(document);
+    const replacement = new PageLifecycle(
+      page,
+      new GenerationCoordinator(() => 'cycle-reloaded'),
+      original.getSnapshot('/forms/d/e/form-1/viewform')
+    );
+
+    replacement.reconcileDocument(discovered!, document, 'reload');
+
+    expect(replacement.currentPage.form.questions[0]?.existingInput).toEqual({
+      value: 'Grace',
+      hasValue: true,
+    });
+  });
+
+  it('offers a cleared question for generation after a reload', async () => {
+    const original = capturedLifecycle();
+    const snapshot = original.getSnapshot('/forms/d/e/form/viewform');
+    const coordinator = new GenerationCoordinator(() => 'cycle-reloaded');
+    const replacement = new PageLifecycle(page, coordinator, {
+      ...snapshot,
+      activePage: {
+        ...snapshot.activePage,
+        form: { ...snapshot.activePage.form, formId: null },
+      },
+    });
+    replacement.reconcileDocument(
+      { ...discoveredPage('page-1', 0, 3, 'name'), formId: null },
+      createDocument(),
+      'reload'
+    );
+    const generator = {
+      generate: vi.fn(async (request: GenerationRequest) => ({
+        cycleId: request.cycleId,
+        results: request.questions.map((question) => ({
+          questionId: question.questionId,
+          status: 'GENERATED' as const,
+          answer: { questionId: question.questionId, value: 'Generated' },
+        })),
+      })),
+    };
+
+    const report = await coordinator.generate(
+      replacement.currentPage,
+      replacement.settledPageStates,
+      generator,
+      replacement.currentCycle
+    );
+
+    expect(report?.results.map((result) => result.questionId)).toEqual([
+      'name',
+    ]);
+
+    expect(generator.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [expect.objectContaining({ questionId: 'name' })],
+      })
+    );
   });
 });

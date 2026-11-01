@@ -143,11 +143,11 @@ The configured provider/model determines which adapter receives the authorized c
 - validates returned data against the generation contract
 - classifies authentication, quota, rate-limit, availability, and malformed-output failures
 
-Gemini credential validation calls the Gemini model information endpoint using the same header. The current validation endpoint is for `gemini-3.1-flash-lite`, independently of which registered Gemini model is selected for generation.
+Gemini credential validation calls the model information endpoint for the selected Gemini model using the same header, so validation reflects the model that generation will actually use.
 
 `NvidiaProvider` sends chat-completion requests directly to `https://integrate.api.nvidia.com/v1/chat/completions` and authenticates with an `Authorization: Bearer` API-key header. It validates the response against the shared generation contract and classifies provider and transport failures.
 
-NVIDIA credential validation sends a fixed synthetic garden-tools question to the selected NVIDIA model as a completion probe. It does not use the user's form data; unlike Gemini validation, it is a generation-style API request.
+NVIDIA credential validation sends a fixed synthetic garden-tools question to the selected NVIDIA model as a completion probe. It does not use the user's form data; unlike Gemini validation, it is a generation-style API request that consumes provider tokens.
 
 No AnswerSense API or backend proxy is involved.
 

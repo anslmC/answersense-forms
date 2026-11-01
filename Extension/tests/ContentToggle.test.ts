@@ -4,15 +4,21 @@ const testState = vi.hoisted(() => ({
   supported: false,
   respondent: true,
   overlayActive: false,
-  listener: null as ((request: { type: string }, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null,
+  listener: null as
+    | ((
+        request: { type: string },
+        sender: unknown,
+        sendResponse: (response: unknown) => void
+      ) => boolean)
+    | null,
 }));
 
-const mountOverlay = vi.hoisted(() => vi.fn(async (options?: {
-  onClose?: () => void;
-}) => ({
-  refresh: vi.fn(async () => undefined),
-  close: vi.fn(() => options?.onClose?.()),
-})));
+const mountOverlay = vi.hoisted(() =>
+  vi.fn(async (options?: { onClose?: () => void }) => ({
+    refresh: vi.fn(async () => undefined),
+    close: vi.fn(() => options?.onClose?.()),
+  }))
+);
 
 vi.mock('../src/Forms/Detection', () => ({
   isSupportedGoogleFormsPage: () => testState.supported,
@@ -186,7 +192,9 @@ describe('browser-action overlay toggle', () => {
     expect(button?.getAttribute('aria-label')).toBe('Open AnswerSense');
     expect(button?.hasAttribute('title')).toBe(false);
     expect(button?.querySelector('svg')).not.toBeNull();
-    expect(button?.querySelector('.tooltip')?.textContent).toBe('Open AnswerSense');
+    expect(button?.querySelector('.tooltip')?.textContent).toBe(
+      'Open AnswerSense'
+    );
     expect(host?.shadowRoot?.querySelector('style')?.textContent).toContain(
       '@media (prefers-reduced-motion: reduce)'
     );
@@ -214,7 +222,9 @@ describe('browser-action overlay toggle', () => {
   it('shares one in-flight mount across concurrent open requests', async () => {
     testState.supported = true;
     const { set } = installChrome();
-    let releaseMount!: (handle: Awaited<ReturnType<typeof mountOverlay>>) => void;
+    let releaseMount!: (
+      handle: Awaited<ReturnType<typeof mountOverlay>>
+    ) => void;
     mountOverlay.mockImplementationOnce(
       () => new Promise((resolve) => (releaseMount = resolve))
     );

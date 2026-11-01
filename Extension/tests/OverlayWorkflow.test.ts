@@ -80,15 +80,18 @@ function createSnapshot() {
     lifecycle: {
       activePage: {
         form: {
-          questions: ['question-1', 'question-2', 'question-3', 'question-4'].map(
-            (id, index) => ({
-              id,
-              text: `Question ${index + 1}`,
-              type: 'short-text',
-              supported: true,
-              existingInput: { hasValue: true },
-            })
-          ),
+          questions: [
+            'question-1',
+            'question-2',
+            'question-3',
+            'question-4',
+          ].map((id, index) => ({
+            id,
+            text: `Question ${index + 1}`,
+            type: 'short-text',
+            supported: true,
+            existingInput: { hasValue: true },
+          })),
         },
       },
     },
@@ -107,10 +110,12 @@ function createUnfilledSnapshot() {
         ...snapshot.lifecycle.activePage,
         form: {
           ...snapshot.lifecycle.activePage.form,
-          questions: snapshot.lifecycle.activePage.form.questions.map((question) => ({
-            ...question,
-            existingInput: { hasValue: false },
-          })),
+          questions: snapshot.lifecycle.activePage.form.questions.map(
+            (question) => ({
+              ...question,
+              existingInput: { hasValue: false },
+            })
+          ),
         },
       },
     },
@@ -130,7 +135,11 @@ function createForceClearResponse() {
 
 function createAlreadyFilledGenerationResult() {
   return {
-    report: { cycleId: 'cycle-no-op', status: 'complete' as const, results: [] },
+    report: {
+      cycleId: 'cycle-no-op',
+      status: 'complete' as const,
+      results: [],
+    },
     fillReport: { cycleId: 'cycle-no-op', outcomes: [] },
   };
 }
@@ -183,11 +192,16 @@ function providerActionConfigurationState() {
 }
 
 async function mountProviderActionOverlay(
-  sendMessage: (message: ProviderActionMessage) => Promise<Record<string, unknown>>
+  sendMessage: (
+    message: ProviderActionMessage
+  ) => Promise<Record<string, unknown>>
 ) {
   vi.stubGlobal('chrome', {
     storage: {
-      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+      local: {
+        get: vi.fn(async () => ({})),
+        set: vi.fn(async () => undefined),
+      },
     },
     runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
   });
@@ -199,7 +213,9 @@ async function mountProviderActionOverlay(
   });
   const handle = await mountOverlay();
   await handle.refresh();
-  const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+  const shadowRoot = document.querySelector(
+    '#answersense-overlay-host'
+  )?.shadowRoot;
   const providerSelect = shadowRoot?.querySelector<HTMLSelectElement>(
     '[data-provider-select]'
   );
@@ -221,6 +237,7 @@ describe('live Overlay generation workflow', () => {
   afterEach(() => {
     overlay?.close();
     overlay = null;
+    document.body.replaceChildren();
     document.documentElement.replaceChildren(document.head, document.body);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -274,9 +291,7 @@ describe('live Overlay generation workflow', () => {
     expect(status?.textContent).toMatch(/VALIDATING · \d+ ms/u);
 
     releaseValidation();
-    await vi.waitFor(() =>
-      expect(status?.textContent).toBe('Status: Valid')
-    );
+    await vi.waitFor(() => expect(status?.textContent).toBe('Status: Valid'));
     const finalStatus = status?.textContent;
     expect(status?.textContent).toBe(finalStatus);
   });
@@ -303,92 +318,99 @@ describe('live Overlay generation workflow', () => {
       validation: null,
     };
     let keyOneValidated = false;
-    const sendMessage = vi.fn(async (message: {
-      type?: string;
-      credentialId?: string;
-      selectedConfiguration?: {
-        providerId: string;
-        modelId: string;
-        credentialId: string;
-      };
-    }) => {
-      if (message.type === 'configuration-state') {
-        const selected = message.selectedConfiguration;
-        if (!selected) return currentConfigurationState;
-        const isBackup = selected.credentialId === 'credential-2';
-        return {
-          ...currentConfigurationState,
-          selectedConfiguration: { ...selected, providerConfig: {} },
-          selectedConfigurationDigest: isBackup ? 'digest-2' : 'digest-1',
-          selectedValidation: isBackup
-            ? {
-                ...configurationState.validation,
-                credentialId: 'credential-2',
-                configurationDigest: 'digest-2',
-              }
-            : configurationState.validation,
+    const sendMessage = vi.fn(
+      async (message: {
+        type?: string;
+        credentialId?: string;
+        selectedConfiguration?: {
+          providerId: string;
+          modelId: string;
+          credentialId: string;
         };
-      }
-      if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'configuration-set') {
-        if (!currentConfigurationState.activeConfiguration) {
-          return currentConfigurationState;
-        }
-        const credentialId = message.credentialId ?? 'credential-1';
-        currentConfigurationState = {
-          ...currentConfigurationState,
-          credentials: [
-            ...currentConfigurationState.credentials,
-            ...(credentialId === 'credential-2'
-              ? [
-                  {
-                    credentialId: 'credential-2',
-                    providerId: 'gemini',
-                    label: 'Backup',
-                    createdAt: '2026-09-12T00:00:00.000Z',
-                    updatedAt: '2026-09-12T00:00:00.000Z',
-                  },
-                ]
-              : []),
-          ],
-          activeConfiguration: {
-            ...configurationState.activeConfiguration,
-            credentialId,
-          },
-          configurationDigest:
-            credentialId === 'credential-2' ? 'digest-2' : 'digest-1',
-          validation:
-            credentialId === 'credential-2'
+      }) => {
+        if (message.type === 'configuration-state') {
+          const selected = message.selectedConfiguration;
+          if (!selected) return currentConfigurationState;
+          const isBackup = selected.credentialId === 'credential-2';
+          return {
+            ...currentConfigurationState,
+            selectedConfiguration: { ...selected, providerConfig: {} },
+            selectedConfigurationDigest: isBackup ? 'digest-2' : 'digest-1',
+            selectedValidation: isBackup
               ? {
                   ...configurationState.validation,
                   credentialId: 'credential-2',
                   configurationDigest: 'digest-2',
                 }
-              : keyOneValidated
-                ? configurationState.validation
-                : currentConfigurationState.validation,
-        };
-        return currentConfigurationState;
-      }
-      if (message.type === 'credential-delete-selected') {
-        currentConfigurationState = {
-          ...currentConfigurationState,
-          credentials: currentConfigurationState.credentials.filter(
-            (credential) => credential.credentialId !== message.credentialId
-          ),
-        };
+              : configurationState.validation,
+          };
+        }
+        if (message.type === 'p7-discover') return createSnapshot();
+        if (message.type === 'configuration-set') {
+          if (!currentConfigurationState.activeConfiguration) {
+            return currentConfigurationState;
+          }
+          const credentialId = message.credentialId ?? 'credential-1';
+          currentConfigurationState = {
+            ...currentConfigurationState,
+            credentials: [
+              ...currentConfigurationState.credentials,
+              ...(credentialId === 'credential-2'
+                ? [
+                    {
+                      credentialId: 'credential-2',
+                      providerId: 'gemini',
+                      label: 'Backup',
+                      createdAt: '2026-09-12T00:00:00.000Z',
+                      updatedAt: '2026-09-12T00:00:00.000Z',
+                    },
+                  ]
+                : []),
+            ],
+            activeConfiguration: {
+              ...configurationState.activeConfiguration,
+              credentialId,
+            },
+            configurationDigest:
+              credentialId === 'credential-2' ? 'digest-2' : 'digest-1',
+            validation:
+              credentialId === 'credential-2'
+                ? {
+                    ...configurationState.validation,
+                    credentialId: 'credential-2',
+                    configurationDigest: 'digest-2',
+                  }
+                : keyOneValidated
+                  ? configurationState.validation
+                  : currentConfigurationState.validation,
+          };
+          return currentConfigurationState;
+        }
+        if (message.type === 'credential-delete-selected') {
+          currentConfigurationState = {
+            ...currentConfigurationState,
+            credentials: currentConfigurationState.credentials.filter(
+              (credential) => credential.credentialId !== message.credentialId
+            ),
+          };
+          return {};
+        }
+        if (message.type === 'configuration-validate') {
+          keyOneValidated = true;
+          currentConfigurationState = configurationState;
+          return {};
+        }
         return {};
       }
-      if (message.type === 'configuration-validate') {
-        keyOneValidated = true;
-        currentConfigurationState = configurationState;
-        return {};
-      }
-      return {};
-    });
+    );
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -400,11 +422,17 @@ describe('live Overlay generation workflow', () => {
 
     overlay = await mountOverlay();
     await overlay.refresh();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const modelSelect = shadowRoot?.querySelector<HTMLSelectElement>('[data-model-select]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const modelSelect = shadowRoot?.querySelector<HTMLSelectElement>(
+      '[data-model-select]'
+    );
     expect(modelSelect?.options.length).toBe(2);
     expect(modelSelect?.value).toBe('gemini-3.1-flash-lite');
-    expect(modelSelect?.selectedOptions[0]?.textContent).toBe('Gemini 3.1 Flash-Lite');
+    expect(modelSelect?.selectedOptions[0]?.textContent).toBe(
+      'Gemini 3.1 Flash-Lite'
+    );
     expect(modelSelect?.value).not.toBe('');
 
     currentConfigurationState = {
@@ -432,18 +460,29 @@ describe('live Overlay generation workflow', () => {
     expect(modelSelect?.value).toBe('gemini-3.1-flash-lite');
     expect(modelSelect?.value).not.toBe('');
 
-    const section = shadowRoot?.querySelector<HTMLElement>('[data-configuration-toggle]')
-      ?.parentElement;
-    const toggle = shadowRoot?.querySelector<HTMLButtonElement>('[data-configuration-toggle]');
-    const content = shadowRoot?.querySelector<HTMLElement>('[data-configuration-content]');
+    const section = shadowRoot?.querySelector<HTMLElement>(
+      '[data-configuration-toggle]'
+    )?.parentElement;
+    const toggle = shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-configuration-toggle]'
+    );
+    const content = shadowRoot?.querySelector<HTMLElement>(
+      '[data-configuration-content]'
+    );
 
     expect(section?.children).toHaveLength(3);
     expect(toggle?.textContent).toContain('Configuration');
     expect(toggle?.getAttribute('aria-expanded')).toBe('false');
     expect(toggle?.getAttribute('aria-label')).toBe('Expand Configuration');
-    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
-    const guidance = shadowRoot?.querySelector<HTMLElement>('[data-configuration-guidance]');
-    expect(guidance?.textContent?.trim()).toBe('Configure the extension before generating.');
+    expect(
+      shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent
+    ).toBe('►');
+    const guidance = shadowRoot?.querySelector<HTMLElement>(
+      '[data-configuration-guidance]'
+    );
+    expect(guidance?.textContent?.trim()).toBe(
+      'Configure the extension before generating.'
+    );
     expect(guidance?.tagName).toBe('SPAN');
     expect(guidance?.parentElement?.tagName).toBe('P');
     expect(guidance?.closest('button')).toBeNull();
@@ -455,9 +494,8 @@ describe('live Overlay generation workflow', () => {
       'Configure the extension before generating. Need an API key? Find provider links in Resources.'
     );
     expect(apiKeyLink?.type).toBe('button');
-    const geminiResource = shadowRoot?.querySelector<HTMLAnchorElement>(
-      '.resources-link'
-    );
+    const geminiResource =
+      shadowRoot?.querySelector<HTMLAnchorElement>('.resources-link');
     expect(geminiResource?.textContent?.trim()).toBe('Get Gemini API key');
     expect(geminiResource?.href).toBe('https://aistudio.google.com/app/apikey');
     const overlayStyles = readFileSync(
@@ -476,7 +514,9 @@ describe('live Overlay generation workflow', () => {
     apiKeyLink?.click();
     expect(content?.hidden).toBe(false);
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
-    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
+    expect(
+      shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent
+    ).toBe('▼');
 
     toggle?.click();
     expect(content?.hidden).toBe(true);
@@ -485,7 +525,9 @@ describe('live Overlay generation workflow', () => {
     expect(content?.hidden).toBe(false);
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
     expect(toggle?.getAttribute('aria-label')).toBe('Collapse Configuration');
-    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
+    expect(
+      shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent
+    ).toBe('▼');
     for (const selector of [
       '[data-add-credential]',
       '[data-replace-credential]',
@@ -506,36 +548,54 @@ describe('live Overlay generation workflow', () => {
     expect(content?.textContent).toContain('Replace API key');
     expect(content?.textContent).toContain('Delete this key');
     expect(content?.textContent).not.toContain('Credential');
-    expect(content?.querySelector('[data-add-credential-form]')?.textContent).toContain(
-      'Key Name'
-    );
+    expect(
+      content?.querySelector('[data-add-credential-form]')?.textContent
+    ).toContain('Key Name');
     expect(content?.querySelector('[data-credential-secret]')).toBeNull();
-    expect(content?.querySelector('[data-replace-credential-select]')).not.toBeNull();
-    expect(content?.querySelector('[data-replace-credential-secret]')).toBeNull();
+    expect(
+      content?.querySelector('[data-replace-credential-select]')
+    ).not.toBeNull();
+    expect(
+      content?.querySelector('[data-replace-credential-secret]')
+    ).toBeNull();
     expect(document.querySelector('input[type="password"]')).toBeNull();
     expect(content?.textContent).toContain('Save & Validate');
-    expect(content?.querySelector('[data-configuration-status]')?.textContent).toContain(
-      'Save & Validate'
-    );
+    expect(
+      content?.querySelector('[data-configuration-status]')?.textContent
+    ).toContain('Save & Validate');
 
-    const addCredential = content?.querySelector<HTMLButtonElement>('[data-add-credential]');
-    const addCredentialForm = content?.querySelector<HTMLElement>('[data-add-credential-form]');
-    const replaceCredential = content?.querySelector<HTMLButtonElement>('[data-replace-credential]');
-    const replaceCredentialForm = content?.querySelector<HTMLElement>('[data-replace-credential-form]');
+    const addCredential = content?.querySelector<HTMLButtonElement>(
+      '[data-add-credential]'
+    );
+    const addCredentialForm = content?.querySelector<HTMLElement>(
+      '[data-add-credential-form]'
+    );
+    const replaceCredential = content?.querySelector<HTMLButtonElement>(
+      '[data-replace-credential]'
+    );
+    const replaceCredentialForm = content?.querySelector<HTMLElement>(
+      '[data-replace-credential-form]'
+    );
     addCredential?.click();
     expect(addCredentialForm?.hidden).toBe(false);
-    content?.querySelector<HTMLButtonElement>('[data-cancel-add-credential]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-cancel-add-credential]')
+      ?.click();
     expect(addCredentialForm?.hidden).toBe(true);
     replaceCredential?.click();
     expect(replaceCredentialForm?.hidden).toBe(false);
-    content?.querySelector<HTMLButtonElement>('[data-cancel-replace-credential]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-cancel-replace-credential]')
+      ?.click();
     expect(replaceCredentialForm?.hidden).toBe(true);
 
     currentConfigurationState = {
       ...currentConfigurationState,
       validation: null,
     };
-    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
+      ?.click();
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'configuration-set' })
@@ -566,7 +626,10 @@ describe('live Overlay generation workflow', () => {
     if (!deleteCredentialSelect) throw new Error('API key selector missing.');
     deleteCredentialSelect.value = 'credential-2';
     deleteCredentialSelect.dispatchEvent(new Event('change'));
-    content?.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
+    content?.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'credential-delete-selected',
@@ -580,14 +643,17 @@ describe('live Overlay generation workflow', () => {
     ).toHaveLength(1);
     await vi.waitFor(() => {
       expect(
-        currentConfigurationState.credentials.map((credential) => credential.credentialId)
+        currentConfigurationState.credentials.map(
+          (credential) => credential.credentialId
+        )
       ).toEqual(['credential-1']);
       expect(deleteCredentialSelect.value).toBe('credential-1');
     });
     await vi.waitFor(() => {
-      expect(content?.querySelector<HTMLElement>('[data-configuration-message]')?.textContent).toBe(
-        'API key deleted.'
-      );
+      expect(
+        content?.querySelector<HTMLElement>('[data-configuration-message]')
+          ?.textContent
+      ).toBe('API key deleted.');
     });
     const credentialMessage = content?.querySelector<HTMLElement>(
       '[data-credential-message]'
@@ -598,25 +664,34 @@ describe('live Overlay generation workflow', () => {
     const configurationMessage = content?.querySelector<HTMLElement>(
       '[data-configuration-message]'
     );
-    if (!configurationMessage) throw new Error('Configuration message missing.');
+    if (!configurationMessage)
+      throw new Error('Configuration message missing.');
     configurationMessage.textContent = '';
     configurationMessage.hidden = true;
     deleteCredentialSelect.value = '';
-    content?.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
     expect(configurationMessage.hidden).toBe(true);
     expect(configurationMessage.textContent).toBe('');
     expect(credentialMessage?.hidden).toBe(true);
 
     await vi.waitFor(() => {
-      expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-        'Configuration is valid. Need an API key? Get one from Google AI Studio.'
+      expect(
+        guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()
+      ).toBe(
+        'Configuration is valid. Need an API key? Find provider links in Resources.'
       );
     });
     toggle?.click();
     expect(content?.hidden).toBe(true);
-    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('►');
-    expect(guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'Configuration is valid. Need an API key? Get one from Google AI Studio.'
+    expect(
+      shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent
+    ).toBe('►');
+    expect(
+      guidance?.parentElement?.textContent?.replace(/\s+/g, ' ').trim()
+    ).toBe(
+      'Configuration is valid. Need an API key? Find provider links in Resources.'
     );
     expect(shadowRoot?.querySelector('[data-primary-action]')).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-force-clear]')).not.toBeNull();
@@ -641,7 +716,8 @@ describe('live Overlay generation workflow', () => {
     const primaryAction = shadowRoot?.querySelector<HTMLButtonElement>(
       '[data-primary-action]'
     );
-    const resultsContainer = shadowRoot?.querySelector<HTMLElement>('[data-results]');
+    const resultsContainer =
+      shadowRoot?.querySelector<HTMLElement>('[data-results]');
     if (!credentialSelect || !primaryAction || !resultsContainer) {
       throw new Error('Configuration controls missing.');
     }
@@ -649,7 +725,9 @@ describe('live Overlay generation workflow', () => {
     credentialSelect.value = 'credential-2';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
-      const status = content?.querySelector<HTMLElement>('[data-configuration-status]');
+      const status = content?.querySelector<HTMLElement>(
+        '[data-configuration-status]'
+      );
       expect(status?.textContent).toBe(
         'Status: Valid — re-save needed Save & Validate to use this configuration.'
       );
@@ -664,7 +742,9 @@ describe('live Overlay generation workflow', () => {
       expect.objectContaining({ type: 'p7-generate' })
     );
 
-    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
+      ?.click();
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -673,90 +753,122 @@ describe('live Overlay generation workflow', () => {
         })
       );
     });
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'configuration-validate'
+      )
+    ).toHaveLength(1);
     await vi.waitFor(() => expect(primaryAction.disabled).toBe(false));
 
     credentialSelect.value = 'credential-1';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
-      expect(content?.querySelector('[data-configuration-status]')?.textContent).toBe(
+      expect(
+        content?.querySelector('[data-configuration-status]')?.textContent
+      ).toBe(
         'Status: Valid — re-save needed Save & Validate to use this configuration.'
       );
     });
-    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
+      ?.click();
     await vi.waitFor(() => expect(primaryAction.disabled).toBe(false));
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'configuration-validate'
+      )
+    ).toHaveLength(1);
 
     credentialSelect.value = 'credential-2';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
-      expect(content?.querySelector('[data-configuration-status]')?.textContent).toBe(
+      expect(
+        content?.querySelector('[data-configuration-status]')?.textContent
+      ).toBe(
         'Status: Valid — re-save needed Save & Validate to use this configuration.'
       );
     });
-    content?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')?.click();
+    content
+      ?.querySelector<HTMLButtonElement>('[data-save-validate-configuration]')
+      ?.click();
     await vi.waitFor(() => expect(primaryAction.disabled).toBe(false));
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'configuration-validate'
+      )
+    ).toHaveLength(1);
     toggle?.click();
     expect(content?.hidden).toBe(false);
-    expect(shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent).toBe('▼');
+    expect(
+      shadowRoot?.querySelector('[data-configuration-toggle-icon]')?.textContent
+    ).toBe('▼');
   });
 
   it('generates once and removes the obsolete primary action in the real Shadow DOM workflow', async () => {
     let generationCount = 0;
-    const pendingGeneration = new Promise<typeof generationResult>((resolve) => {
-      resolveGeneration = resolve;
-    });
-    const sendMessage = vi.fn(async (message: {
-      type?: string;
-      selectedConfiguration?: {
-        providerId: string;
-        modelId: string;
-        credentialId: string;
-      };
-    }) => {
-      if (message.type === 'configuration-state') {
-        const credentials = [
-          ...configurationState.credentials,
-          {
-            credentialId: 'credential-2',
-            providerId: 'gemini',
-            label: 'Backup',
-            createdAt: '2026-09-12T00:00:00.000Z',
-            updatedAt: '2026-09-12T00:00:00.000Z',
-          },
-        ];
-        if (!message.selectedConfiguration) {
-          return { ...configurationState, credentials };
-        }
-        const isBackup =
-          message.selectedConfiguration.credentialId === 'credential-2';
-        return {
-          ...configurationState,
-          credentials,
-          selectedConfiguration: {
-            ...message.selectedConfiguration,
-            providerConfig: {},
-          },
-          selectedConfigurationDigest: isBackup ? 'digest-2' : 'digest-1',
-          selectedValidation: {
-            ...configurationState.validation,
-            credentialId: message.selectedConfiguration.credentialId,
-            configurationDigest: isBackup ? 'digest-2' : 'digest-1',
-          },
+    const pendingGeneration = new Promise<typeof generationResult>(
+      (resolve) => {
+        resolveGeneration = resolve;
+      }
+    );
+    const sendMessage = vi.fn(
+      async (message: {
+        type?: string;
+        selectedConfiguration?: {
+          providerId: string;
+          modelId: string;
+          credentialId: string;
         };
+      }) => {
+        if (message.type === 'configuration-state') {
+          const credentials = [
+            ...configurationState.credentials,
+            {
+              credentialId: 'credential-2',
+              providerId: 'gemini',
+              label: 'Backup',
+              createdAt: '2026-09-12T00:00:00.000Z',
+              updatedAt: '2026-09-12T00:00:00.000Z',
+            },
+          ];
+          if (!message.selectedConfiguration) {
+            return { ...configurationState, credentials };
+          }
+          const isBackup =
+            message.selectedConfiguration.credentialId === 'credential-2';
+          return {
+            ...configurationState,
+            credentials,
+            selectedConfiguration: {
+              ...message.selectedConfiguration,
+              providerConfig: {},
+            },
+            selectedConfigurationDigest: isBackup ? 'digest-2' : 'digest-1',
+            selectedValidation: {
+              ...configurationState.validation,
+              credentialId: message.selectedConfiguration.credentialId,
+              configurationDigest: isBackup ? 'digest-2' : 'digest-1',
+            },
+          };
+        }
+        if (message.type === 'p7-discover') return createSnapshot();
+        if (message.type === 'p7-generate') {
+          generationCount += 1;
+          return generationCount === 1 ? pendingGeneration : generationResult;
+        }
+        if (message.type === 'p7-force-clear')
+          return createForceClearResponse();
+        return {};
       }
-      if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'p7-generate') {
-        generationCount += 1;
-        return generationCount === 1 ? pendingGeneration : generationResult;
-      }
-      if (message.type === 'p7-force-clear') return createForceClearResponse();
-      return {};
-    });
+    );
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -771,12 +883,19 @@ describe('live Overlay generation workflow', () => {
         await overlay?.refresh();
       },
     });
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const status = () => shadowRoot?.querySelector<HTMLElement>('[data-status]');
-    const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
-    const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const status = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-status]');
+    const resultSummary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const forceClear = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
     const configurationControls = () =>
       Array.from(
         shadowRoot?.querySelectorAll<
@@ -791,14 +910,17 @@ describe('live Overlay generation workflow', () => {
       if (button.hidden) return 'none';
       return getComputedStyle(button).display;
     };
-    const overrideFlow = () => shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
+    const overrideFlow = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
 
-    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toMatch(
-      /\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/
-    );
+    expect(
+      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+    ).toMatch(/\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/);
 
     expect(overrideAction()?.hidden).toBe(true);
-    expect(shadowRoot?.querySelector('[data-override-action]:not([hidden])')).toBeNull();
+    expect(
+      shadowRoot?.querySelector('[data-override-action]:not([hidden])')
+    ).toBeNull();
 
     await vi.waitFor(() => {
       expect(primary()?.hidden).toBe(false);
@@ -810,60 +932,97 @@ describe('live Overlay generation workflow', () => {
       '[data-configuration-status]'
     );
     expect(validationStatus?.textContent).toBe('Status: Valid');
-    expect(validationStatus?.classList.contains('is-validation-success')).toBe(true);
+    expect(validationStatus?.classList.contains('is-validation-success')).toBe(
+      true
+    );
 
-    const configurationControlStates = configurationControls().map((control) => ({
-      control,
-      disabled: control.disabled,
-      title: control.getAttribute('title'),
-      value: control.value,
-    }));
+    const configurationControlStates = configurationControls().map(
+      (control) => ({
+        control,
+        disabled: control.disabled,
+        title: control.getAttribute('title'),
+        value: control.value,
+      })
+    );
     primary()?.click();
     await vi.waitFor(() => {
       expect(primary()?.textContent).toBe('Generating...');
       expect(status()?.textContent).toBe('Generating answers...');
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
-      expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(true);
-      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')).not.toBeNull();
-      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-right')).not.toBeNull();
+      expect(
+        shadowRoot
+          ?.querySelector('.overlay-panel')
+          ?.classList.contains('is-generating')
+      ).toBe(true);
+      expect(
+        shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')
+      ).not.toBeNull();
+      expect(
+        shadowRoot?.querySelector(
+          '.overlay-panel.is-generating .logo-arm-right'
+        )
+      ).not.toBeNull();
       expect(shadowRoot?.querySelector('style')).not.toBeNull();
-      expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
-        'animation: overlay-border-gradient 0.7s linear infinite'
-      );
+      expect(
+        readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+      ).toContain('animation: overlay-border-gradient 0.7s linear infinite');
     });
     expect(configurationControlStates.length).toBeGreaterThan(0);
-    expect(configurationControls().every((control) => control.disabled)).toBe(true);
-    expect(configurationControls().every((control) => control.title === 'Generation in progress')).toBe(true);
+    expect(configurationControls().every((control) => control.disabled)).toBe(
+      true
+    );
+    expect(
+      configurationControls().every(
+        (control) => control.title === 'Generation in progress'
+      )
+    ).toBe(true);
     resolveGeneration(generationResult);
     await vi.waitFor(() => {
       expect(status()?.textContent).toBe('Review answers');
       expect(primary()).toBeNull();
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
-      expect(shadowRoot?.querySelector('.overlay-panel')?.classList.contains('is-generating')).toBe(false);
-      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')).toBeNull();
-      expect(shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-right')).toBeNull();
+      expect(
+        shadowRoot
+          ?.querySelector('.overlay-panel')
+          ?.classList.contains('is-generating')
+      ).toBe(false);
+      expect(
+        shadowRoot?.querySelector('.overlay-panel.is-generating .logo-arm-left')
+      ).toBeNull();
+      expect(
+        shadowRoot?.querySelector(
+          '.overlay-panel.is-generating .logo-arm-right'
+        )
+      ).toBeNull();
       expect(
         configurationControlStates.every(
           ({ control, disabled, title }) =>
-            control.disabled === disabled && control.getAttribute('title') === title
+            control.disabled === disabled &&
+            control.getAttribute('title') === title
         )
       ).toBe(true);
       expect(
-        configurationControlStates.every(({ control, value }) => control.value === value)
+        configurationControlStates.every(
+          ({ control, value }) => control.value === value
+        )
       ).toBe(true);
       expect(resultSummary()?.hidden).not.toBe(true);
       expect(resultSummary()?.textContent).toContain(
         '4 filled · 0 already filled · 0 failed · 0 skipped'
       );
-      expect(shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent).toBe(
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent
+      ).toBe(
         "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call and replace the existing filled answer(s), whether they are correct or incorrect. Recommended: don't override every time to avoid rate limiting, unless your API key has no rate limit."
       );
-      expect(shadowRoot?.querySelector<HTMLElement>('.all-filled-note')).not.toBeNull();
-      expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
-        '.result-note.all-filled-note'
-      );
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.all-filled-note')
+      ).not.toBeNull();
+      expect(
+        readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+      ).toContain('.result-note.all-filled-note');
       const overlayStyles = readFileSync(
         resolve(process.cwd(), 'src/Overlay/Overlay.css'),
         'utf8'
@@ -873,78 +1032,131 @@ describe('live Overlay generation workflow', () => {
       expect(overlayStyles).not.toContain('border: 2px solid #9ca3af;');
       expect(overlayStyles).toContain('background: #f8fafc;');
       expect(overlayStyles).toContain('font-size: 11px;');
-      const visibleOverrideActions = [...(shadowRoot?.querySelectorAll<HTMLButtonElement>('[data-override-action]') ?? [])]
-        .filter((button) => !button.hidden);
+      const visibleOverrideActions = [
+        ...(shadowRoot?.querySelectorAll<HTMLButtonElement>(
+          '[data-override-action]'
+        ) ?? []),
+      ].filter((button) => !button.hidden);
       expect(visibleOverrideActions).toHaveLength(1);
-      expect(visibleOverrideActions[0]?.textContent?.trim()).toBe('Override Filled Answer(s)');
+      expect(visibleOverrideActions[0]?.textContent?.trim()).toBe(
+        'Override Filled Answer(s)'
+      );
       expect(forceClear()?.tagName).toBe('BUTTON');
-      expect(forceClear()?.textContent?.trim()).toBe('Force Unsettle This Page');
+      expect(forceClear()?.textContent?.trim()).toBe(
+        'Force Unsettle This Page'
+      );
       expect(forceClear()?.hidden).toBe(true);
       expect(
-        [...(shadowRoot?.querySelectorAll('button') ?? [])].some(
-          (button) => button.textContent?.includes('Generating...')
+        [...(shadowRoot?.querySelectorAll('button') ?? [])].some((button) =>
+          button.textContent?.includes('Generating...')
         )
       ).toBe(false);
       expect(
-        [...(shadowRoot?.querySelectorAll('button') ?? [])].some(
-          (button) => button.textContent?.includes('Generate & Auto-Fill')
+        [...(shadowRoot?.querySelectorAll('button') ?? [])].some((button) =>
+          button.textContent?.includes('Generate & Auto-Fill')
         )
       ).toBe(false);
     });
-    
+
     expect(overrideFlow()?.hidden).toBe(true);
     overrideAction()?.click();
     expect(overrideFlow()?.hidden).toBe(false);
-    expect(overrideAction()?.textContent?.trim()).toBe('Override Filled Answer(s)');
+    expect(overrideAction()?.textContent?.trim()).toBe(
+      'Override Filled Answer(s)'
+    );
     expect(overrideFlow()?.querySelector('h3')).toBeNull();
     expect(shadowRoot?.querySelector('[data-override-specific]')).toBeNull();
     const openedCandidates = shadowRoot?.querySelectorAll<HTMLInputElement>(
       '[data-override-specific-list] input[type="checkbox"]'
     );
     expect(
-      shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')?.hidden
+      shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')
+        ?.hidden
     ).toBe(false);
     expect(openedCandidates).toHaveLength(4);
-    expect([...openedCandidates ?? []].every((checkbox) => !checkbox.checked)).toBe(true);
+    expect(
+      [...(openedCandidates ?? [])].every((checkbox) => !checkbox.checked)
+    ).toBe(true);
     openedCandidates?.[1]?.click();
     expect(openedCandidates?.[1]?.checked).toBe(true);
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(false);
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')
+        ?.hidden
+    ).toBe(false);
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-cancel]')
+      ?.click();
     overrideAction()?.click();
     expect(overrideFlow()?.hidden).toBe(true);
     overrideAction()?.click();
     expect(overrideFlow()?.hidden).toBe(false);
     expect(shadowRoot?.querySelector('[data-override-all]')).not.toBeNull();
-    expect(shadowRoot?.querySelector('[data-override-specific-state]')).toBeNull();
-    expect(shadowRoot?.querySelector('[data-override-uncheck]')?.textContent?.trim()).toBe(
-      'Uncheck All'
-    );
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
-    expect(shadowRoot?.querySelector('[data-override-all]')?.textContent?.trim()).toBe(
-      'All filled answers'
-    );
     expect(
-      [...(shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input') ?? [])]
-        .every((checkbox) => checkbox.checked)
+      shadowRoot?.querySelector('[data-override-specific-state]')
+    ).toBeNull();
+    expect(
+      shadowRoot?.querySelector('[data-override-uncheck]')?.textContent?.trim()
+    ).toBe('Uncheck All');
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
+    expect(
+      shadowRoot?.querySelector('[data-override-all]')?.textContent?.trim()
+    ).toBe('All filled answers');
+    expect(
+      [
+        ...(shadowRoot?.querySelectorAll<HTMLInputElement>(
+          '[data-override-specific-list] input'
+        ) ?? []),
+      ].every((checkbox) => checkbox.checked)
     ).toBe(true);
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')).toHaveLength(1);
     expect(
-      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation-text]')?.textContent
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-generate'
+      )
+    ).toHaveLength(1);
+    expect(
+      shadowRoot?.querySelector<HTMLElement>(
+        '[data-override-confirmation-text]'
+      )?.textContent
     ).toBe('Override 4 filled answers?');
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-uncheck]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-uncheck]')
+      ?.click();
     expect(
-      [...(shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input') ?? [])]
-        .every((checkbox) => !checkbox.checked)
+      [
+        ...(shadowRoot?.querySelectorAll<HTMLInputElement>(
+          '[data-override-specific-list] input'
+        ) ?? []),
+      ].every((checkbox) => !checkbox.checked)
     ).toBe(true);
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(true);
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
-    shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input')[1]?.click();
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(false);
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
-    expect(shadowRoot?.querySelector('span[data-filled-status]')).not.toBeNull();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')
+        ?.hidden
+    ).toBe(true);
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-cancel]')
+      ?.click();
+    shadowRoot
+      ?.querySelectorAll<HTMLInputElement>(
+        '[data-override-specific-list] input'
+      )[1]
+      ?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')
+        ?.hidden
+    ).toBe(false);
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-cancel]')
+      ?.click();
+    expect(
+      shadowRoot?.querySelector('span[data-filled-status]')
+    ).not.toBeNull();
     expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
     expect(
-      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-discover'
+      )
     ).toHaveLength(1);
 
     shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
@@ -957,7 +1169,9 @@ describe('live Overlay generation workflow', () => {
       expect(overrideFlow()?.hidden).toBe(true);
     });
     expect(
-      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-discover'
+      )
     ).toHaveLength(2);
     expect(sendMessage).not.toHaveBeenCalledWith({ type: 'p7-force-clear' });
 
@@ -992,20 +1206,23 @@ describe('live Overlay generation workflow', () => {
       '[data-credential-select]'
     );
     if (!credentialSelect) throw new Error('API key selector missing.');
-    const actionContainer = shadowRoot?.querySelector('[data-filled-status]')
-      ?.parentElement;
+    const actionContainer = shadowRoot?.querySelector(
+      '[data-filled-status]'
+    )?.parentElement;
     if (!actionContainer) throw new Error('Generate action container missing.');
     const insertedPrimaryLabels: string[] = [];
     const insertBefore = actionContainer.insertBefore.bind(actionContainer);
-    vi.spyOn(actionContainer, 'insertBefore').mockImplementation((node, reference) => {
-      if (
-        node instanceof HTMLButtonElement &&
-        node.matches('[data-primary-action]')
-      ) {
-        insertedPrimaryLabels.push(node.textContent ?? '');
+    vi.spyOn(actionContainer, 'insertBefore').mockImplementation(
+      (node, reference) => {
+        if (
+          node instanceof HTMLButtonElement &&
+          node.matches('[data-primary-action]')
+        ) {
+          insertedPrimaryLabels.push(node.textContent ?? '');
+        }
+        return insertBefore(node, reference);
       }
-      return insertBefore(node, reference);
-    });
+    );
     credentialSelect.value = 'credential-2';
     credentialSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => {
@@ -1018,22 +1235,32 @@ describe('live Overlay generation workflow', () => {
       ).toBe(true);
       expect(
         shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-      ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
+      ).toBe(
+        'Status: Valid — re-save needed Save & Validate to use this configuration.'
+      );
     });
     expect(insertedPrimaryLabels).toEqual(['Generate & Auto-Fill']);
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'configuration-validate')).toHaveLength(0);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'configuration-validate'
+      )
+    ).toHaveLength(0);
     expect(shadowRoot?.textContent).not.toContain(
       '4 filled · 0 already filled · 0 failed · 0 skipped'
     );
-    expect(shadowRoot?.textContent).not.toContain('All answers are already filled.');
+    expect(shadowRoot?.textContent).not.toContain(
+      'All answers are already filled.'
+    );
   });
 
   it('ignores a late generation snapshot after changing the selected API key', async () => {
     const listeners: Array<(message: unknown) => void> = [];
     let generationCount = 0;
-    const pendingGeneration = new Promise<typeof generationResult>((resolve) => {
-      resolveGeneration = resolve;
-    });
+    const pendingGeneration = new Promise<typeof generationResult>(
+      (resolve) => {
+        resolveGeneration = resolve;
+      }
+    );
     const backupCredential = {
       credentialId: 'credential-2',
       providerId: 'gemini',
@@ -1041,45 +1268,53 @@ describe('live Overlay generation workflow', () => {
       createdAt: '2026-09-12T00:00:00.000Z',
       updatedAt: '2026-09-12T00:00:00.000Z',
     };
-    const sendMessage = vi.fn(async (message: {
-      type?: string;
-      selectedConfiguration?: {
-        providerId: string;
-        modelId: string;
-        credentialId: string;
-      };
-    }) => {
-      if (message.type === 'configuration-state') {
-        const credentials = [...configurationState.credentials, backupCredential];
-        if (message.selectedConfiguration) {
-          return {
-            ...configurationState,
-            credentials,
-            selectedConfiguration: {
-              ...message.selectedConfiguration,
-              providerConfig: {},
-            },
-            selectedConfigurationDigest: 'digest-2',
-            selectedValidation: {
-              ...configurationState.validation,
-              credentialId: 'credential-2',
-              configurationDigest: 'digest-2',
-            },
-          };
+    const sendMessage = vi.fn(
+      async (message: {
+        type?: string;
+        selectedConfiguration?: {
+          providerId: string;
+          modelId: string;
+          credentialId: string;
+        };
+      }) => {
+        if (message.type === 'configuration-state') {
+          const credentials = [
+            ...configurationState.credentials,
+            backupCredential,
+          ];
+          if (message.selectedConfiguration) {
+            return {
+              ...configurationState,
+              credentials,
+              selectedConfiguration: {
+                ...message.selectedConfiguration,
+                providerConfig: {},
+              },
+              selectedConfigurationDigest: 'digest-2',
+              selectedValidation: {
+                ...configurationState.validation,
+                credentialId: 'credential-2',
+                configurationDigest: 'digest-2',
+              },
+            };
+          }
+          return { ...configurationState, credentials };
         }
-        return { ...configurationState, credentials };
+        if (message.type === 'p7-discover') return createSnapshot();
+        if (message.type === 'p7-generate') {
+          generationCount += 1;
+          return generationCount === 1 ? generationResult : pendingGeneration;
+        }
+        return {};
       }
-      if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'p7-generate') {
-        generationCount += 1;
-        return generationCount === 1 ? generationResult : pendingGeneration;
-      }
-      return {};
-    });
+    );
 
     vi.stubGlobal('chrome', {
       storage: {
-        local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
       },
       runtime: {
         sendMessage,
@@ -1097,9 +1332,13 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const status = () => shadowRoot?.querySelector<HTMLElement>('[data-status]');
-    const resultSummary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const status = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-status]');
+    const resultSummary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
     const overrideAction = () =>
       shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
     const overrideFlow = () =>
@@ -1114,8 +1353,12 @@ describe('live Overlay generation workflow', () => {
       expect(overrideAction()?.hidden).toBe(false);
     });
     overrideAction()?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-confirm]')
+      ?.click();
     await vi.waitFor(() => {
       expect(generationCount).toBe(2);
       expect(primary()?.textContent).toBe('Generating...');
@@ -1131,7 +1374,9 @@ describe('live Overlay generation workflow', () => {
       expect(status()?.textContent).toBe('Ready to configure');
       expect(
         shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-      ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
+      ).toBe(
+        'Status: Valid — re-save needed Save & Validate to use this configuration.'
+      );
     });
 
     listeners[0]?.({
@@ -1148,23 +1393,31 @@ describe('live Overlay generation workflow', () => {
     expect(resultSummary()).toBeNull();
     expect(overrideAction()?.hidden).toBe(true);
     expect(overrideFlow()?.hidden).toBe(true);
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-message]')?.hidden).toBe(true);
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-message]')?.hidden
+    ).toBe(true);
     expect(shadowRoot?.textContent).not.toContain('Provider request failed.');
     expect(shadowRoot?.textContent).not.toContain(
       '4 filled · 0 already filled · 0 failed · 0 skipped'
     );
     expect(
       shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-    ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
+    ).toBe(
+      'Status: Valid — re-save needed Save & Validate to use this configuration.'
+    );
 
     resolveGeneration(generationResult);
-    await vi.waitFor(() => expect(primary()?.textContent).toBe('Generate & Auto-Fill'));
+    await vi.waitFor(() =>
+      expect(primary()?.textContent).toBe('Generate & Auto-Fill')
+    );
     expect(status()?.textContent).toBe('Ready to configure');
     expect(resultSummary()).toBeNull();
     expect(overrideAction()?.hidden).toBe(true);
     expect(
       shadowRoot?.querySelector('[data-configuration-status]')?.textContent
-    ).toBe('Status: Valid — re-save needed Save & Validate to use this configuration.');
+    ).toBe(
+      'Status: Valid — re-save needed Save & Validate to use this configuration.'
+    );
   });
 
   it('renders reused answers as a non-interactive settled status', async () => {
@@ -1179,7 +1432,12 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1190,13 +1448,21 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const settledStatus = () => shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
-    const settledDetail = () => shadowRoot?.querySelector<HTMLElement>('[data-detail]');
-    const forceClearNote = () => shadowRoot?.querySelector<HTMLElement>('[data-force-clear-note]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
-    const forceClear = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const settledStatus = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-filled-status]');
+    const settledDetail = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-detail]');
+    const forceClearNote = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-force-clear-note]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const forceClear = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
     const forceClearDisplay = () => {
       const button = forceClear();
       if (!button) return undefined;
@@ -1204,11 +1470,13 @@ describe('live Overlay generation workflow', () => {
       return getComputedStyle(button).display;
     };
 
-    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toMatch(
-      /\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/
-    );
+    expect(
+      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+    ).toMatch(/\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/);
 
-    await vi.waitFor(() => expect(primary()?.textContent).toBe('Generate & Auto-Fill'));
+    await vi.waitFor(() =>
+      expect(primary()?.textContent).toBe('Generate & Auto-Fill')
+    );
     primary()?.click();
     await vi.waitFor(() => {
       expect(shadowRoot?.querySelector('[data-primary-action]')).toBeNull();
@@ -1216,14 +1484,19 @@ describe('live Overlay generation workflow', () => {
       expect(settledStatus()?.hidden).toBe(false);
       expect(settledStatus()?.tagName).toBe('SPAN');
       expect(settledStatus()?.classList.contains('is-settled')).toBe(true);
-      expect(settledDetail()?.textContent).toBe('Reused answers for page page-1.');
+      expect(settledDetail()?.textContent).toBe(
+        'Reused answers for page page-1.'
+      );
       expect(settledDetail()?.classList.contains('settled-detail')).toBe(true);
       expect(forceClearNote()?.textContent?.trim()).toBe(
         'Force unsettling this page re-enables generation for this page. Once unsettled, you can generate answers again.'
       );
       expect(forceClearNote()?.hidden).toBe(false);
-      expect(shadowRoot?.querySelector('button[data-filled-status]')).toBeNull();
-      const forceClear = shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
+      expect(
+        shadowRoot?.querySelector('button[data-filled-status]')
+      ).toBeNull();
+      const forceClear =
+        shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]');
       expect(forceClear?.tagName).toBe('BUTTON');
       expect(forceClear?.textContent?.trim()).toBe('Force Unsettle This Page');
       expect(forceClear?.hidden).toBe(false);
@@ -1258,7 +1531,12 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1269,29 +1547,43 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => {
-      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent).toBe(
-        '0 filled · 0 already filled · 0 failed · 0 skipped'
-      );
-      expect(shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent).toBe(
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent
+      ).toBe('0 filled · 0 already filled · 0 failed · 0 skipped');
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.result-note')?.textContent
+      ).toBe(
         "All answers are already filled. Override is available if you want to replace them. Using Override will make another API call and replace the existing filled answer(s), whether they are correct or incorrect. Recommended: don't override every time to avoid rate limiting, unless your API key has no rate limit."
       );
-      expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
+      expect(
+        shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')
+          ?.hidden
+      ).toBe(false);
     });
     expect(generationCalls).toBe(1);
     expect(
-      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-generate'
+      )
     ).toHaveLength(1);
   });
 
   it('keeps normal filled counts and appends only successful Override replacements', async () => {
     const overrideResult = {
-      report: { cycleId: 'cycle-override', status: 'complete' as const, results: [] },
+      report: {
+        cycleId: 'cycle-override',
+        status: 'complete' as const,
+        results: [],
+      },
       fillReport: {
         cycleId: 'cycle-override',
         outcomes: [
@@ -1301,7 +1593,8 @@ describe('live Overlay generation workflow', () => {
           {
             questionId: 'question-4',
             status: 'FILL_FAILED' as const,
-            reason: 'The question was empty. Consider manually entering an answer or using Auto-Generate.',
+            reason:
+              'The question was empty. Consider manually entering an answer or using Auto-Generate.',
           },
         ],
       },
@@ -1319,7 +1612,12 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1330,25 +1628,37 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay({ onRefresh });
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
-    const summary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const summary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() =>
-      expect(summary()?.textContent).toBe('4 filled · 0 already filled · 0 failed · 0 skipped')
+      expect(summary()?.textContent).toBe(
+        '4 filled · 0 already filled · 0 failed · 0 skipped'
+      )
     );
     overrideAction()?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-confirm]')
+      ?.click();
     await vi.waitFor(() =>
       expect(summary()?.textContent).toBe(
         '3 filled · 0 already filled · 1 failed · 0 skipped · 3 overrided'
       )
     );
-    const failureHeader = shadowRoot?.querySelector<HTMLElement>('.override-failure');
+    const failureHeader =
+      shadowRoot?.querySelector<HTMLElement>('.override-failure');
     expect(failureHeader?.textContent).toBe('Override failed for Q4. ↻');
     const inlineRefresh = failureHeader?.querySelector<HTMLButtonElement>(
       '.override-failure-refresh'
@@ -1357,29 +1667,46 @@ describe('live Overlay generation workflow', () => {
     expect(inlineRefresh?.getAttribute('aria-label')).toBe('Refresh');
     expect(inlineRefresh?.title).toBe('Refresh');
     expect(inlineRefresh?.tagName).toBe('BUTTON');
-    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).toContain(
-      'color: #c2410c;'
-    );
-    expect(readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')).not.toContain(
-      'color: #9a3412;'
-    );
+    expect(
+      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+    ).toContain('color: #c2410c;');
+    expect(
+      readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8')
+    ).not.toContain('color: #9a3412;');
     shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh')?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
     inlineRefresh?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(2));
-    expect(shadowRoot?.querySelector<HTMLElement>('.override-failure-detail')?.textContent).toBe(
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('.override-failure-detail')
+        ?.textContent
+    ).toBe(
       'Q4 was empty. Consider manually entering an answer or using Auto-Generate.'
     );
-    const overrideFlow = shadowRoot?.querySelector<HTMLElement>('[data-override-flow]');
+    const overrideFlow = shadowRoot?.querySelector<HTMLElement>(
+      '[data-override-flow]'
+    );
     expect(overrideFlow?.hidden).toBe(true);
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')?.hidden).toBe(true);
-    expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(false);
-    expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden).toBe(true);
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-specific-list]')
+        ?.hidden
+    ).toBe(true);
+    expect(
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')
+        ?.hidden
+    ).toBe(false);
+    expect(
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden
+    ).toBe(true);
     expect(summary()?.textContent).toContain('3 filled');
     expect(summary()?.textContent).toContain('3 overrided');
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-action]')
+      ?.click();
     expect(overrideFlow?.hidden).toBe(false);
-    expect(shadowRoot?.querySelectorAll('[data-override-specific-list] input')).toHaveLength(4);
+    expect(
+      shadowRoot?.querySelectorAll('[data-override-specific-list] input')
+    ).toHaveLength(4);
   });
 
   it('does not append an Override count for cancellation or failed Override', async () => {
@@ -1389,13 +1716,20 @@ describe('live Overlay generation workflow', () => {
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'p7-generate') {
         generationCalls += 1;
-        return generationCalls === 1 ? generationResult : { error: 'Override failed.' };
+        return generationCalls === 1
+          ? generationResult
+          : { error: 'Override failed.' };
       }
       return {};
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1406,23 +1740,42 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
-    const summary = () => shadowRoot?.querySelector<HTMLElement>('.result-summary');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const summary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() =>
-      expect(summary()?.textContent).toBe('4 filled · 0 already filled · 0 failed · 0 skipped')
+      expect(summary()?.textContent).toBe(
+        '4 filled · 0 already filled · 0 failed · 0 skipped'
+      )
     );
     overrideAction()?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-cancel]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-cancel]')
+      ?.click();
     expect(summary()?.textContent).not.toContain('overrided');
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
-    await vi.waitFor(() => expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe("Couldn't generate answers."));
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-confirm]')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe(
+        "Couldn't generate answers."
+      )
+    );
     expect(shadowRoot?.querySelector('.result-summary')).toBeNull();
   });
 
@@ -1441,7 +1794,8 @@ describe('live Overlay generation workflow', () => {
         </section>
       </main>
     `;
-    const input = document.querySelector<HTMLInputElement>('input[type="text"]');
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="text"]');
     const discovery = waitForInitialDiscovery(
       document,
       () => discoverActiveGoogleFormsPage(document),
@@ -1449,7 +1803,10 @@ describe('live Overlay generation workflow', () => {
     );
     input!.value = 'Existing answer';
     const discovered = await discovery;
-    const normalized = normalizeDiscoveredActivePage(discovered!, 'cycle-ready-sync');
+    const normalized = normalizeDiscoveredActivePage(
+      discovered!,
+      'cycle-ready-sync'
+    );
     const readyQuestion = normalized.form.questions[0];
     expect(readyQuestion).toMatchObject({
       id: 'already-filled',
@@ -1551,7 +1908,12 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1562,16 +1924,20 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => {
-      expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent).toContain(
-        '0 filled · 1 already filled · 1 failed · 11 skipped'
-      );
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent
+      ).toContain('0 filled · 1 already filled · 1 failed · 11 skipped');
       expect(overrideAction()?.hidden).toBe(false);
     });
     const tooltipTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
@@ -1588,7 +1954,9 @@ describe('live Overlay generation workflow', () => {
       shadowRoot?.querySelector('.result-summary-row > .skipped-details')
         ?.previousElementSibling
     ).toBe(shadowRoot?.querySelector('.result-summary'));
-    expect(tooltipTrigger?.querySelector('svg.validation-failure-info')).not.toBeNull();
+    expect(
+      tooltipTrigger?.querySelector('svg.validation-failure-info')
+    ).not.toBeNull();
     expect(tooltipTrigger?.getAttribute('aria-expanded')).toBe('false');
     const tooltipAnchor = tooltipTrigger?.parentElement;
     const mouseEnter = new Event('pointerenter');
@@ -1627,7 +1995,9 @@ describe('live Overlay generation workflow', () => {
     expect(tooltip?.getAttribute('aria-hidden')).toBe('false');
     const tooltipItems = tooltip?.querySelectorAll('li') ?? [];
     expect(tooltipItems).toHaveLength(11);
-    expect(tooltipItems[0]?.textContent).toContain('Question ID already-filled');
+    expect(tooltipItems[0]?.textContent).toContain(
+      'Question ID already-filled'
+    );
     expect(tooltipItems[0]?.textContent).toContain('Already filled question');
     expect(tooltipItems[0]?.textContent).toContain(
       'No confident answer was available. The question or its answer may be embedded in an image that AnswerSense cannot directly interpret.'
@@ -1646,31 +2016,50 @@ describe('live Overlay generation workflow', () => {
     expect(tooltipItems[10]?.textContent).toContain('Question ID unavailable');
     expect(tooltipItems[10]?.textContent).not.toContain('failed-12');
     expect(tooltipItems[10]?.textContent).not.toContain('unfilled-only');
-    const overlayCss = readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8');
+    const overlayCss = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      'utf8'
+    );
     expect(overlayCss).toMatch(
       /\.skipped-details-panel\s*\{[^}]*max-height:\s*min\(280px,[^}]*overflow-y:\s*auto;/
     );
     overrideAction()?.click();
     expect(
-      shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input')
+      shadowRoot?.querySelectorAll<HTMLInputElement>(
+        '[data-override-specific-list] input'
+      )
     ).toHaveLength(1);
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
     expect(
-      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation-text]')?.textContent
+      shadowRoot?.querySelector<HTMLElement>(
+        '[data-override-confirmation-text]'
+      )?.textContent
     ).toBe('Override 1 filled answer?');
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-discover'
+      )
+    ).toHaveLength(1);
   });
 
   it('does not show the all-answers-filled note when generation fails', async () => {
     const sendMessage = vi.fn(async (message: { type?: string }) => {
       if (message.type === 'configuration-state') return configurationState;
       if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'p7-generate') return { error: 'Generation failed.' };
+      if (message.type === 'p7-generate')
+        return { error: 'Generation failed.' };
       return {};
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1681,18 +2070,29 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => {
-      expect(shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent).toBe(
-        "Couldn't generate answers."
-      );
-      expect(shadowRoot?.querySelector('.result-note:not([hidden])')).toBeNull();
-      expect(shadowRoot?.querySelector<HTMLElement>('[data-force-clear-note]')?.hidden).toBe(true);
-      expect(shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')?.hidden).toBe(true);
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent
+      ).toBe("Couldn't generate answers.");
+      expect(
+        shadowRoot?.querySelector('.result-note:not([hidden])')
+      ).toBeNull();
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('[data-force-clear-note]')
+          ?.hidden
+      ).toBe(true);
+      expect(
+        shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]')
+          ?.hidden
+      ).toBe(true);
     });
   });
 
@@ -1705,7 +2105,12 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1716,22 +2121,31 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
-    const overrideRefresh = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-refresh]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const overrideRefresh = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-refresh]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => expect(overrideAction()?.hidden).toBe(false));
     expect(overrideRefresh()?.hidden).toBe(false);
     overrideAction()?.click();
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-specific]')
+      ?.click();
     expect(
       shadowRoot?.querySelectorAll('[data-override-specific-list] input')
     ).toHaveLength(4);
     expect(
-      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-generate'
+      )
     ).toHaveLength(1);
   });
 
@@ -1766,7 +2180,12 @@ describe('live Overlay generation workflow', () => {
     document.body.append(page);
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1777,9 +2196,13 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay({ onRefresh });
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideRefresh = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-refresh]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideRefresh = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-refresh]');
     const candidateInputs = () =>
       shadowRoot?.querySelectorAll<HTMLInputElement>(
         '[data-override-specific-list] input[type="checkbox"]'
@@ -1789,9 +2212,9 @@ describe('live Overlay generation workflow', () => {
     expect(overrideRefresh()?.hidden).toBe(true);
     primary()?.click();
     await vi.waitFor(() =>
-      expect(shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent).toBe(
-        'Review answers'
-      )
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent
+      ).toBe('Review answers')
     );
     expect(overrideRefresh()?.hidden).toBe(false);
     expect(overrideRefresh()?.getAttribute('aria-label')).toBe(
@@ -1807,17 +2230,21 @@ describe('live Overlay generation workflow', () => {
     );
     expect(overrideRefresh()?.hidden).toBe(false);
     expect(candidateInputs()).toHaveLength(4);
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent).toBe(
-      'Review answers'
-    );
-    expect(shadowRoot?.querySelector<HTMLElement>('.result-summary')).not.toBeNull();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent
+    ).toBe('Review answers');
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('.result-summary')
+    ).not.toBeNull();
     candidateInputs()?.[0]?.click();
     expect(
       shadowRoot?.querySelector<HTMLElement>(
         '[data-override-confirmation-text]'
       )?.textContent
     ).toBe('Override 1 filled answer?');
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-all]')?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
     expect(
       shadowRoot?.querySelector<HTMLElement>(
         '[data-override-confirmation-text]'
@@ -1826,10 +2253,14 @@ describe('live Overlay generation workflow', () => {
 
     expect(onRefresh).not.toHaveBeenCalled();
     expect(
-      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-discover'
+      )
     ).toHaveLength(1);
     expect(
-      sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-generate'
+      )
     ).toHaveLength(1);
   });
 
@@ -1870,8 +2301,19 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
-      runtime: { sendMessage, onMessage: { addListener: (listener: (message: unknown) => void) => listeners.push(listener) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: {
+        sendMessage,
+        onMessage: {
+          addListener: (listener: (message: unknown) => void) =>
+            listeners.push(listener),
+        },
+      },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
       const option = document.createElement('option');
@@ -1881,11 +2323,17 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
-    const overrideSpecific = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const overrideSpecific = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]');
 
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: 'p7-discover' }));
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'p7-discover' })
+    );
     listeners[0]?.({
       type: 'p7-state-updated',
       snapshot: {
@@ -1928,22 +2376,39 @@ describe('live Overlay generation workflow', () => {
     overrideAction()?.click();
     overrideSpecific()?.click();
     expect(
-      shadowRoot?.querySelectorAll<HTMLInputElement>('[data-override-specific-list] input')
+      shadowRoot?.querySelectorAll<HTMLInputElement>(
+        '[data-override-specific-list] input'
+      )
     ).toHaveLength(2);
-    expect(sendMessage.mock.calls.some(([message]) => message.type === 'p7-discover' && message !== undefined)).toBe(true);
-    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'p7-discover')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.some(
+        ([message]) => message.type === 'p7-discover' && message !== undefined
+      )
+    ).toBe(true);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'p7-discover'
+      )
+    ).toHaveLength(1);
   });
 
   it('opens Override in REVIEW and sends only the selected eligible question IDs', async () => {
-    const sendMessage = vi.fn(async (message: { type?: string; intent?: unknown }) => {
-      if (message.type === 'configuration-state') return configurationState;
-      if (message.type === 'p7-discover') return createSnapshot();
-      if (message.type === 'p7-generate') return generationResult;
-      return {};
-    });
+    const sendMessage = vi.fn(
+      async (message: { type?: string; intent?: unknown }) => {
+        if (message.type === 'configuration-state') return configurationState;
+        if (message.type === 'p7-discover') return createSnapshot();
+        if (message.type === 'p7-generate') return generationResult;
+        return {};
+      }
+    );
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -1954,28 +2419,43 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => expect(overrideAction()?.hidden).toBe(false));
     overrideAction()?.click();
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-flow]')?.hidden).toBe(false);
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-specific]')?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-flow]')?.hidden
+    ).toBe(false);
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-specific]')
+      ?.click();
 
     const checkboxes = shadowRoot?.querySelectorAll<HTMLInputElement>(
       '[data-override-specific-list] input[type="checkbox"]'
     );
     expect(checkboxes).toHaveLength(4);
     checkboxes?.[1].click();
-    expect(shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')?.hidden).toBe(false);
-    shadowRoot?.querySelector<HTMLButtonElement>('[data-override-confirm]')?.click();
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('[data-override-confirmation]')
+        ?.hidden
+    ).toBe(false);
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-confirm]')
+      ?.click();
 
     await vi.waitFor(() =>
       expect(
-        sendMessage.mock.calls.filter(([message]) => message.type === 'p7-generate')
+        sendMessage.mock.calls.filter(
+          ([message]) => message.type === 'p7-generate'
+        )
       ).toHaveLength(2)
     );
     const generateCalls = sendMessage.mock.calls.filter(
@@ -2002,8 +2482,9 @@ describe('live Overlay generation workflow', () => {
               ...snapshot.lifecycle.activePage,
               form: {
                 ...snapshot.lifecycle.activePage.form,
-                questions: snapshot.lifecycle.activePage.form.questions.map((question, index) =>
-                  index === 0 ? { ...question, text: longText } : question
+                questions: snapshot.lifecycle.activePage.form.questions.map(
+                  (question, index) =>
+                    index === 0 ? { ...question, text: longText } : question
                 ),
               },
             },
@@ -2015,7 +2496,12 @@ describe('live Overlay generation workflow', () => {
     });
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -2026,21 +2512,32 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const overrideAction = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
     await vi.waitFor(() => expect(overrideAction()?.hidden).toBe(false));
     overrideAction()?.click();
 
-    const candidateLabels = shadowRoot?.querySelectorAll<HTMLLabelElement>('[data-override-specific-list] label');
+    const candidateLabels = shadowRoot?.querySelectorAll<HTMLLabelElement>(
+      '[data-override-specific-list] label'
+    );
     expect(candidateLabels).toHaveLength(4);
     const longLabel = candidateLabels?.[0];
-    const toggle = longLabel?.querySelector<HTMLButtonElement>('[data-question-toggle]');
+    const toggle = longLabel?.querySelector<HTMLButtonElement>(
+      '[data-question-toggle]'
+    );
     const questionSpans = longLabel?.querySelectorAll<HTMLSpanElement>('span');
-    const overlayCss = readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8');
+    const overlayCss = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      'utf8'
+    );
     expect(toggle).not.toBeNull();
     expect(toggle?.textContent).toBe('►');
     expect(overlayCss).toMatch(
@@ -2067,7 +2564,8 @@ describe('live Overlay generation workflow', () => {
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'p7-generate') {
         return {
-          error: "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+          error:
+            "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
         };
       }
       return {};
@@ -2075,7 +2573,12 @@ describe('live Overlay generation workflow', () => {
     const onRefresh = vi.fn(async () => undefined);
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
     });
     vi.stubGlobal('Option', function (label: string, value: string) {
@@ -2086,10 +2589,15 @@ describe('live Overlay generation workflow', () => {
     });
 
     overlay = await mountOverlay({ onRefresh });
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const primary = () => shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
-    const message = () => shadowRoot?.querySelector<HTMLElement>('[data-message]');
-    const refresh = () => message()?.querySelector<HTMLButtonElement>('.override-failure-refresh');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const message = () =>
+      shadowRoot?.querySelector<HTMLElement>('[data-message]');
+    const refresh = () =>
+      message()?.querySelector<HTMLButtonElement>('.override-failure-refresh');
 
     await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
     primary()?.click();
@@ -2110,11 +2618,19 @@ describe('live Overlay generation workflow', () => {
       "Couldn't generate answers."
     );
     expect(refresh()).not.toBeNull();
-    expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'p7-generate'
+      )
+    ).toHaveLength(1);
 
     refresh()?.click();
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
-    expect(sendMessage.mock.calls.filter(([request]) => request.type === 'p7-generate')).toHaveLength(1);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'p7-generate'
+      )
+    ).toHaveLength(1);
   });
 
   it('opens configuration from API-key help and keeps the Gemini resource link', async () => {
@@ -2136,9 +2652,8 @@ describe('live Overlay generation workflow', () => {
     const toggle = shadowRoot.querySelector<HTMLButtonElement>(
       '[data-configuration-toggle]'
     );
-    const resourceLink = shadowRoot.querySelector<HTMLAnchorElement>(
-      '.resources-link'
-    );
+    const resourceLink =
+      shadowRoot.querySelector<HTMLAnchorElement>('.resources-link');
     const nvidiaResourceLink = shadowRoot.querySelector<HTMLAnchorElement>(
       '.resources-link[href="https://build.nvidia.com/settings/api-keys"]'
     );
@@ -2148,9 +2663,7 @@ describe('live Overlay generation workflow', () => {
     );
     expect(content?.hidden).toBe(true);
     expect(resourceLink?.textContent?.trim()).toBe('Get Gemini API key');
-    expect(resourceLink?.href).toBe(
-      'https://aistudio.google.com/app/apikey'
-    );
+    expect(resourceLink?.href).toBe('https://aistudio.google.com/app/apikey');
     expect(resourceLink?.target).toBe('_blank');
     expect(resourceLink?.rel).toBe('noopener noreferrer');
     const geminiLogo = resourceLink?.querySelector<SVGSVGElement>('svg');
@@ -2171,7 +2684,9 @@ describe('live Overlay generation workflow', () => {
     const resourcesTooltip = shadowRoot?.querySelector<HTMLElement>(
       '[data-resources-heading] .validation-failure-info-tooltip'
     );
-    expect(resourcesTooltip?.querySelector('svg.validation-failure-info')).not.toBeNull();
+    expect(
+      resourcesTooltip?.querySelector('svg.validation-failure-info')
+    ).not.toBeNull();
     expect(resourcesTooltip?.dataset.tooltip).toBe(
       'Signing in may be required to create an API key.'
     );
@@ -2195,9 +2710,13 @@ describe('live Overlay generation workflow', () => {
     });
     const fixture = await mountProviderActionOverlay(sendMessage);
     overlay = fixture.handle;
-    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } =
+      fixture;
 
-    vi.stubGlobal('prompt', vi.fn(() => 'new-gemini-secret'));
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'new-gemini-secret')
+    );
     const addForm = shadowRoot.querySelector<HTMLElement>(
       '[data-add-credential-form]'
     );
@@ -2211,7 +2730,10 @@ describe('live Overlay generation workflow', () => {
       ?.click();
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'credential-create', providerId: 'gemini' })
+        expect.objectContaining({
+          type: 'credential-create',
+          providerId: 'gemini',
+        })
       )
     );
 
@@ -2220,7 +2742,9 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_MODEL));
     credentialSelect.value = 'nvidia-primary';
     credentialSelect.dispatchEvent(new Event('change'));
-    shadowRoot.querySelector<HTMLButtonElement>('[data-add-credential]')?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-add-credential]')
+      ?.click();
     const currentAddForm = shadowRoot.querySelector<HTMLElement>(
       '[data-add-credential-form]'
     );
@@ -2409,15 +2933,24 @@ describe('live Overlay generation workflow', () => {
       '[data-add-credential]'
     );
 
-    expect(credentialStatus?.parentElement?.classList.contains('credential-heading-row')).toBe(true);
-    expect(credentialStatus?.parentElement?.querySelector('#credential-heading')?.textContent).toBe('API Keys');
+    expect(
+      credentialStatus?.parentElement?.classList.contains(
+        'credential-heading-row'
+      )
+    ).toBe(true);
+    expect(
+      credentialStatus?.parentElement?.querySelector('#credential-heading')
+        ?.textContent
+    ).toBe('API Keys');
     expect(credentialStatus?.textContent).toBe('1 API key stored.');
     expect(credentialStatus?.title).toBe('');
     expect(credentialStatus?.dataset.tooltip).toBe(
       'Gemini keys: 0\nNVIDIA keys: 1'
     );
     expect(credentialSelect.disabled).toBe(true);
-    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+    expect(credentialSelect.options[0]?.textContent).toBe(
+      'No API keys added yet'
+    );
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
@@ -2430,8 +2963,13 @@ describe('live Overlay generation workflow', () => {
     expect(addCredentialButton?.textContent).toBe('Add Gemini API key');
     expect(credentialSelect.disabled).toBe(true);
 
-    vi.stubGlobal('prompt', vi.fn(() => 'new-gemini-secret'));
-    shadowRoot.querySelector<HTMLButtonElement>('[data-add-credential]')?.click();
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'new-gemini-secret')
+    );
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-add-credential]')
+      ?.click();
     const credentialLabel = shadowRoot.querySelector<HTMLInputElement>(
       '[data-credential-label]'
     );
@@ -2447,10 +2985,16 @@ describe('live Overlay generation workflow', () => {
       );
     });
 
-    shadowRoot.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
-    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-confirm-delete]')
+      ?.click();
     await vi.waitFor(() => expect(credentialSelect.disabled).toBe(true));
-    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+    expect(credentialSelect.options[0]?.textContent).toBe(
+      'No API keys added yet'
+    );
     expect(credentialStatus?.dataset.tooltip).toBe(
       'Gemini keys: 0\nNVIDIA keys: 1'
     );
@@ -2471,7 +3015,8 @@ describe('live Overlay generation workflow', () => {
       ],
     };
     const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
-      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'configuration-state')
+        return currentConfigurationState;
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'credential-create') {
         currentConfigurationState = {
@@ -2493,13 +3038,19 @@ describe('live Overlay generation workflow', () => {
     });
     const fixture = await mountProviderActionOverlay(sendMessage);
     overlay = fixture.handle;
-    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } =
+      fixture;
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
     expect(credentialSelect.value).toBe('nvidia-primary');
-    vi.stubGlobal('prompt', vi.fn(() => 'new-nvidia-secret'));
-    shadowRoot.querySelector<HTMLButtonElement>('[data-add-credential]')?.click();
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'new-nvidia-secret')
+    );
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-add-credential]')
+      ?.click();
     const keyLabel = shadowRoot.querySelector<HTMLInputElement>(
       '[data-credential-label]'
     );
@@ -2521,15 +3072,13 @@ describe('live Overlay generation workflow', () => {
     expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
     expect(modelSelect.value).toBe(NVIDIA_MODEL);
     expect(credentialSelect.value).toBe('nvidia-primary');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'nvidia-primary',
-      'nvidia-backup',
-      'nvidia-added',
-    ]);
-    await vi.waitFor(
-      () => expect(credentialMessage?.hidden).toBe(true),
-      { timeout: 2500, interval: 25 }
-    );
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['nvidia-primary', 'nvidia-backup', 'nvidia-added']);
+    await vi.waitFor(() => expect(credentialMessage?.hidden).toBe(true), {
+      timeout: 2500,
+      interval: 25,
+    });
     expect(credentialMessage?.textContent).toBe('');
   });
 
@@ -2547,9 +3096,13 @@ describe('live Overlay generation workflow', () => {
     });
     const fixture = await mountProviderActionOverlay(sendMessage);
     overlay = fixture.handle;
-    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } =
+      fixture;
 
-    vi.stubGlobal('prompt', vi.fn(() => 'replacement-secret'));
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'replacement-secret')
+    );
     shadowRoot
       .querySelector<HTMLButtonElement>('[data-replace-credential]')
       ?.click();
@@ -2609,7 +3162,9 @@ describe('live Overlay generation workflow', () => {
     expect(currentReplaceSelection?.value).toBe('nvidia-primary');
     expect(credentialMessage?.textContent).toBe('Current NVIDIA key feedback');
     expect(
-      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-set')
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-set'
+      )
     ).toHaveLength(0);
     expect(
       sendMessage.mock.calls.filter(
@@ -2632,7 +3187,8 @@ describe('live Overlay generation workflow', () => {
     });
     const fixture = await mountProviderActionOverlay(sendMessage);
     overlay = fixture.handle;
-    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } =
+      fixture;
 
     credentialSelect.value = 'credential-1';
     credentialSelect.dispatchEvent(new Event('change'));
@@ -2640,14 +3196,17 @@ describe('live Overlay generation workflow', () => {
       expect(
         sendMessage.mock.calls.some(
           ([request]) =>
-            request.type === 'configuration-state' && request.selectedConfiguration
+            request.type === 'configuration-state' &&
+            request.selectedConfiguration
         )
       ).toBe(true)
     );
     shadowRoot
       .querySelector<HTMLButtonElement>('[data-delete-credential]')
       ?.click();
-    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-confirm-delete]')
+      ?.click();
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'credential-delete-selected',
@@ -2708,7 +3267,8 @@ describe('live Overlay generation workflow', () => {
       ],
     };
     const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
-      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'configuration-state')
+        return currentConfigurationState;
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'credential-delete-selected') {
         currentConfigurationState = {
@@ -2723,13 +3283,18 @@ describe('live Overlay generation workflow', () => {
     });
     const fixture = await mountProviderActionOverlay(sendMessage);
     overlay = fixture.handle;
-    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } =
+      fixture;
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
     expect(credentialSelect.value).toBe('nvidia-primary');
-    shadowRoot.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
-    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-confirm-delete]')
+      ?.click();
 
     await vi.waitFor(() =>
       expect(
@@ -2740,12 +3305,16 @@ describe('live Overlay generation workflow', () => {
     expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
     expect(modelSelect.value).toBe(NVIDIA_MODEL);
     expect(credentialSelect.value).toBe('nvidia-backup');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'nvidia-backup',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['nvidia-backup']);
 
-    shadowRoot.querySelector<HTMLButtonElement>('[data-delete-credential]')?.click();
-    shadowRoot.querySelector<HTMLButtonElement>('[data-confirm-delete]')?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-delete-credential]')
+      ?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-confirm-delete]')
+      ?.click();
     await vi.waitFor(() =>
       expect(credentialSelect.options[0]?.textContent).toBe(
         'No API keys added yet'
@@ -2755,7 +3324,9 @@ describe('live Overlay generation workflow', () => {
     expect(modelSelect.value).toBe(NVIDIA_MODEL);
     expect(credentialSelect.value).toBe('');
     expect(credentialSelect.options).toHaveLength(1);
-    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+    expect(credentialSelect.options[0]?.textContent).toBe(
+      'No API keys added yet'
+    );
   });
 
   it('keeps NVIDIA selected when replacing a non-active NVIDIA key', async () => {
@@ -2773,7 +3344,8 @@ describe('live Overlay generation workflow', () => {
       ],
     };
     const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
-      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'configuration-state')
+        return currentConfigurationState;
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'credential-replace') {
         currentConfigurationState = {
@@ -2797,17 +3369,23 @@ describe('live Overlay generation workflow', () => {
     });
     const fixture = await mountProviderActionOverlay(sendMessage);
     overlay = fixture.handle;
-    const { shadowRoot, providerSelect, modelSelect, credentialSelect } = fixture;
+    const { shadowRoot, providerSelect, modelSelect, credentialSelect } =
+      fixture;
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
     expect(credentialSelect.value).toBe('nvidia-primary');
-    shadowRoot.querySelector<HTMLButtonElement>('[data-replace-credential]')?.click();
+    shadowRoot
+      .querySelector<HTMLButtonElement>('[data-replace-credential]')
+      ?.click();
     const replaceSelect = shadowRoot.querySelector<HTMLSelectElement>(
       '[data-replace-credential-select]'
     );
     if (replaceSelect) replaceSelect.value = 'nvidia-backup';
-    vi.stubGlobal('prompt', vi.fn(() => 'replacement-secret'));
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'replacement-secret')
+    );
     shadowRoot
       .querySelector<HTMLButtonElement>('[data-save-replace-credential]')
       ?.click();
@@ -2821,12 +3399,13 @@ describe('live Overlay generation workflow', () => {
     expect(providerSelect.value).toBe(NVIDIA_PROVIDER_ID);
     expect(modelSelect.value).toBe(NVIDIA_MODEL);
     expect(credentialSelect.value).toBe('nvidia-primary');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'nvidia-primary',
-      'nvidia-replaced',
-    ]);
     expect(
-      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-set')
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['nvidia-primary', 'nvidia-replaced']);
+    expect(
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-set'
+      )
     ).toHaveLength(0);
   });
 
@@ -2839,7 +3418,8 @@ describe('live Overlay generation workflow', () => {
       validation: null,
     };
     const sendMessage = vi.fn(async (message: ProviderActionMessage) => {
-      if (message.type === 'configuration-state') return currentConfigurationState;
+      if (message.type === 'configuration-state')
+        return currentConfigurationState;
       if (message.type === 'p7-discover') return createSnapshot();
       return {};
     });
@@ -2848,7 +3428,9 @@ describe('live Overlay generation workflow', () => {
     const { credentialSelect } = fixture;
 
     expect(credentialSelect.options).toHaveLength(1);
-    expect(credentialSelect.options[0]?.textContent).toBe('No API keys added yet');
+    expect(credentialSelect.options[0]?.textContent).toBe(
+      'No API keys added yet'
+    );
     expect(credentialSelect.options[0]?.disabled).toBe(true);
     expect(credentialSelect.options[0]?.hidden).toBe(true);
     expect(credentialSelect.value).toBe('');
@@ -2867,9 +3449,9 @@ describe('live Overlay generation workflow', () => {
     };
     await fixture.handle.refresh();
 
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'gemini-new-key',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['gemini-new-key']);
     expect(credentialSelect.options[0]?.textContent).toBe('Gemini key');
     expect(credentialSelect.options[0]?.disabled).toBe(false);
     expect(credentialSelect.options[0]?.hidden).toBe(false);
@@ -2910,18 +3492,17 @@ describe('live Overlay generation workflow', () => {
 
     expect(providerSelect.value).toBe('gemini');
     expect(credentialSelect.value).toBe('credential-1');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'credential-1',
-      'gemini-backup',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['credential-1', 'gemini-backup']);
     expect(primaryAction?.disabled).toBe(true);
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
     providerSelect.dispatchEvent(new Event('change'));
     expect(credentialSelect.value).toBe('nvidia-primary');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'nvidia-primary',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['nvidia-primary']);
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
     expect(primaryAction?.disabled).toBe(true);
 
@@ -2943,7 +3524,8 @@ describe('live Overlay generation workflow', () => {
     expect(
       sendMessage.mock.calls.filter(
         ([request]) =>
-          request.type === 'configuration-state' && request.selectedConfiguration
+          request.type === 'configuration-state' &&
+          request.selectedConfiguration
       )
     ).toHaveLength(0);
   });
@@ -2965,8 +3547,14 @@ describe('live Overlay generation workflow', () => {
           providerId: NVIDIA_PROVIDER_ID,
           displayName: 'NVIDIA',
           models: [
-            { modelId: NVIDIA_MODEL, displayName: 'Nemotron 3.5 Super VL 120B A12B' },
-            { modelId: NVIDIA_GPT_OSS_MODEL, displayName: 'OpenAI GPT-OSS 20B' },
+            {
+              modelId: NVIDIA_MODEL,
+              displayName: 'Nemotron 3.5 Super VL 120B A12B',
+            },
+            {
+              modelId: NVIDIA_GPT_OSS_MODEL,
+              displayName: 'OpenAI GPT-OSS 20B',
+            },
           ],
           supportsValidation: true,
         },
@@ -3019,136 +3607,145 @@ describe('live Overlay generation workflow', () => {
       configurationDigest: string | null;
       validation: typeof multiProviderState.validation | null;
     };
-    let currentConfigurationState: MutableMultiProviderState = multiProviderState;
+    let currentConfigurationState: MutableMultiProviderState =
+      multiProviderState;
     let deferSelectedValidation = false;
     let deferNvidiaValidation = false;
     const pendingValidationResolvers: {
       selected?: () => void;
       nvidia?: () => void;
     } = {};
-    const sendMessage = vi.fn(async (message: {
-      type?: string;
-      providerId?: string;
-      modelId?: string;
-      credentialId?: string;
-      selectedConfiguration?: {
-        providerId: string;
-        modelId: string;
-        credentialId: string;
-      };
-    }) => {
-      if (message.type === 'configuration-state') {
-        if (!message.selectedConfiguration) return currentConfigurationState;
-        if (
-          deferSelectedValidation &&
-          message.selectedConfiguration.providerId === 'gemini'
-        ) {
-          deferSelectedValidation = false;
-          return new Promise<Record<string, unknown>>((resolve) => {
-            pendingValidationResolvers.selected = () =>
-              resolve({
-                ...currentConfigurationState,
-                selectedConfiguration: {
-                  ...message.selectedConfiguration,
-                  providerConfig: {},
-                },
-                selectedConfigurationDigest: 'stale-gemini-digest',
-                selectedValidation: {
-                  ...multiProviderState.validation,
-                  configurationDigest: 'stale-gemini-digest',
-                  credentialId: message.selectedConfiguration?.credentialId,
-                },
-              });
-          });
-        }
-        return {
-          ...currentConfigurationState,
-          selectedConfiguration: {
-            ...message.selectedConfiguration,
-            providerConfig: {},
-          },
-          selectedConfigurationDigest: 'draft-digest',
-          selectedValidation: null,
+    const sendMessage = vi.fn(
+      async (message: {
+        type?: string;
+        providerId?: string;
+        modelId?: string;
+        credentialId?: string;
+        selectedConfiguration?: {
+          providerId: string;
+          modelId: string;
+          credentialId: string;
         };
-      }
-      if (message.type === 'configuration-set') {
-        const nextActiveConfiguration = {
-          providerId: message.providerId ?? '',
-          modelId: message.modelId ?? '',
-          credentialId: message.credentialId ?? '',
-          providerConfig: {},
-        };
-        const nextDigest = `active-${message.providerId}-digest`;
-        const configurationUnchanged =
-          currentConfigurationState.activeConfiguration?.providerId ===
-            nextActiveConfiguration.providerId &&
-          currentConfigurationState.activeConfiguration.modelId ===
-            nextActiveConfiguration.modelId &&
-          currentConfigurationState.activeConfiguration.credentialId ===
-            nextActiveConfiguration.credentialId &&
-          currentConfigurationState.configurationDigest === nextDigest;
-        currentConfigurationState = {
-          ...currentConfigurationState,
-          activeConfiguration: nextActiveConfiguration,
-          configurationDigest: nextDigest,
-          validation: configurationUnchanged
-            ? currentConfigurationState.validation
-            : null,
-        };
-        return currentConfigurationState;
-      }
-      if (message.type === 'configuration-validate') {
-        if (
-          currentConfigurationState.activeConfiguration?.providerId ===
-            NVIDIA_PROVIDER_ID &&
-          deferNvidiaValidation
-        ) {
-          deferNvidiaValidation = false;
-          return new Promise<Record<string, unknown>>((resolve) => {
-            pendingValidationResolvers.nvidia = () => {
-              const activeConfiguration =
-                currentConfigurationState.activeConfiguration;
-              if (activeConfiguration) {
-                currentConfigurationState = {
+      }) => {
+        if (message.type === 'configuration-state') {
+          if (!message.selectedConfiguration) return currentConfigurationState;
+          if (
+            deferSelectedValidation &&
+            message.selectedConfiguration.providerId === 'gemini'
+          ) {
+            deferSelectedValidation = false;
+            return new Promise<Record<string, unknown>>((resolve) => {
+              pendingValidationResolvers.selected = () =>
+                resolve({
                   ...currentConfigurationState,
-                  validation: {
-                    configurationDigest:
-                      currentConfigurationState.configurationDigest ?? '',
-                    providerId: activeConfiguration.providerId,
-                    modelId: activeConfiguration.modelId,
-                    credentialId: activeConfiguration.credentialId,
-                    status: 'VALID',
-                    validatedAt: '2026-09-12T00:00:00.000Z',
+                  selectedConfiguration: {
+                    ...message.selectedConfiguration,
+                    providerConfig: {},
                   },
-                };
-              }
-              resolve({ valid: true });
-            };
-          });
-        }
-        const activeConfiguration = currentConfigurationState.activeConfiguration;
-        if (activeConfiguration) {
-          currentConfigurationState = {
+                  selectedConfigurationDigest: 'stale-gemini-digest',
+                  selectedValidation: {
+                    ...multiProviderState.validation,
+                    configurationDigest: 'stale-gemini-digest',
+                    credentialId: message.selectedConfiguration?.credentialId,
+                  },
+                });
+            });
+          }
+          return {
             ...currentConfigurationState,
-            validation: {
-              configurationDigest:
-                currentConfigurationState.configurationDigest ?? '',
-              providerId: activeConfiguration.providerId,
-              modelId: activeConfiguration.modelId,
-              credentialId: activeConfiguration.credentialId,
-              status: 'VALID',
-              validatedAt: '2026-09-12T00:00:00.000Z',
+            selectedConfiguration: {
+              ...message.selectedConfiguration,
+              providerConfig: {},
             },
+            selectedConfigurationDigest: 'draft-digest',
+            selectedValidation: null,
           };
         }
-        return { valid: true };
+        if (message.type === 'configuration-set') {
+          const nextActiveConfiguration = {
+            providerId: message.providerId ?? '',
+            modelId: message.modelId ?? '',
+            credentialId: message.credentialId ?? '',
+            providerConfig: {},
+          };
+          const nextDigest = `active-${message.providerId}-digest`;
+          const configurationUnchanged =
+            currentConfigurationState.activeConfiguration?.providerId ===
+              nextActiveConfiguration.providerId &&
+            currentConfigurationState.activeConfiguration.modelId ===
+              nextActiveConfiguration.modelId &&
+            currentConfigurationState.activeConfiguration.credentialId ===
+              nextActiveConfiguration.credentialId &&
+            currentConfigurationState.configurationDigest === nextDigest;
+          currentConfigurationState = {
+            ...currentConfigurationState,
+            activeConfiguration: nextActiveConfiguration,
+            configurationDigest: nextDigest,
+            validation: configurationUnchanged
+              ? currentConfigurationState.validation
+              : null,
+          };
+          return currentConfigurationState;
+        }
+        if (message.type === 'configuration-validate') {
+          if (
+            currentConfigurationState.activeConfiguration?.providerId ===
+              NVIDIA_PROVIDER_ID &&
+            deferNvidiaValidation
+          ) {
+            deferNvidiaValidation = false;
+            return new Promise<Record<string, unknown>>((resolve) => {
+              pendingValidationResolvers.nvidia = () => {
+                const activeConfiguration =
+                  currentConfigurationState.activeConfiguration;
+                if (activeConfiguration) {
+                  currentConfigurationState = {
+                    ...currentConfigurationState,
+                    validation: {
+                      configurationDigest:
+                        currentConfigurationState.configurationDigest ?? '',
+                      providerId: activeConfiguration.providerId,
+                      modelId: activeConfiguration.modelId,
+                      credentialId: activeConfiguration.credentialId,
+                      status: 'VALID',
+                      validatedAt: '2026-09-12T00:00:00.000Z',
+                    },
+                  };
+                }
+                resolve({ valid: true });
+              };
+            });
+          }
+          const activeConfiguration =
+            currentConfigurationState.activeConfiguration;
+          if (activeConfiguration) {
+            currentConfigurationState = {
+              ...currentConfigurationState,
+              validation: {
+                configurationDigest:
+                  currentConfigurationState.configurationDigest ?? '',
+                providerId: activeConfiguration.providerId,
+                modelId: activeConfiguration.modelId,
+                credentialId: activeConfiguration.credentialId,
+                status: 'VALID',
+                validatedAt: '2026-09-12T00:00:00.000Z',
+              },
+            };
+          }
+          return { valid: true };
+        }
+        if (message.type === 'p7-discover') return createSnapshot();
+        return {};
       }
-      if (message.type === 'p7-discover') return createSnapshot();
-      return {};
-    });
+    );
 
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
       runtime: {
         sendMessage,
         onMessage: { addListener: vi.fn() },
@@ -3163,7 +3760,9 @@ describe('live Overlay generation workflow', () => {
 
     overlay = await mountOverlay();
     await overlay.refresh();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
     const providerSelect = shadowRoot?.querySelector<HTMLSelectElement>(
       '[data-provider-select]'
     );
@@ -3180,10 +3779,9 @@ describe('live Overlay generation workflow', () => {
       throw new Error('Provider configuration controls missing.');
     }
 
-    expect(Array.from(providerSelect.options, (option) => option.value)).toEqual([
-      'gemini',
-      NVIDIA_PROVIDER_ID,
-    ]);
+    expect(
+      Array.from(providerSelect.options, (option) => option.value)
+    ).toEqual(['gemini', NVIDIA_PROVIDER_ID]);
     expect(providerSelect.value).toBe('gemini');
     expect(modelSelect.value).toBe('gemini-model');
     expect(credentialSelect.value).toBe('gemini-backup');
@@ -3202,10 +3800,9 @@ describe('live Overlay generation workflow', () => {
       NVIDIA_MODEL,
       NVIDIA_GPT_OSS_MODEL,
     ]);
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'nvidia-primary',
-      'nvidia-backup',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['nvidia-primary', 'nvidia-backup']);
     expect(
       Array.from(credentialSelect.options).every((option) => !option.disabled)
     ).toBe(true);
@@ -3233,26 +3830,31 @@ describe('live Overlay generation workflow', () => {
     expect(configurationStatus?.textContent).toContain('Select a provider');
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
     expect(credentialSelect.value).toBe('nvidia-primary');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'nvidia-primary',
-      'nvidia-backup',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['nvidia-primary', 'nvidia-backup']);
     expect(saveButton?.disabled).toBe(false);
     expect(
       sendMessage.mock.calls.filter(
-        ([request]) => request.type === 'configuration-state' && request.selectedConfiguration
+        ([request]) =>
+          request.type === 'configuration-state' &&
+          request.selectedConfiguration
       )
     ).toHaveLength(1);
 
     modelSelect.value = NVIDIA_GPT_OSS_MODEL;
     modelSelect.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL));
+    await vi.waitFor(() =>
+      expect(modelSelect.value).toBe(NVIDIA_GPT_OSS_MODEL)
+    );
     credentialSelect.value = 'nvidia-backup';
     credentialSelect.dispatchEvent(new Event('change'));
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
     expect(
       sendMessage.mock.calls.filter(
-        ([request]) => request.type === 'configuration-state' && request.selectedConfiguration
+        ([request]) =>
+          request.type === 'configuration-state' &&
+          request.selectedConfiguration
       )
     ).toHaveLength(1);
 
@@ -3271,10 +3873,9 @@ describe('live Overlay generation workflow', () => {
     providerSelect.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(modelSelect.value).toBe('gemini-model'));
     expect(credentialSelect.value).toBe('credential-1');
-    expect(Array.from(credentialSelect.options, (option) => option.value)).toEqual([
-      'credential-1',
-      'gemini-backup',
-    ]);
+    expect(
+      Array.from(credentialSelect.options, (option) => option.value)
+    ).toEqual(['credential-1', 'gemini-backup']);
     expect(
       Array.from(credentialSelect.options).every((option) => !option.disabled)
     ).toBe(true);
@@ -3303,7 +3904,9 @@ describe('live Overlay generation workflow', () => {
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
     expect(primaryAction?.disabled).toBe(true);
     expect(
-      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-validate'
+      )
     ).toHaveLength(0);
     saveButton?.click();
     await vi.waitFor(() =>
@@ -3315,11 +3918,13 @@ describe('live Overlay generation workflow', () => {
       })
     );
     await vi.waitFor(() =>
-      expect(configurationStatus?.textContent).toMatch(/^Status: Valid · \d+ ms$/u)
+      expect(configurationStatus?.textContent).toBe('Status: Valid')
     );
     expect(primaryAction?.disabled).toBe(false);
     expect(
-      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-validate'
+      )
     ).toHaveLength(1);
 
     providerSelect.value = NVIDIA_PROVIDER_ID;
@@ -3331,7 +3936,9 @@ describe('live Overlay generation workflow', () => {
     expect(configurationStatus?.textContent).not.toContain('Status: Valid');
     expect(primaryAction?.disabled).toBe(true);
     expect(
-      currentConfigurationState.credentials.map((credential) => credential.credentialId)
+      currentConfigurationState.credentials.map(
+        (credential) => credential.credentialId
+      )
     ).toEqual([
       'credential-1',
       'gemini-backup',
@@ -3356,7 +3963,9 @@ describe('live Overlay generation workflow', () => {
       expect(pendingValidationResolvers.nvidia).toBeTypeOf('function')
     );
     expect(
-      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-validate'
+      )
     ).toHaveLength(2);
 
     providerSelect.value = 'gemini';
@@ -3403,9 +4012,10 @@ describe('live Overlay generation workflow', () => {
       expect(configurationStatus?.textContent).toBe('Status: Valid')
     );
     expect(
-      sendMessage.mock.calls.filter(([request]) => request.type === 'configuration-validate')
+      sendMessage.mock.calls.filter(
+        ([request]) => request.type === 'configuration-validate'
+      )
     ).toHaveLength(3);
     expect(primaryAction?.disabled).toBe(false);
   });
-
 });

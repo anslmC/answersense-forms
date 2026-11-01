@@ -4,7 +4,9 @@
   top: 16px;
   right: 16px;
   z-index: 2147483647;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-family:
+    'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo,
+    monospace;
   color: #1f2937;
   font-size: 14px;
   line-height: 1.4;
@@ -33,11 +35,12 @@
   background:
     linear-gradient(#f5f7fb, #f5f7fb) padding-box,
     conic-gradient(
-      from var(--glint-angle, 0deg),
-      #f5f7fb 0deg 16deg,
-      #1d1d1d 16deg 30deg,
-      #f5f7fb 30deg 360deg
-    ) border-box;
+        from var(--glint-angle, 0deg),
+        #f5f7fb 0deg 16deg,
+        #1d1d1d 16deg 30deg,
+        #f5f7fb 30deg 360deg
+      )
+      border-box;
   background-origin: padding-box, border-box;
   background-clip: padding-box, border-box;
   background-repeat: no-repeat;
@@ -64,7 +67,7 @@
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
-  margin-right: -7px;
+  margin-right: -4px;
   fill: #333;
   filter: invert(1);
   pointer-events: none;
@@ -91,7 +94,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .overlay-panel.is-generating .logo-arm {
+  .overlay-panel.is-generating .logo-arm {
     animation: none;
   }
 }
@@ -337,7 +340,9 @@
   width: 0%;
   border-radius: 0;
   background: #111827;
-  transition: width 220ms ease, background-color 220ms ease;
+  transition:
+    width 220ms ease,
+    background-color 220ms ease;
 }
 
 .workflow-progress-text {
@@ -553,15 +558,21 @@
   color: #16a34a;
 }
 
-.configuration-panel [data-configuration-status].is-resave-warning [data-resave-status] {
+.configuration-panel
+  [data-configuration-status].is-resave-warning
+  [data-resave-status] {
   color: #c2410c;
 }
 
-.configuration-panel [data-configuration-status].is-unsaved-warning [data-unsaved-status] {
+.configuration-panel
+  [data-configuration-status].is-unsaved-warning
+  [data-unsaved-status] {
   color: #ca8a04;
 }
 
-.configuration-panel [data-configuration-status].is-validation-failure [data-validation-failure-status] {
+.configuration-panel
+  [data-configuration-status].is-validation-failure
+  [data-validation-failure-status] {
   color: #b91c1c;
 }
 

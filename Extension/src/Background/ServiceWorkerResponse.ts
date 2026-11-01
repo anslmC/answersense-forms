@@ -68,7 +68,8 @@ function safeServiceWorkerErrorResponse(
 
   if (
     code === 'PROVIDER_UNAVAILABLE' &&
-    message === "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+    message ===
+      "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
   ) {
     const unavailableError = sanitizeProviderError({
       safeCode: code,
@@ -86,7 +87,9 @@ function safeServiceWorkerErrorResponse(
 
   if (
     code in SERVICE_WORKER_MESSAGES &&
-    SERVICE_WORKER_MESSAGES[code as ServiceWorkerOnlyErrorCode].includes(message)
+    SERVICE_WORKER_MESSAGES[code as ServiceWorkerOnlyErrorCode].includes(
+      message
+    )
   ) {
     return { error: message, code };
   }

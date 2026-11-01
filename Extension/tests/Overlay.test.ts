@@ -39,9 +39,12 @@ describe('overlay refresh operation', () => {
 
   it('renders the GitHub link beside the existing header controls', async () => {
     await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
     const header = shadowRoot?.querySelector('.overlay-header');
-    const github = shadowRoot?.querySelector<HTMLAnchorElement>('.overlay-github');
+    const github =
+      shadowRoot?.querySelector<HTMLAnchorElement>('.overlay-github');
 
     expect(github).not.toBeNull();
     expect(github?.getAttribute('aria-label')).toBe('GitHub');
@@ -66,11 +69,13 @@ describe('overlay refresh operation', () => {
 
   it('applies the remembered position before appending the host', async () => {
     const append = vi.spyOn(document.documentElement, 'append');
-    const chromeMock = (globalThis as unknown as {
-      chrome: {
-        storage: { local: { get: (key: string) => Promise<unknown> } };
-      };
-    }).chrome;
+    const chromeMock = (
+      globalThis as unknown as {
+        chrome: {
+          storage: { local: { get: (key: string) => Promise<unknown> } };
+        };
+      }
+    ).chrome;
     vi.mocked(chromeMock.storage.local.get).mockResolvedValue({
       'answersense-overlay-position': { left: 240, top: 180 },
     });
@@ -101,10 +106,15 @@ describe('overlay refresh operation', () => {
 
   it('renders the approved AnswerSense logo beside the title', async () => {
     await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
     const header = shadowRoot?.querySelector('.overlay-header');
     const logo = shadowRoot?.querySelector<SVGElement>('.overlay-logo');
-    const stylesheet = readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8');
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      'utf8'
+    );
 
     expect(logo).not.toBeNull();
     expect(logo?.namespaceURI).toBe('http://www.w3.org/2000/svg');
@@ -118,26 +128,64 @@ describe('overlay refresh operation', () => {
         namespaceURI: path.namespaceURI,
       }))
     ).toEqual([
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M16,13H8a3,3,0,0,1-3-3V6A3,3,0,0,1,8,3h8a3,3,0,0,1,3,3v4A3,3,0,0,1,16,13ZM8,5A1,1,0,0,0,7,6v4a1,1,0,0,0,1,1h8a1,1,0,0,0,1-1V6a1,1,0,0,0-1-1Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M10,9a1.05,1.05,0,0,1-.71-.29A1,1,0,0,1,10.19,7a.6.6,0,0,1,.19.06.56.56,0,0,1,.17.09l.16.12A1,1,0,0,1,10,9Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M14,9a1,1,0,0,1-.71-1.71,1,1,0,0,1,1.42,1.42,1,1,0,0,1-.16.12.56.56,0,0,1-.17.09.6.6,0,0,1-.19.06Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M12,4a1,1,0,0,1-1-1V2a1,1,0,0,1,2,0V3A1,1,0,0,1,12,4Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M9,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,9,22Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M15,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,15,22Z' },
-      { className: 'cls-1', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M15,19H9a1,1,0,0,1-1-1V12a1,1,0,0,1,1-1h6a1,1,0,0,1,1,1v6A1,1,0,0,1,15,19Zm-5-2h4V13H10Z' },
-      { className: 'cls-1 logo-arm logo-arm-left', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z' },
-      { className: 'cls-1 logo-arm logo-arm-right', namespaceURI: 'http://www.w3.org/2000/svg', d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z' },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M16,13H8a3,3,0,0,1-3-3V6A3,3,0,0,1,8,3h8a3,3,0,0,1,3,3v4A3,3,0,0,1,16,13ZM8,5A1,1,0,0,0,7,6v4a1,1,0,0,0,1,1h8a1,1,0,0,0,1-1V6a1,1,0,0,0-1-1Z',
+      },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M10,9a1.05,1.05,0,0,1-.71-.29A1,1,0,0,1,10.19,7a.6.6,0,0,1,.19.06.56.56,0,0,1,.17.09l.16.12A1,1,0,0,1,10,9Z',
+      },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M14,9a1,1,0,0,1-.71-1.71,1,1,0,0,1,1.42,1.42,1,1,0,0,1-.16.12.56.56,0,0,1-.17.09.6.6,0,0,1-.19.06Z',
+      },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M12,4a1,1,0,0,1-1-1V2a1,1,0,0,1,2,0V3A1,1,0,0,1,12,4Z',
+      },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M9,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,9,22Z',
+      },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M15,22a1,1,0,0,1-1-1V18a1,1,0,0,1,2,0v3A1,1,0,0,1,15,22Z',
+      },
+      {
+        className: 'cls-1',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M15,19H9a1,1,0,0,1-1-1V12a1,1,0,0,1,1-1h6a1,1,0,0,1,1,1v6A1,1,0,0,1,15,19Zm-5-2h4V13H10Z',
+      },
+      {
+        className: 'cls-1 logo-arm logo-arm-left',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z',
+      },
+      {
+        className: 'cls-1 logo-arm logo-arm-right',
+        namespaceURI: 'http://www.w3.org/2000/svg',
+        d: 'M5,17a1,1,0,0,1-.89-.55,1,1,0,0,1,.44-1.34l4-2a1,1,0,1,1,.9,1.78l-4,2A.93.93,0,0,1,5,17Z',
+      },
     ]);
     expect(logo?.querySelectorAll('.logo-arm')).toHaveLength(2);
-      expect(logo?.querySelector('.logo-arm-mirror')?.getAttribute('transform')).toBe(
-        'translate(24 0) scale(-1 1)'
-      );
+    expect(
+      logo?.querySelector('.logo-arm-mirror')?.getAttribute('transform')
+    ).toBe('translate(24 0) scale(-1 1)');
     expect(stylesheet).toMatch(
       /\.overlay-logo\s*\{[^}]*fill: #333;[^}]*filter: invert\(1\);/s
     );
     expect(stylesheet).toMatch(/\.overlay-logo\s*\{[^}]*margin-right: -4px;/s);
-      expect(stylesheet).toContain('.overlay-panel.is-generating .logo-arm');
-      expect(stylesheet).toContain('animation: overlay-logo-arm 0.42s ease-in-out infinite;');
+    expect(stylesheet).toContain('.overlay-panel.is-generating .logo-arm');
+    expect(stylesheet).toContain(
+      'animation: overlay-logo-arm 0.42s ease-in-out infinite;'
+    );
     expect(stylesheet).toContain('transform: rotate(42deg);');
     expect(stylesheet).toContain('transform-origin: 100% 0%;');
     expect(stylesheet).toContain('@media (prefers-reduced-motion: reduce)');
@@ -148,22 +196,35 @@ describe('overlay refresh operation', () => {
 
   it('uses independent equal-sized SVG controls for Refresh and Close', async () => {
     await mountOverlay();
-    const shadowRoot = document.querySelector('#answersense-overlay-host')?.shadowRoot;
-    const refresh = shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh');
-    const close = shadowRoot?.querySelector<HTMLButtonElement>('.overlay-close');
-    const stylesheet = readFileSync(resolve(process.cwd(), 'src/Overlay/Overlay.css'), 'utf8');
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const refresh =
+      shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh');
+    const close =
+      shadowRoot?.querySelector<HTMLButtonElement>('.overlay-close');
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), 'src/Overlay/Overlay.css'),
+      'utf8'
+    );
 
     expect(refresh?.tagName).toBe('BUTTON');
     expect(close?.tagName).toBe('BUTTON');
     expect(refresh?.querySelector('svg')).not.toBeNull();
     expect(close?.querySelector('svg')).not.toBeNull();
-    expect(refresh?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 24 24');
-    expect(refresh?.querySelector('path')?.getAttribute('stroke')).toBe('#D1D5DB');
+    expect(refresh?.querySelector('svg')?.getAttribute('viewBox')).toBe(
+      '0 0 24 24'
+    );
+    expect(refresh?.querySelector('path')?.getAttribute('stroke')).toBe(
+      '#D1D5DB'
+    );
     expect(refresh?.querySelector('svg')?.getAttribute('width')).toBe('16');
     expect(refresh?.querySelector('svg')?.getAttribute('height')).toBe('16');
     expect(close?.querySelector('svg')?.getAttribute('width')).toBe('16');
     expect(close?.querySelector('svg')?.getAttribute('height')).toBe('16');
-    expect(close?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 24 24');
+    expect(close?.querySelector('svg')?.getAttribute('viewBox')).toBe(
+      '0 0 24 24'
+    );
     expect(close?.querySelector('path')?.getAttribute('fill')).toBe('#D1D5DB');
     expect(refresh?.getAttribute('aria-label')).toBe('Refresh');
     expect(close?.getAttribute('aria-label')).toBe('Close the panel');
@@ -181,9 +242,8 @@ describe('overlay refresh operation', () => {
     });
     await mountOverlay({ onRefresh });
     const host = document.querySelector('#answersense-overlay-host');
-    const refresh = host?.shadowRoot?.querySelector<HTMLButtonElement>(
-      '.overlay-refresh'
-    );
+    const refresh =
+      host?.shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh');
     expect(refresh).not.toBeNull();
     expect(refresh?.querySelector('svg')).not.toBeNull();
     expect(refresh?.getAttribute('aria-label')).toBe('Refresh');
@@ -212,9 +272,8 @@ describe('overlay refresh operation', () => {
     });
     await mountOverlay({ onRefresh });
     const host = document.querySelector('#answersense-overlay-host');
-    const refresh = host?.shadowRoot?.querySelector<HTMLButtonElement>(
-      '.overlay-refresh'
-    );
+    const refresh =
+      host?.shadowRoot?.querySelector<HTMLButtonElement>('.overlay-refresh');
 
     refresh?.click();
     await vi.advanceTimersByTimeAsync(0);

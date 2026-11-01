@@ -7,10 +7,7 @@ import { questionTitleRejectionReason } from '../../../Shared/QuestionTypes';
 import type { GenerationInterface, GenerationRequest } from './Contract';
 import { buildSettledContext, type SettledPageState } from './Context';
 import { createProcessingCycle, isCurrentCycle } from './Cycle';
-import {
-  GENERATE_UNANSWERED,
-  type GenerationIntent,
-} from './Intent';
+import { GENERATE_UNANSWERED, type GenerationIntent } from './Intent';
 import { createGenerationReport, type GenerationReport } from './Report';
 import { validateGenerationResponse } from './Validation';
 
@@ -71,17 +68,18 @@ function createLocalGenerationResults(
   page: NormalizedActivePage
 ): QuestionResult[] {
   return page.form.questions.flatMap((question) =>
-    question.supported &&
-    questionTitleRejectionReason(question.text) === null
+    question.supported && questionTitleRejectionReason(question.text) === null
       ? []
-      : [{
-          questionId: question.id,
-          status: 'unsupported' as const,
-          answer: null,
-          reason:
-            question.unsupportedReason ??
-            questionTitleRejectionReason(question.text),
-        }]
+      : [
+          {
+            questionId: question.id,
+            status: 'unsupported' as const,
+            answer: null,
+            reason:
+              question.unsupportedReason ??
+              questionTitleRejectionReason(question.text),
+          },
+        ]
   );
 }
 
@@ -131,9 +129,7 @@ export class GenerationCoordinator {
       intent.type === 'OVERRIDE_FILLED'
         ? {
             type: 'OVERRIDE_FILLED',
-            selectedQuestionIds: Object.freeze([
-              ...intent.selectedQuestionIds,
-            ]),
+            selectedQuestionIds: Object.freeze([...intent.selectedQuestionIds]),
           }
         : intent;
     const candidates = selectGenerationCandidates(page, frozenIntent);

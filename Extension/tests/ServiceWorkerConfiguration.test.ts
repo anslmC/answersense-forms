@@ -58,7 +58,10 @@ async function configuredStorage(
     const current = await local.get(CONFIGURATION_STATE_STORAGE_KEY);
     await local.set({
       [CONFIGURATION_STATE_STORAGE_KEY]: {
-        ...(current[CONFIGURATION_STATE_STORAGE_KEY] as Record<string, unknown>),
+        ...(current[CONFIGURATION_STATE_STORAGE_KEY] as Record<
+          string,
+          unknown
+        >),
         activeConfiguration,
       },
     });
@@ -134,7 +137,11 @@ describe('Service Worker provider configuration resolution', () => {
   it('preserves the existing Gemini default when no active configuration is stored', async () => {
     const local = storage();
     await createCredential(
-      { providerId: GEMINI_PROVIDER_ID, label: 'Primary', secret: 'test-secret' },
+      {
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Primary',
+        secret: 'test-secret',
+      },
       local
     );
 
@@ -147,7 +154,11 @@ describe('Service Worker provider configuration resolution', () => {
   it('does not use the implicit Gemini default when another provider credential exists', async () => {
     const local = storage();
     const geminiCredential = await createCredential(
-      { providerId: GEMINI_PROVIDER_ID, label: 'Gemini', secret: 'gemini-secret' },
+      {
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Gemini',
+        secret: 'gemini-secret',
+      },
       local
     );
     const geminiConfiguration = {
@@ -158,22 +169,26 @@ describe('Service Worker provider configuration resolution', () => {
     };
     await setActiveConfiguration(geminiConfiguration, local);
     const identity = await configurationIdentity(geminiConfiguration);
-    await saveValidation({
-      configurationDigest: identity.digest,
-      providerId: GEMINI_PROVIDER_ID,
-      modelId: GEMINI_MODEL,
-      credentialId: geminiCredential.credentialId,
-      status: 'VALID',
-      validatedAt: '2026-09-08T00:00:00.000Z',
-    }, local);
+    await saveValidation(
+      {
+        configurationDigest: identity.digest,
+        providerId: GEMINI_PROVIDER_ID,
+        modelId: GEMINI_MODEL,
+        credentialId: geminiCredential.credentialId,
+        status: 'VALID',
+        validatedAt: '2026-09-08T00:00:00.000Z',
+      },
+      local
+    );
     await clearActiveConfiguration(local);
     await createCredential(
       { providerId: 'nvidia', label: 'NVIDIA', secret: 'nvidia-secret' },
       local
     );
 
-    await expect(resolveAuthorizedProviderConfiguration(undefined, local))
-      .rejects.toThrow('Configuration required');
+    await expect(
+      resolveAuthorizedProviderConfiguration(undefined, local)
+    ).rejects.toThrow('Configuration required');
   });
 
   it('authorizes only the exact current configuration digest with VALID state', async () => {
@@ -219,7 +234,10 @@ describe('Service Worker provider configuration resolution', () => {
     );
 
     await expect(
-      resolveAuthorizedProviderConfiguration(resolved.configurationDigest, local)
+      resolveAuthorizedProviderConfiguration(
+        resolved.configurationDigest,
+        local
+      )
     ).rejects.toThrow('Configuration is not validated');
   });
 
@@ -268,7 +286,10 @@ describe('Service Worker provider configuration resolution', () => {
     await deleteCredential(resolved.configuration.credentialId, local);
 
     await expect(
-      resolveAuthorizedProviderConfiguration(resolved.configurationDigest, local)
+      resolveAuthorizedProviderConfiguration(
+        resolved.configurationDigest,
+        local
+      )
     ).rejects.toThrow('Configuration required');
   });
 
@@ -289,7 +310,11 @@ describe('Service Worker provider configuration resolution', () => {
     const revision = await getConfigurationStateRevision(local);
     await replaceCredential(
       resolved.configuration.credentialId,
-      { providerId: GEMINI_PROVIDER_ID, label: 'Replacement', secret: 'new-secret' },
+      {
+        providerId: GEMINI_PROVIDER_ID,
+        label: 'Replacement',
+        secret: 'new-secret',
+      },
       local
     );
 
@@ -343,8 +368,8 @@ describe('Service Worker provider configuration resolution', () => {
     };
     armed = true;
 
-    await expect(resolveAuthorizedProviderConfiguration(undefined, base)).rejects.toThrow(
-      'changed'
-    );
+    await expect(
+      resolveAuthorizedProviderConfiguration(undefined, base)
+    ).rejects.toThrow('changed');
   });
 });

@@ -312,17 +312,21 @@ describe('Content navigation runtime adapter', () => {
 
     const result = await observe(lifecycle, createDocument('page-1'));
     const backend: GenerationInterface = {
-      generate: vi.fn(async (request: Parameters<GenerationInterface['generate']>[0]): Promise<GenerationResponse> => ({
-        cycleId: request.cycleId,
-        results: request.questions.map((question) => ({
-          questionId: question.questionId,
-          status: 'GENERATED' as const,
-          answer: {
+      generate: vi.fn(
+        async (
+          request: Parameters<GenerationInterface['generate']>[0]
+        ): Promise<GenerationResponse> => ({
+          cycleId: request.cycleId,
+          results: request.questions.map((question) => ({
             questionId: question.questionId,
-            value: 'Generated answer',
-          },
-        })),
-      })),
+            status: 'GENERATED' as const,
+            answer: {
+              questionId: question.questionId,
+              value: 'Generated answer',
+            },
+          })),
+        })
+      ),
     };
     if (shouldGeneratePage(lifecycle.currentRevisitStatus)) {
       await generation.generate(
@@ -352,17 +356,21 @@ describe('Content navigation runtime adapter', () => {
       createDocument('page-1', 'Changed question')
     );
     const backend: GenerationInterface = {
-      generate: vi.fn(async (request: Parameters<GenerationInterface['generate']>[0]): Promise<GenerationResponse> => ({
-        cycleId: request.cycleId,
-        results: request.questions.map((question) => ({
-          questionId: question.questionId,
-          status: 'GENERATED' as const,
-          answer: {
+      generate: vi.fn(
+        async (
+          request: Parameters<GenerationInterface['generate']>[0]
+        ): Promise<GenerationResponse> => ({
+          cycleId: request.cycleId,
+          results: request.questions.map((question) => ({
             questionId: question.questionId,
-            value: 'Generated answer',
-          },
-        })),
-      })),
+            status: 'GENERATED' as const,
+            answer: {
+              questionId: question.questionId,
+              value: 'Generated answer',
+            },
+          })),
+        })
+      ),
     };
     if (shouldGeneratePage(lifecycle.currentRevisitStatus)) {
       await generation.generate(
@@ -392,7 +400,10 @@ describe('Content navigation runtime adapter', () => {
     expect(lifecycle.pendingPage).not.toBeNull();
 
     const transitioned = await observe(lifecycle, createDocument('page-2'));
-    const repeatedTransition = await observe(lifecycle, createDocument('page-2'));
+    const repeatedTransition = await observe(
+      lifecycle,
+      createDocument('page-2')
+    );
     expect(transitioned.transitioned).toBe(true);
     expect(repeatedTransition.transitioned).toBe(false);
     expect(lifecycle.context).toEqual([
@@ -404,14 +415,17 @@ describe('Content navigation runtime adapter', () => {
     vi.resetModules();
     vi.doMock('../src/Forms/Detection', () => ({
       isSupportedGoogleFormsPage: () => true,
+      isGoogleFormsRespondentPage: () => true,
     }));
 
     const runtimeMessages: Array<Record<string, unknown>> = [];
-    const contentListeners: Array<(
-      message: Record<string, unknown>,
-      sender: unknown,
-      sendResponse: (response: unknown) => void
-    ) => unknown> = [];
+    const contentListeners: Array<
+      (
+        message: Record<string, unknown>,
+        sender: unknown,
+        sendResponse: (response: unknown) => void
+      ) => unknown
+    > = [];
     const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
       runtimeMessages.push(message);
       if (message.type === 'get-lifecycle-snapshot') return null;
@@ -454,7 +468,7 @@ describe('Content navigation runtime adapter', () => {
       runtime: {
         sendMessage,
         onMessage: {
-          addListener: (listener: typeof contentListeners[number]) => {
+          addListener: (listener: (typeof contentListeners)[number]) => {
             contentListeners.push(listener);
           },
         },
@@ -526,9 +540,11 @@ describe('Content navigation runtime adapter', () => {
         );
         expect(transition).toBeDefined();
         expect(
-          (transition?.snapshot as {
-            settledPages: Array<{ pageId: string; answers: unknown[] }>;
-          }).settledPages
+          (
+            transition?.snapshot as {
+              settledPages: Array<{ pageId: string; answers: unknown[] }>;
+            }
+          ).settledPages
         ).toEqual([
           expect.objectContaining({
             pageId: 'page-1',
@@ -551,14 +567,17 @@ describe('Content navigation runtime adapter', () => {
     vi.resetModules();
     vi.doMock('../src/Forms/Detection', () => ({
       isSupportedGoogleFormsPage: () => true,
+      isGoogleFormsRespondentPage: () => true,
     }));
 
     const runtimeMessages: Array<Record<string, unknown>> = [];
-    const contentListeners: Array<(
-      message: Record<string, unknown>,
-      sender: unknown,
-      sendResponse: (response: unknown) => void
-    ) => unknown> = [];
+    const contentListeners: Array<
+      (
+        message: Record<string, unknown>,
+        sender: unknown,
+        sendResponse: (response: unknown) => void
+      ) => unknown
+    > = [];
     const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
       runtimeMessages.push(message);
       if (message.type === 'get-lifecycle-snapshot') return null;
@@ -591,7 +610,7 @@ describe('Content navigation runtime adapter', () => {
       runtime: {
         sendMessage,
         onMessage: {
-          addListener: (listener: typeof contentListeners[number]) => {
+          addListener: (listener: (typeof contentListeners)[number]) => {
             contentListeners.push(listener);
           },
         },
@@ -621,7 +640,9 @@ describe('Content navigation runtime adapter', () => {
       await import('../src/Content/Content');
       await vi.waitFor(() =>
         expect(
-          runtimeMessages.some((message) => message.type === 'lifecycle-snapshot')
+          runtimeMessages.some(
+            (message) => message.type === 'lifecycle-snapshot'
+          )
         ).toBe(true)
       );
 
@@ -653,7 +674,14 @@ describe('Content navigation runtime adapter', () => {
       );
       const latestSnapshot = publishedSnapshots[publishedSnapshots.length - 1]
         ?.snapshot as {
-        activePage: { form: { questions: Array<{ id: string; existingInput: { value: string; hasValue: boolean } }> } };
+        activePage: {
+          form: {
+            questions: Array<{
+              id: string;
+              existingInput: { value: string; hasValue: boolean };
+            }>;
+          };
+        };
       };
       expect(latestSnapshot.activePage.form.questions).toContainEqual(
         expect.objectContaining({

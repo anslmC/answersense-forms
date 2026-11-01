@@ -1,4 +1,10 @@
-import type { NormalizedActivePage, ProcessingCycle } from '../Models/Logical';
+import type {
+  AnswerValue,
+  ExistingInput,
+  NormalizedActivePage,
+  ProcessingCycle,
+  Question,
+} from '../Models/Logical';
 import type { DiscoveredPage } from '../Forms/Discovery';
 import {
   computePageFingerprint,
@@ -163,10 +169,15 @@ export class PageLifecycle {
     return this.pending;
   }
 
-  captureCurrentAnswers(
-    document: Document,
-    allowEmpty = true
-  ): NormalizedActivePage {
+  /**
+   * Reads current control values into the active page.
+   *
+   * A captured control is authoritative: an empty control clears the value even
+   * when an earlier answer was captured. A control that cannot be resolved
+   * (temporarily detached or replaced) leaves the previous value untouched so a
+   * reconciliation gap does not discard a legitimate captured answer.
+   */
+  captureCurrentAnswers(document: Document): NormalizedActivePage {
     const questions = this.activePage.form.questions.map((question) => {
       if (!question.supported || question.id === null) return question;
       const capture = captureAnswerSnapshot(
@@ -175,11 +186,12 @@ export class PageLifecycle {
         question.id
       );
       if (capture.status === 'unavailable') return question;
-      if (!capture.answer && !allowEmpty) return question;
       this.capturedQuestionIds.add(question.id);
       const answer = capture.answer;
       const value = answer?.value ?? null;
-      const selectedValues = new Set(Array.isArray(value) ? value : value === null ? [] : [value]);
+      const selectedValues = new Set(
+        Array.isArray(value) ? value : value === null ? [] : [value]
+      );
       return {
         ...question,
         existingInput: { value, hasValue: value !== null },
@@ -201,7 +213,7 @@ export class PageLifecycle {
       document ??
       (typeof globalThis.document === 'object' ? globalThis.document : null);
     if (sourceDocument) {
-      this.captureCurrentAnswers(sourceDocument, false);
+      this.captureCurrentAnswers(sourceDocument);
     }
     this.oldPageDocument = sourceDocument;
     this.navigation = beginNextNavigation(this.activePage.form.activePageId);
@@ -232,9 +244,9 @@ export class PageLifecycle {
     }
     const normalizedPage = normalizeDiscoveredActivePage(discovered);
     if (this.isSamePage(this.activePage, normalizedPage)) {
-      this.captureCurrentAnswers(document, false);
+      this.captureCurrentAnswers(document);
     }
-    return this.resetForNewDocument(discovered);
+    return this.resetForNewDocument(discovered, document);
   }
 
   abandon(): void {
@@ -242,7 +254,7 @@ export class PageLifecycle {
     this.navigation = null;
     this.oldPageDocument = null;
     this.generation.invalidate();
-    this.visits[this.visits.length - 1].status = 'abandoned';
+    this.markActiveVisit('abandoned');
   }
 
   restart(): ProcessingCycle {
@@ -316,10 +328,7 @@ export class PageLifecycle {
       this.capturedQuestionIds.clear();
     }
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
-    const activeVisit = this.visits[this.visits.length - 1];
-    if (activeVisit) {
-      activeVisit.status = 'abandoned';
-    }
+    this.markActiveVisit('abandoned');
     this.visits.push({
       pageId: discovered.pageId,
       cycleId: this.activeCycle.cycleId,
@@ -369,18 +378,18 @@ export class PageLifecycle {
     document: Document
   ): NormalizedActivePage {
     const sourceDocument = this.oldPageDocument ?? document;
-    const pendingAtSettlement = this.pending && this.oldPageDocument
-      ? capturePendingPageAtSettlement(
-          this.oldPageDocument,
-          this.activePage.form,
-          this.pending
-        )
-      : this.pending;
+    const pendingAtSettlement =
+      this.pending && this.oldPageDocument
+        ? capturePendingPageAtSettlement(
+            this.oldPageDocument,
+            this.activePage.form,
+            this.pending
+          )
+        : this.pending;
     const committedPage = pendingAtSettlement
-      ? commitPendingPageAfterSuccessfulTransition(
-          pendingAtSettlement,
-          { nextAcceptedAndTransitioned: true }
-        )
+      ? commitPendingPageAfterSuccessfulTransition(pendingAtSettlement, {
+          nextAcceptedAndTransitioned: true,
+        })
       : null;
     const answersById = new Map<string, SettledPageState['answers'][number]>();
     for (const entry of committedPage?.answers ?? []) {
@@ -409,7 +418,10 @@ export class PageLifecycle {
         question.existingInput?.hasValue !== true
       ) {
         answersById.delete(question.id);
-      } else if (question.existingInput?.hasValue && question.existingInput.value) {
+      } else if (
+        question.existingInput?.hasValue &&
+        question.existingInput.value
+      ) {
         answersById.set(question.id, {
           answer: {
             questionId: question.id,
@@ -442,7 +454,7 @@ export class PageLifecycle {
     this.pending = null;
     this.navigation = null;
     this.oldPageDocument = null;
-    this.visits[this.visits.length - 1].status = 'settled';
+    this.markActiveVisit('settled');
     this.activeCycle = this.generation.beginCycle();
     this.activePage = normalizeDiscoveredActivePage(
       discovered,
@@ -482,7 +494,8 @@ export class PageLifecycle {
         )
       );
       const questions = normalizedPage.form.questions.map((question) => {
-        const answer = question.id === null ? undefined : answersById.get(question.id);
+        const answer =
+          question.id === null ? undefined : answersById.get(question.id);
         return answer && question.existingInput?.hasValue !== true
           ? {
               ...question,
@@ -509,7 +522,7 @@ export class PageLifecycle {
       this.activePage = normalizedPage;
     }
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
-    this.visits[this.visits.length - 1].status = 'abandoned';
+    this.markActiveVisit('abandoned');
     this.visits.push({
       pageId: discovered.pageId,
       cycleId: this.activeCycle.cycleId,
@@ -519,7 +532,8 @@ export class PageLifecycle {
   }
 
   private resetForNewDocument(
-    discovered: DiscoveredPage
+    discovered: DiscoveredPage,
+    document: Document
   ): NormalizedActivePage {
     const previousPage = this.activePage;
     this.pending = null;
@@ -527,24 +541,90 @@ export class PageLifecycle {
     this.oldPageDocument = null;
     this.generation.invalidate();
     this.activeCycle = this.generation.beginCycle();
-    this.activePage = normalizeDiscoveredActivePage(
-      discovered,
-      this.activeCycle.cycleId
+    this.activePage = this.preserveUnavailableAnswers(
+      previousPage,
+      normalizeDiscoveredActivePage(discovered, this.activeCycle.cycleId),
+      document
     );
-    this.activePage = this.preserveKnownAnswers(previousPage, this.activePage);
-    if (this.isSamePage(previousPage, this.activePage)) {
-      this.retainCapturedQuestionIds(this.activePage);
-    } else {
-      this.capturedQuestionIds.clear();
-    }
+    this.capturedQuestionIds.clear();
     this.revisitStatus = this.classifyPageRevisit(this.activePage);
-    this.visits[this.visits.length - 1].status = 'abandoned';
+    this.markActiveVisit('abandoned');
     this.visits.push({
       pageId: discovered.pageId,
       cycleId: this.activeCycle.cycleId,
       status: 'active',
     });
     return this.activePage;
+  }
+
+  /**
+   * Carries a previously captured value across a document replacement only
+   * when the control is genuinely unavailable in the new document. A control
+   * that is present but empty is authoritative and must not inherit a stale
+   * answer from before a reload.
+   */
+  private preserveUnavailableAnswers(
+    previous: NormalizedActivePage,
+    next: NormalizedActivePage,
+    document: Document
+  ): NormalizedActivePage {
+    if (!this.isSamePage(previous, next)) return next;
+    const previousFingerprint =
+      previous.form.pageFingerprint ?? computePageFingerprint(previous.form);
+    const nextFingerprint =
+      next.form.pageFingerprint ?? computePageFingerprint(next.form);
+    if (previousFingerprint !== nextFingerprint) return next;
+
+    const previousById = new Map(
+      previous.form.questions
+        .filter(
+          (
+            question
+          ): question is Question & {
+            id: string;
+            existingInput: ExistingInput & { value: AnswerValue };
+          } =>
+            question.supported &&
+            question.id !== null &&
+            question.existingInput?.hasValue === true &&
+            question.existingInput.value !== null
+        )
+        .map((question) => [question.id, question])
+    );
+
+    const questions = next.form.questions.map((question) => {
+      if (!question.supported || question.id === null) {
+        return question;
+      }
+      const previousQuestion = previousById.get(question.id);
+      if (!previousQuestion || previousQuestion.type !== question.type) {
+        return question;
+      }
+      const capture = captureAnswerSnapshot(document, next.form, question.id);
+      if (capture.status !== 'unavailable') {
+        return question;
+      }
+      const value = Array.isArray(previousQuestion.existingInput.value)
+        ? [...previousQuestion.existingInput.value]
+        : previousQuestion.existingInput.value;
+      const selectedValues = new Set(Array.isArray(value) ? value : [value]);
+      return {
+        ...question,
+        existingInput: { value, hasValue: true },
+        options: question.options.map((option) => ({
+          ...option,
+          selected: selectedValues.has(option.label),
+        })),
+      };
+    });
+    return { ...next, form: { ...next.form, questions } };
+  }
+
+  private markActiveVisit(status: PageVisit['status']): void {
+    const activeVisit = this.visits[this.visits.length - 1];
+    if (activeVisit) {
+      activeVisit.status = status;
+    }
   }
 
   private isSamePage(

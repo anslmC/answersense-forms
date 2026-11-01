@@ -297,17 +297,20 @@ describe('Generation response validation', () => {
       ],
     };
     const generator: GenerationInterface = {
-      generate: vi.fn(async (request: GenerationRequest): Promise<GenerationResponse> => ({
-        cycleId: request.cycleId,
-        results: request.questions.map((question) => ({
-          questionId: question.questionId,
-          status: 'GENERATED' as const,
-          answer: {
+      generate: vi.fn(
+        async (request: GenerationRequest): Promise<GenerationResponse> => ({
+          cycleId: request.cycleId,
+          results: request.questions.map((question) => ({
             questionId: question.questionId,
-            value: question.type === 'multiple-choice' ? ['Testing'] : 'Answer',
-          },
-        })),
-      })),
+            status: 'GENERATED' as const,
+            answer: {
+              questionId: question.questionId,
+              value:
+                question.type === 'multiple-choice' ? ['Testing'] : 'Answer',
+            },
+          })),
+        })
+      ),
     };
 
     const coordinator = new GenerationCoordinator(() => 'cycle-unsupported');
@@ -332,7 +335,10 @@ describe('Generation response validation', () => {
 
   it('filters title-invalid questions without shifting valid question IDs', async () => {
     const invalidTitleQuestion = {
-      ...createQuestion('invalid-title', 'single-choice', ['Option one', 'Option two']),
+      ...createQuestion('invalid-title', 'single-choice', [
+        'Option one',
+        'Option two',
+      ]),
       text: '4.j *',
     };
     const validQuestion = {
@@ -357,11 +363,9 @@ describe('Generation response validation', () => {
       })),
     };
 
-    const report = await new GenerationCoordinator(() => 'cycle-title-guard').generate(
-      mixedPage,
-      [],
-      generator
-    );
+    const report = await new GenerationCoordinator(
+      () => 'cycle-title-guard'
+    ).generate(mixedPage, [], generator);
 
     expect(generator.generate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -455,8 +459,14 @@ describe('Settled context and pending page state', () => {
 
 describe('Generation cycles and reports', () => {
   it.each([
-    [['name', 'language', 'topics'], ['name', 'language', 'topics']],
-    [['name', 'language'], ['name', 'language']],
+    [
+      ['name', 'language', 'topics'],
+      ['name', 'language', 'topics'],
+    ],
+    [
+      ['name', 'language'],
+      ['name', 'language'],
+    ],
     [['name', 'language'], ['name']],
     [['name', 'language'], ['language']],
     [['name', 'language', 'topics'], []],
@@ -470,10 +480,11 @@ describe('Generation cycles and reports', () => {
           questions: form.questions.map((question) => ({
             ...question,
             existingInput: {
-              value: selectedIds.includes(question.id as string) &&
+              value:
+                selectedIds.includes(question.id as string) &&
                 (validIds as string[]).includes(question.id as string)
-                ? 'Existing'
-                : null,
+                  ? 'Existing'
+                  : null,
               hasValue:
                 selectedIds.includes(question.id as string) &&
                 (validIds as string[]).includes(question.id as string),
@@ -512,14 +523,20 @@ describe('Generation cycles and reports', () => {
   it('rejects every invalid override ID without shrinking the selection', () => {
     const cases = [
       ['disappeared', (question: Question) => question],
-      ['unsupported', (question: Question) => ({ ...question, supported: false })],
+      [
+        'unsupported',
+        (question: Question) => ({ ...question, supported: false }),
+      ],
       ['invalid identity', (question: Question) => ({ ...question, id: '' })],
       ['invalid text', (question: Question) => ({ ...question, text: '' })],
       ['invalid type', (question: Question) => ({ ...question, type: null })],
-      ['unanswered', (question: Question) => ({
-        ...question,
-        existingInput: { value: null, hasValue: false },
-      })],
+      [
+        'unanswered',
+        (question: Question) => ({
+          ...question,
+          existingInput: { value: null, hasValue: false },
+        }),
+      ],
     ] as const;
 
     for (const [label, update] of cases) {
@@ -562,10 +579,9 @@ describe('Generation cycles and reports', () => {
       },
     };
 
-    expect(selectGenerationCandidates(existing).map((question) => question.id)).toEqual([
-      'language',
-      'topics',
-    ]);
+    expect(
+      selectGenerationCandidates(existing).map((question) => question.id)
+    ).toEqual(['language', 'topics']);
   });
 
   it('selects only selected filled questions for override generation', () => {
@@ -586,12 +602,14 @@ describe('Generation cycles and reports', () => {
     const intent = createOverrideFilledIntent(['topics', 'name']);
 
     expect(intent.type).toBe('OVERRIDE_FILLED');
-    if (intent.type !== 'OVERRIDE_FILLED') throw new Error('Expected override intent');
+    if (intent.type !== 'OVERRIDE_FILLED')
+      throw new Error('Expected override intent');
     expect(Object.isFrozen(intent.selectedQuestionIds)).toBe(true);
-    expect(selectGenerationCandidates(overridePage, intent).map((question) => question.id)).toEqual([
-      'name',
-      'topics',
-    ]);
+    expect(
+      selectGenerationCandidates(overridePage, intent).map(
+        (question) => question.id
+      )
+    ).toEqual(['name', 'topics']);
   });
 
   it('excludes unsupported selected questions from override candidates', () => {
@@ -621,9 +639,18 @@ describe('Generation cycles and reports', () => {
       form: {
         ...form,
         questions: [
-          { ...form.questions[0], existingInput: { value: 'Filled', hasValue: true } },
-          { ...form.questions[1], existingInput: { value: null, hasValue: false } },
-          { ...form.questions[2], existingInput: { value: 'Filled', hasValue: true } },
+          {
+            ...form.questions[0],
+            existingInput: { value: 'Filled', hasValue: true },
+          },
+          {
+            ...form.questions[1],
+            existingInput: { value: null, hasValue: false },
+          },
+          {
+            ...form.questions[2],
+            existingInput: { value: 'Filled', hasValue: true },
+          },
         ],
       },
     };
@@ -659,7 +686,10 @@ describe('Generation cycles and reports', () => {
         ...form,
         questions: form.questions.map((question) =>
           question.id === 'name'
-            ? { ...question, existingInput: { value: 'Private answer', hasValue: true } }
+            ? {
+                ...question,
+                existingInput: { value: 'Private answer', hasValue: true },
+              }
             : question
         ),
       },
@@ -749,9 +779,18 @@ describe('Generation cycles and reports', () => {
       form: {
         ...form,
         questions: [
-          { ...form.questions[0], existingInput: { value: 'Filled', hasValue: true } },
-          { ...form.questions[1], existingInput: { value: null, hasValue: false } },
-          { ...form.questions[2], existingInput: { value: 'Selected', hasValue: true } },
+          {
+            ...form.questions[0],
+            existingInput: { value: 'Filled', hasValue: true },
+          },
+          {
+            ...form.questions[1],
+            existingInput: { value: null, hasValue: false },
+          },
+          {
+            ...form.questions[2],
+            existingInput: { value: 'Selected', hasValue: true },
+          },
         ],
       },
     };
@@ -789,7 +828,9 @@ describe('Generation cycles and reports', () => {
       ],
     };
 
-    expect(validateGenerationResponse(response, form, 'cycle-1', candidates)).toHaveLength(1);
+    expect(
+      validateGenerationResponse(response, form, 'cycle-1', candidates)
+    ).toHaveLength(1);
   });
 
   it('creates a new cycle for each attempt and ignores stale responses', async () => {

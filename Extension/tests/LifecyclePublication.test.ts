@@ -14,7 +14,9 @@ describe('Lifecycle publication delivery', () => {
     const send = vi.fn(async () => ({ status: 'snapshot-stored' }));
     const queue = new LifecyclePublicationQueue(send, { sleep: vi.fn() });
 
-    await expect(queue.publish(snapshotMessage('page-1'))).resolves.toBeUndefined();
+    await expect(
+      queue.publish(snapshotMessage('page-1'))
+    ).resolves.toBeUndefined();
     expect(send).toHaveBeenCalledTimes(1);
   });
 
@@ -30,7 +32,9 @@ describe('Lifecycle publication delivery', () => {
       sleep,
     });
 
-    await expect(queue.publish(snapshotMessage('page-1'))).resolves.toBeUndefined();
+    await expect(
+      queue.publish(snapshotMessage('page-1'))
+    ).resolves.toBeUndefined();
     expect(send).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledWith(10);
   });

@@ -65,7 +65,7 @@ function buildShell(): {
   const refresh = document.createElement('button');
   refresh.type = 'button';
   refresh.className = 'overlay-refresh';
-    refresh.innerHTML = `
+  refresh.innerHTML = `
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
         <path d="M20.453 12.8932C20.1752 15.5031 18.6964 17.9488 16.2494 19.3616C12.1839 21.7088 6.98539 20.3158 4.63818 16.2503L4.38818 15.8173M3.54613 11.1071C3.82393 8.49723 5.30272 6.05151 7.74971 4.63874C11.8152 2.29153 17.0137 3.68447 19.3609 7.74995L19.6109 8.18297M3.49316 18.0662L4.22521 15.3341L6.95727 16.0662M17.0424 7.93413L19.7744 8.66618L20.5065 5.93413" stroke="#D1D5DB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
       </svg>`;
@@ -288,13 +288,13 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
   `;
 }
 
-async function readStoredOverlayPosition(): Promise<
-  { left: number; top: number } | null
-> {
+async function readStoredOverlayPosition(): Promise<{
+  left: number;
+  top: number;
+} | null> {
   const items = await chrome.storage.local.get('answersense-overlay-position');
   const stored = items['answersense-overlay-position'] as
-    | { left?: number; top?: number }
-    | undefined;
+    { left?: number; top?: number } | undefined;
 
   if (
     !stored ||
@@ -358,7 +358,9 @@ export async function mountOverlay(
     }
     if (
       event.target instanceof Element &&
-      event.target.closest('button.overlay-close, button.overlay-refresh, a.overlay-github')
+      event.target.closest(
+        'button.overlay-close, button.overlay-refresh, a.overlay-github'
+      )
     ) {
       return;
     }
@@ -499,7 +501,7 @@ export async function mountOverlay(
     await handle.ready;
     host.style.visibility = 'visible';
   } catch (error) {
-    handle.dispose();
+    handle.dispose?.();
     host.remove();
     throw error;
   }
@@ -507,7 +509,7 @@ export async function mountOverlay(
   return {
     refresh: () => handle.refresh(),
     close: () => {
-      handle.dispose();
+      handle.dispose?.();
       host.remove();
       options.onClose?.();
     },

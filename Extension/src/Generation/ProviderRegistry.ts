@@ -65,7 +65,7 @@ const geminiProvider: ProviderDefinition = Object.freeze({
 const nvidiaModels: readonly ModelDefinition[] = Object.freeze([
   Object.freeze({
     modelId: NVIDIA_MODEL,
-    displayName: 'NVIDIA Nemotron 3.5 Super',
+    displayName: 'Nemotron 3.5 Super VL 120B A12B',
     providerId: NVIDIA_PROVIDER_ID,
     endpointHost: NVIDIA_ENDPOINT_HOST,
   }),
@@ -120,7 +120,8 @@ const STATIC_ADAPTERS: Readonly<Record<string, ProviderAdapterFactory>> =
 const STATIC_CREDENTIAL_VALIDATORS: Readonly<
   Record<string, ProviderCredentialValidator>
 > = Object.freeze({
-  [GEMINI_PROVIDER_ID]: (secret) => validateGeminiCredential(secret),
+  [GEMINI_PROVIDER_ID]: (secret, modelId) =>
+    validateGeminiCredential(secret, modelId),
   [NVIDIA_PROVIDER_ID]: (secret, modelId) =>
     validateNvidiaCredential(secret, modelId),
 });
@@ -142,9 +143,7 @@ export function resolveModel(
   if (!provider || typeof modelId !== 'string') {
     return null;
   }
-  return (
-    provider.models.find((model) => model.modelId === modelId) ?? null
-  );
+  return provider.models.find((model) => model.modelId === modelId) ?? null;
 }
 
 export function resolveProviderModel(

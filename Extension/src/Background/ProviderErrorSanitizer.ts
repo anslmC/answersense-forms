@@ -61,11 +61,10 @@ function providerErrorFromContract(error: unknown): SafeProviderError | null {
       message:
         safeCode === 'PERMISSION_DENIED' && providerId === 'nvidia'
           ? NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE
-          :
-        safeCode === 'PROVIDER_UNAVAILABLE' &&
-        safeMessageCode === 'SERVER_BUSY'
-          ? "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
-          : SAFE_MESSAGES[safeCode as ProviderErrorCode],
+          : safeCode === 'PROVIDER_UNAVAILABLE' &&
+              safeMessageCode === 'SERVER_BUSY'
+            ? "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+            : SAFE_MESSAGES[safeCode as ProviderErrorCode],
     };
   } catch {
     return null;

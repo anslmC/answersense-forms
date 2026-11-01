@@ -64,23 +64,38 @@ const overridePage = {
   questionCount: 5,
   questions: [
     {
-      id: 'first', text: 'First answer', type: 'short-text', supported: true,
+      id: 'first',
+      text: 'First answer',
+      type: 'short-text',
+      supported: true,
       existingInput: { hasValue: true },
     },
     {
-      id: 'unanswered', text: 'Unanswered', type: 'short-text', supported: true,
+      id: 'unanswered',
+      text: 'Unanswered',
+      type: 'short-text',
+      supported: true,
       existingInput: { hasValue: false },
     },
     {
-      id: 'third', text: 'Third answer', type: 'paragraph', supported: true,
+      id: 'third',
+      text: 'Third answer',
+      type: 'paragraph',
+      supported: true,
       existingInput: { hasValue: true },
     },
     {
-      id: 'unsupported', text: 'Unsupported', type: null, supported: false,
+      id: 'unsupported',
+      text: 'Unsupported',
+      type: null,
+      supported: false,
       existingInput: null,
     },
     {
-      id: '', text: 'Invalid identity', type: 'short-text', supported: true,
+      id: '',
+      text: 'Invalid identity',
+      type: 'short-text',
+      supported: true,
       existingInput: { hasValue: true },
     },
   ],
@@ -88,10 +103,9 @@ const overridePage = {
 
 describe('P6 popup state machine', () => {
   it('treats every filled operable question as an Override candidate', () => {
-    expect(filledOverrideCandidates(overridePage).map((question) => question.id)).toEqual([
-      'first',
-      'third',
-    ]);
+    expect(
+      filledOverrideCandidates(overridePage).map((question) => question.id)
+    ).toEqual(['first', 'third']);
     expect(overrideQuestionLabel(overridePage.questions[0])).toBe(
       'First answer'
     );
@@ -136,7 +150,9 @@ describe('P6 popup state machine', () => {
       resolve(process.cwd(), 'src/Workflow/WorkflowApp.ts'),
       'utf8'
     );
-    expect(source).toContain('const filledQuestions = filledOverrideCandidates(state.page);');
+    expect(source).toContain(
+      'const filledQuestions = filledOverrideCandidates(page);'
+    );
     expect(source).toContain('publishOverrideIntent');
   });
 
@@ -198,9 +214,7 @@ describe('P6 popup workflow boundary', () => {
   it('enters ERROR on generation failure without exposing a retry action', async () => {
     const workflow: Workflow = {
       discover: vi.fn(async () => page),
-      generate: vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Backend unavailable')),
+      generate: vi.fn().mockRejectedValueOnce(new Error('Backend unavailable')),
       forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
         uiState: 'READY',
         page,
@@ -221,15 +235,12 @@ describe('P6 popup workflow boundary', () => {
 
   it('projects READY after same-page post-fill discovery', async () => {
     const workflow: Workflow = {
-      discover: vi
-        .fn()
-        .mockResolvedValueOnce(page)
-        .mockResolvedValueOnce({
-          uiState: 'READY',
-          page,
-          result: null,
-          error: null,
-        }),
+      discover: vi.fn().mockResolvedValueOnce(page).mockResolvedValueOnce({
+        uiState: 'READY',
+        page,
+        result: null,
+        error: null,
+      }),
       generate: vi.fn(async () => result),
       forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
         uiState: 'READY',
@@ -252,15 +263,12 @@ describe('P6 popup workflow boundary', () => {
   it('allows a different page discovery to replace the completed review', async () => {
     const nextPage = { pageId: 'page-2', questionCount: 1 };
     const workflow: Workflow = {
-      discover: vi
-        .fn()
-        .mockResolvedValueOnce(page)
-        .mockResolvedValueOnce({
-          uiState: 'READY',
-          page: nextPage,
-          result: null,
-          error: null,
-        }),
+      discover: vi.fn().mockResolvedValueOnce(page).mockResolvedValueOnce({
+        uiState: 'READY',
+        page: nextPage,
+        result: null,
+        error: null,
+      }),
       generate: vi.fn(async () => result),
       forceClear: vi.fn(async (): Promise<WorkflowSnapshot> => ({
         uiState: 'READY',
@@ -318,7 +326,9 @@ describe('P6 popup workflow boundary', () => {
     machine.confirmedPage(page);
     const generating = machine.beginGeneration();
 
-    expect(machine.completeGeneration(machine.activeOperationToken, {} as never)).toMatchObject({
+    expect(
+      machine.completeGeneration(machine.activeOperationToken, {} as never)
+    ).toMatchObject({
       name: 'ERROR',
       message: 'Generation returned an invalid result.',
     });

@@ -12,10 +12,12 @@ export const NVIDIA_GPT_OSS_MODEL = 'openai/gpt-oss-20b';
 export const NVIDIA_ENDPOINT =
   'https://integrate.api.nvidia.com/v1/chat/completions';
 export const NVIDIA_REQUEST_TIMEOUT_MS = 30_000;
-const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze({
-  [NVIDIA_MODEL]: 16384,
-  [NVIDIA_GPT_OSS_MODEL]: 4096,
-});
+const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze(
+  {
+    [NVIDIA_MODEL]: 16384,
+    [NVIDIA_GPT_OSS_MODEL]: 4096,
+  }
+);
 const NVIDIA_MODELS = new Set(Object.keys(NVIDIA_MODEL_MAX_TOKENS));
 
 const SAFE_MESSAGES: Record<ProviderErrorCode, string> = {
@@ -25,13 +27,17 @@ const SAFE_MESSAGES: Record<ProviderErrorCode, string> = {
   RATE_LIMITED: 'Provider rate limit reached.',
   PROVIDER_UNAVAILABLE: 'Provider unavailable.',
   TIMEOUT: 'Provider request timed out.',
-  INCOMPLETE_PROVIDER_RESPONSE: 'NVIDIA response was truncated before completion.',
+  INCOMPLETE_PROVIDER_RESPONSE:
+    'NVIDIA response was truncated before completion.',
   MALFORMED_PROVIDER_RESPONSE: 'Provider returned an invalid response.',
   NETWORK_FAILURE: 'Provider network request failed.',
   PROVIDER_FAILURE: 'Provider request failed.',
 };
 
-export class NvidiaProviderError extends Error implements ProviderErrorContract {
+export class NvidiaProviderError
+  extends Error
+  implements ProviderErrorContract
+{
   public readonly providerId = 'nvidia';
   public readonly safeMessageCode: 'SERVER_BUSY' | undefined;
 
@@ -116,14 +122,16 @@ function classifyHttpStatus(status: number): ProviderErrorCode {
   return 'PROVIDER_FAILURE';
 }
 
-function transportFailureCode(error: unknown, timedOut: boolean): ProviderErrorCode {
-  if (
-    timedOut ||
-    (error instanceof Error && error.name === 'AbortError')
-  ) {
+function transportFailureCode(
+  error: unknown,
+  timedOut: boolean
+): ProviderErrorCode {
+  if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
     return 'TIMEOUT';
   }
-  return error instanceof TypeError ? 'NETWORK_FAILURE' : 'PROVIDER_UNAVAILABLE';
+  return error instanceof TypeError
+    ? 'NETWORK_FAILURE'
+    : 'PROVIDER_UNAVAILABLE';
 }
 
 async function postJson(
@@ -159,7 +167,11 @@ async function postJson(
 }
 
 function readAssistantContent(value: unknown): string {
-  if (!isRecord(value) || !Array.isArray(value.choices) || value.choices.length === 0) {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.choices) ||
+    value.choices.length === 0
+  ) {
     throw new NvidiaProviderError('MALFORMED_PROVIDER_RESPONSE');
   }
 
@@ -272,13 +284,15 @@ export async function validateNvidiaCredential(
   const probeRequest: GenerationRequest = {
     cycleId: 'nvidia-credential-validation',
     pageId: 'nvidia-credential-validation',
-    questions: [{
-      questionId: 'nvidia-validation-question',
-      text: 'In one short sentence, describe a benefit of labeling shared garden tools.',
-      type: 'short-text',
-      required: true,
-      options: [],
-    }],
+    questions: [
+      {
+        questionId: 'nvidia-validation-question',
+        text: 'In one short sentence, describe a benefit of labeling shared garden tools.',
+        type: 'short-text',
+        required: true,
+        options: [],
+      },
+    ],
     settledContext: [],
   };
   const content = await requestCompletion(

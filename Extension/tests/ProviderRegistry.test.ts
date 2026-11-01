@@ -68,20 +68,28 @@ describe('compiled provider registry', () => {
 
   it('rejects unsupported providers, models, and adapters', () => {
     expect(resolveProvider('unsupported-provider')).toBeNull();
-    expect(resolveProviderModel('unsupported-provider', GEMINI_MODEL)).toBeNull();
+    expect(
+      resolveProviderModel('unsupported-provider', GEMINI_MODEL)
+    ).toBeNull();
     expect(resolveModel(GEMINI_PROVIDER_ID, 'unsupported-model')).toBeNull();
-    expect(resolveProviderAdapter(GEMINI_PROVIDER_ID, 'unsupported-model')).toBeNull();
+    expect(
+      resolveProviderAdapter(GEMINI_PROVIDER_ID, 'unsupported-model')
+    ).toBeNull();
     expect(resolveAdapter('unsupported-adapter')).toBeNull();
     expect(resolveProvider(null)).toBeNull();
     expect(resolveModel(GEMINI_PROVIDER_ID, 42)).toBeNull();
   });
 
   it('resolves credential validation only for supported provider/model pairs', () => {
-    expect(resolveCredentialValidator(GEMINI_PROVIDER_ID, GEMINI_MODEL)).toBeTypeOf(
-      'function'
-    );
-    expect(resolveCredentialValidator('unsupported-provider', GEMINI_MODEL)).toBeNull();
-    expect(resolveCredentialValidator(GEMINI_PROVIDER_ID, 'unsupported-model')).toBeNull();
+    expect(
+      resolveCredentialValidator(GEMINI_PROVIDER_ID, GEMINI_MODEL)
+    ).toBeTypeOf('function');
+    expect(
+      resolveCredentialValidator('unsupported-provider', GEMINI_MODEL)
+    ).toBeNull();
+    expect(
+      resolveCredentialValidator(GEMINI_PROVIDER_ID, 'unsupported-model')
+    ).toBeNull();
   });
 
   it('registers NVIDIA models in default-first order with one adapter and validator', () => {
@@ -98,28 +106,41 @@ describe('compiled provider registry', () => {
       providerId: NVIDIA_PROVIDER_ID,
       endpointHost: NVIDIA_ENDPOINT_HOST,
     });
-    expect(resolveProvider(NVIDIA_PROVIDER_ID)?.models.map((model) => model.modelId)).toEqual([
-      NVIDIA_MODEL,
-      NVIDIA_GPT_OSS_MODEL,
-    ]);
-    expect(resolveModel(NVIDIA_PROVIDER_ID, NVIDIA_GPT_OSS_MODEL)).toMatchObject({
+    expect(
+      resolveProvider(NVIDIA_PROVIDER_ID)?.models.map((model) => model.modelId)
+    ).toEqual([NVIDIA_MODEL, NVIDIA_GPT_OSS_MODEL]);
+    expect(
+      resolveModel(NVIDIA_PROVIDER_ID, NVIDIA_GPT_OSS_MODEL)
+    ).toMatchObject({
       modelId: NVIDIA_GPT_OSS_MODEL,
       providerId: NVIDIA_PROVIDER_ID,
       endpointHost: NVIDIA_ENDPOINT_HOST,
     });
-    expect(resolveProviderAdapter(NVIDIA_PROVIDER_ID, NVIDIA_MODEL)?.('test-key'))
-      .toBeInstanceOf(NvidiaProvider);
-    expect(resolveProviderAdapter(NVIDIA_PROVIDER_ID, NVIDIA_GPT_OSS_MODEL)?.('test-key'))
-      .toBeInstanceOf(NvidiaProvider);
-    expect(resolveCredentialValidator(NVIDIA_PROVIDER_ID, NVIDIA_MODEL))
-      .toBeTypeOf('function');
+    expect(
+      resolveProviderAdapter(NVIDIA_PROVIDER_ID, NVIDIA_MODEL)?.('test-key')
+    ).toBeInstanceOf(NvidiaProvider);
+    expect(
+      resolveProviderAdapter(
+        NVIDIA_PROVIDER_ID,
+        NVIDIA_GPT_OSS_MODEL
+      )?.('test-key')
+    ).toBeInstanceOf(NvidiaProvider);
+    expect(
+      resolveCredentialValidator(NVIDIA_PROVIDER_ID, NVIDIA_MODEL)
+    ).toBeTypeOf('function');
   });
 
   it('does not resolve NVIDIA adapter or validator for unsupported provider/model pairs', () => {
-    expect(resolveProviderAdapter('unsupported-provider', NVIDIA_MODEL)).toBeNull();
-    expect(resolveCredentialValidator('unsupported-provider', NVIDIA_MODEL)).toBeNull();
+    expect(
+      resolveProviderAdapter('unsupported-provider', NVIDIA_MODEL)
+    ).toBeNull();
+    expect(
+      resolveCredentialValidator('unsupported-provider', NVIDIA_MODEL)
+    ).toBeNull();
     expect(resolveProviderAdapter(NVIDIA_PROVIDER_ID, GEMINI_MODEL)).toBeNull();
-    expect(resolveCredentialValidator(NVIDIA_PROVIDER_ID, GEMINI_MODEL)).toBeNull();
+    expect(
+      resolveCredentialValidator(NVIDIA_PROVIDER_ID, GEMINI_MODEL)
+    ).toBeNull();
   });
 
   it('keeps registry metadata and static mappings internally consistent', () => {

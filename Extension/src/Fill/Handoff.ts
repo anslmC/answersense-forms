@@ -70,7 +70,8 @@ export function captureAnswerSnapshot(
     status: 'captured',
     answer: {
       questionId,
-      value: resolved.target.kind === 'multiple-choice' ? selected : selected[0],
+      value:
+        resolved.target.kind === 'multiple-choice' ? selected : selected[0],
     },
   };
 }

@@ -70,9 +70,7 @@ function findQuestionElement(
   if (respondentForm) {
     return (
       findTopLevelQuestionContainers(respondentForm)?.find(
-        (candidate) =>
-          extractQuestionId(candidate, { requireDataParams: true }) ===
-          questionId
+        (candidate) => extractQuestionId(candidate) === questionId
       ) ?? null
     );
   }

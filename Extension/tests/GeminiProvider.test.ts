@@ -191,25 +191,54 @@ describe('direct Gemini provider', () => {
 
     const validator = resolveCredentialValidator('gemini', GEMINI_MODEL);
     expect(validator).not.toBeNull();
-    await expect(validator?.('test-key', GEMINI_MODEL)).resolves.toBeUndefined();
+    await expect(
+      validator?.('test-key', GEMINI_MODEL)
+    ).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
+  });
+
+  it('validates the selected Gemini model instead of a fixed model', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const validator = resolveCredentialValidator(
+        'gemini',
+        'gemini-3.5-flash-lite'
+      );
+      expect(validator).not.toBeNull();
+      await expect(
+        validator?.('test-key', 'gemini-3.5-flash-lite')
+      ).resolves.toBeUndefined();
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite'
+      );
+      expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('test-key');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('classifies API_KEY_INVALID from a 400 credential validation response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            error: {
-              code: 400,
-              status: 'INVALID_ARGUMENT',
-              details: [{ reason: 'API_KEY_INVALID' }],
-            },
-          }),
-          { status: 400 }
-        )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 400,
+                status: 'INVALID_ARGUMENT',
+                details: [{ reason: 'API_KEY_INVALID' }],
+              },
+            }),
+            { status: 400 }
+          )
       )
     );
 
@@ -348,7 +377,9 @@ describe('direct Gemini provider', () => {
     );
 
     try {
-      await expect(new GeminiProvider('test-key').generate(request)).rejects.toMatchObject({
+      await expect(
+        new GeminiProvider('test-key').generate(request)
+      ).rejects.toMatchObject({
         code: 'PROVIDER_UNAVAILABLE',
         safeCode: 'TIMEOUT',
       });
@@ -365,8 +396,7 @@ describe('direct Gemini provider', () => {
 
     await expect(provider.generate(request)).rejects.toMatchObject({
       code: 'PERMISSION_DENIED',
-      message:
-        'API key or project does not have permission to use this model.',
+      message: 'API key or project does not have permission to use this model.',
     });
   });
 

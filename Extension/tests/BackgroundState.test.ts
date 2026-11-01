@@ -186,7 +186,9 @@ describe('P7 worker integration state', () => {
 
     await expect(store.get(7)).resolves.toEqual(snapshot);
     await expect(store.get(8)).resolves.toBeNull();
-    await expect(store.update(7, { uiState: 'GENERATING' })).resolves.toMatchObject({
+    await expect(
+      store.update(7, { uiState: 'GENERATING' })
+    ).resolves.toMatchObject({
       uiState: 'GENERATING',
       page: { pageId: 'page-1', questionCount: 2 },
     });
@@ -200,8 +202,12 @@ describe('P7 worker integration state', () => {
       store.tryClaimGeneration(7, 'operation-2'),
     ]);
 
-    expect(claims.filter((claim) => claim.status === 'claimed')).toHaveLength(1);
-    expect(claims.filter((claim) => claim.status === 'in-progress')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.status === 'claimed')).toHaveLength(
+      1
+    );
+    expect(
+      claims.filter((claim) => claim.status === 'in-progress')
+    ).toHaveLength(1);
     await expect(store.get(7)).resolves.toMatchObject({
       uiState: 'GENERATING',
       generationOperationId: expect.stringMatching(/^operation-[12]$/),

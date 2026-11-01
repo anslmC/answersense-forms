@@ -91,6 +91,24 @@ export interface CredentialInput {
   secret: string;
 }
 
+/**
+ * Configuration state is stored as a single record, so every mutation is a
+ * read-modify-write. Mutations are serialized through this queue; reads do not
+ * wait for it and therefore observe the last committed state (never a partial
+ * write). A failed operation is reported to its caller and then removed from
+ * the queue so it cannot block later operations.
+ */
+let mutationTail: Promise<unknown> = Promise.resolve();
+
+function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = mutationTail.then(operation, operation);
+  mutationTail = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -214,45 +232,87 @@ async function saveState(
   await storage.set({ [CONFIGURATION_STATE_STORAGE_KEY]: state });
 }
 
-async function loadState(storage: CredentialStorage): Promise<ConfigurationState> {
+async function readStoredState(
+  storage: CredentialStorage
+): Promise<ConfigurationState> {
   const values = await storage.get(CONFIGURATION_STATE_STORAGE_KEY);
-  const state = parseState(values[CONFIGURATION_STATE_STORAGE_KEY]);
-  const legacyValues = await storage.get(GEMINI_API_KEY_STORAGE_KEY);
-  const legacySecret = legacyValues[GEMINI_API_KEY_STORAGE_KEY];
+  return parseState(values[CONFIGURATION_STATE_STORAGE_KEY]);
+}
 
-  if (typeof legacySecret === 'string' && legacySecret.trim()) {
-    const normalizedSecret = legacySecret.trim();
-    const alreadyMigrated = state.credentials.some(
-      (credential) =>
-        credential.providerId === GEMINI_PROVIDER_ID &&
-        credential.secret === normalizedSecret
-    );
-    if (!alreadyMigrated) {
-      const timestamp = now();
-      state.credentials.push({
-        credentialId: createId(),
-        providerId: GEMINI_PROVIDER_ID,
-        label: 'Gemini credential',
-        secret: normalizedSecret,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      bumpRevision(state);
-    }
+async function readLegacySecret(
+  storage: CredentialStorage
+): Promise<string | null> {
+  const values = await storage.get(GEMINI_API_KEY_STORAGE_KEY);
+  const legacySecret = values[GEMINI_API_KEY_STORAGE_KEY];
+  return typeof legacySecret === 'string' && legacySecret.trim()
+    ? legacySecret.trim()
+    : null;
+}
+
+/**
+ * Imports the legacy single-key Gemini storage entry exactly once. Callers must
+ * hold the mutation queue so concurrent reads cannot import the same secret
+ * twice, and the imported state is re-read inside the critical section.
+ */
+async function importLegacyGeminiSecret(
+  storage: CredentialStorage,
+  secret: string
+): Promise<ConfigurationState> {
+  const state = await readStoredState(storage);
+  const alreadyMigrated = state.credentials.some(
+    (credential) =>
+      credential.providerId === GEMINI_PROVIDER_ID &&
+      credential.secret === secret
+  );
+  if (!alreadyMigrated) {
+    const timestamp = now();
+    state.credentials.push({
+      credentialId: createId(),
+      providerId: GEMINI_PROVIDER_ID,
+      label: 'Gemini credential',
+      secret,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    bumpRevision(state);
     await saveState(state, storage);
-    await storage.remove(GEMINI_API_KEY_STORAGE_KEY);
   }
-
+  await storage.remove(GEMINI_API_KEY_STORAGE_KEY);
   return state;
+}
+
+/**
+ * Loads the committed configuration state.
+ *
+ * `serialized` marks a caller that already holds the mutation queue, so the
+ * legacy import runs inline rather than deadlocking on a nested queue entry.
+ */
+async function loadState(
+  storage: CredentialStorage,
+  options: { serialized?: boolean } = {}
+): Promise<ConfigurationState> {
+  const state = await readStoredState(storage);
+  const legacySecret = await readLegacySecret(storage);
+  if (!legacySecret) {
+    return state;
+  }
+  if (options.serialized) {
+    return importLegacyGeminiSecret(storage, legacySecret);
+  }
+  return serializeMutation(() =>
+    importLegacyGeminiSecret(storage, legacySecret)
+  );
 }
 
 function credentialById(
   state: ConfigurationState,
   credentialId: string
 ): CredentialRecord | null {
-  return state.credentials.find(
-    (credential) => credential.credentialId === credentialId
-  ) ?? null;
+  return (
+    state.credentials.find(
+      (credential) => credential.credentialId === credentialId
+    ) ?? null
+  );
 }
 
 function validateCredentialInput(input: CredentialInput): CredentialInput {
@@ -271,12 +331,12 @@ export async function listCredentials(
   return state.credentials.map(redactCredential);
 }
 
-export async function createCredential(
+async function createCredentialUnlocked(
   input: CredentialInput,
-  storage: CredentialStorage = chromeCredentialStorage
+  storage: CredentialStorage
 ): Promise<RedactedCredentialRecord> {
   const normalized = validateCredentialInput(input);
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   const timestamp = now();
   const record: CredentialRecord = {
     credentialId: createId(),
@@ -290,6 +350,13 @@ export async function createCredential(
   bumpRevision(state);
   await saveState(state, storage);
   return redactCredential(record);
+}
+
+export function createCredential(
+  input: CredentialInput,
+  storage: CredentialStorage = chromeCredentialStorage
+): Promise<RedactedCredentialRecord> {
+  return serializeMutation(() => createCredentialUnlocked(input, storage));
 }
 
 export async function readCredentialSecret(
@@ -312,9 +379,9 @@ export async function getActiveConfiguration(
     : null;
 }
 
-export async function setActiveConfiguration(
+async function setActiveConfigurationUnlocked(
   configuration: Configuration,
-  storage: CredentialStorage = chromeCredentialStorage
+  storage: CredentialStorage
 ): Promise<Configuration> {
   const normalized: Configuration = {
     providerId: normalizeIdentifier(configuration.providerId, 'Provider ID'),
@@ -325,7 +392,7 @@ export async function setActiveConfiguration(
     ),
     providerConfig: normalizeProviderConfig(configuration.providerConfig),
   };
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   const credential = credentialById(state, normalized.credentialId);
   if (!credential) {
     throw new Error('Credential not found.');
@@ -339,22 +406,37 @@ export async function setActiveConfiguration(
   return normalized;
 }
 
-export async function clearActiveConfiguration(
+export function setActiveConfiguration(
+  configuration: Configuration,
   storage: CredentialStorage = chromeCredentialStorage
+): Promise<Configuration> {
+  return serializeMutation(() =>
+    setActiveConfigurationUnlocked(configuration, storage)
+  );
+}
+
+async function clearActiveConfigurationUnlocked(
+  storage: CredentialStorage
 ): Promise<void> {
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   state.activeConfiguration = null;
   bumpRevision(state);
   await saveState(state, storage);
 }
 
-export async function replaceCredential(
+export function clearActiveConfiguration(
+  storage: CredentialStorage = chromeCredentialStorage
+): Promise<void> {
+  return serializeMutation(() => clearActiveConfigurationUnlocked(storage));
+}
+
+async function replaceCredentialUnlocked(
   credentialId: string,
   input: CredentialInput,
-  storage: CredentialStorage = chromeCredentialStorage
+  storage: CredentialStorage
 ): Promise<RedactedCredentialRecord> {
   const normalized = validateCredentialInput(input);
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   const existing = credentialById(state, credentialId);
   if (!existing) {
     throw new Error('Credential not found.');
@@ -389,11 +471,21 @@ export async function replaceCredential(
   return redactCredential(replacement);
 }
 
-export async function deleteCredential(
+export function replaceCredential(
   credentialId: string,
+  input: CredentialInput,
   storage: CredentialStorage = chromeCredentialStorage
+): Promise<RedactedCredentialRecord> {
+  return serializeMutation(() =>
+    replaceCredentialUnlocked(credentialId, input, storage)
+  );
+}
+
+async function deleteCredentialUnlocked(
+  credentialId: string,
+  storage: CredentialStorage
 ): Promise<void> {
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   state.credentials = state.credentials.filter(
     (credential) => credential.credentialId !== credentialId
   );
@@ -405,6 +497,15 @@ export async function deleteCredential(
   }
   bumpRevision(state);
   await saveState(state, storage);
+}
+
+export function deleteCredential(
+  credentialId: string,
+  storage: CredentialStorage = chromeCredentialStorage
+): Promise<void> {
+  return serializeMutation(() =>
+    deleteCredentialUnlocked(credentialId, storage)
+  );
 }
 
 function canonicalize(value: unknown): unknown {
@@ -467,9 +568,9 @@ export async function getConfigurationStateRevision(
   return (await loadState(storage)).revision;
 }
 
-export async function saveValidation(
+async function saveValidationUnlocked(
   validation: ValidationRecord,
-  storage: CredentialStorage = chromeCredentialStorage
+  storage: CredentialStorage
 ): Promise<ValidationRecord> {
   const normalized: ValidationRecord = {
     ...validation,
@@ -490,7 +591,7 @@ export async function saveValidation(
       throw new Error('Failure code must be a safe structured code.');
     }
   }
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   if (!credentialById(state, normalized.credentialId)) {
     throw new Error('Credential not found.');
   }
@@ -503,16 +604,32 @@ export async function saveValidation(
   return normalized;
 }
 
-export async function invalidateValidation(
-  configurationDigest: string,
+export function saveValidation(
+  validation: ValidationRecord,
   storage: CredentialStorage = chromeCredentialStorage
+): Promise<ValidationRecord> {
+  return serializeMutation(() => saveValidationUnlocked(validation, storage));
+}
+
+async function invalidateValidationUnlocked(
+  configurationDigest: string,
+  storage: CredentialStorage
 ): Promise<void> {
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   state.validations = state.validations.filter(
     (validation) => validation.configurationDigest !== configurationDigest
   );
   bumpRevision(state);
   await saveState(state, storage);
+}
+
+export function invalidateValidation(
+  configurationDigest: string,
+  storage: CredentialStorage = chromeCredentialStorage
+): Promise<void> {
+  return serializeMutation(() =>
+    invalidateValidationUnlocked(configurationDigest, storage)
+  );
 }
 
 export async function hasGeminiCredential(
@@ -521,43 +638,62 @@ export async function hasGeminiCredential(
   return (await readGeminiCredential(storage)) !== null;
 }
 
-export async function storeGeminiCredential(
+async function storeGeminiCredentialUnlocked(
   apiKey: string,
-  storage: CredentialStorage = chromeCredentialStorage
+  storage: CredentialStorage
 ): Promise<void> {
   if (!apiKey.trim()) {
     throw new Error('A Gemini API key is required.');
   }
-  const state = await loadState(storage);
+  const state = await loadState(storage, { serialized: true });
   const geminiCredentials = state.credentials.filter(
     (credential) => credential.providerId === GEMINI_PROVIDER_ID
   );
   const existing = geminiCredentials[geminiCredentials.length - 1];
   if (existing) {
-    await replaceCredential(
+    await replaceCredentialUnlocked(
       existing.credentialId,
       { providerId: GEMINI_PROVIDER_ID, label: existing.label, secret: apiKey },
       storage
     );
     return;
   }
-  await createCredential(
-    { providerId: GEMINI_PROVIDER_ID, label: 'Gemini credential', secret: apiKey },
+  await createCredentialUnlocked(
+    {
+      providerId: GEMINI_PROVIDER_ID,
+      label: 'Gemini credential',
+      secret: apiKey,
+    },
     storage
   );
 }
 
-export async function deleteGeminiCredential(
+export function storeGeminiCredential(
+  apiKey: string,
   storage: CredentialStorage = chromeCredentialStorage
 ): Promise<void> {
-  const state = await loadState(storage);
+  return serializeMutation(() =>
+    storeGeminiCredentialUnlocked(apiKey, storage)
+  );
+}
+
+async function deleteGeminiCredentialUnlocked(
+  storage: CredentialStorage
+): Promise<void> {
+  const state = await loadState(storage, { serialized: true });
   const geminiCredentials = state.credentials.filter(
     (credential) => credential.providerId === GEMINI_PROVIDER_ID
   );
   const existing = geminiCredentials[geminiCredentials.length - 1];
   if (existing) {
-    await deleteCredential(existing.credentialId, storage);
+    await deleteCredentialUnlocked(existing.credentialId, storage);
   }
+}
+
+export function deleteGeminiCredential(
+  storage: CredentialStorage = chromeCredentialStorage
+): Promise<void> {
+  return serializeMutation(() => deleteGeminiCredentialUnlocked(storage));
 }
 
 export async function readGeminiCredential(
