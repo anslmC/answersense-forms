@@ -322,14 +322,21 @@ export interface GeminiTransport {
     apiKey: string;
     body: unknown;
     url: string;
+    signal?: AbortSignal;
   }): Promise<{ status: number; body: unknown }>;
 }
 
 const fetchTransport: GeminiTransport = {
-  async generate({ apiKey, body, url }) {
+  async generate({ apiKey, body, url, signal }) {
     let response: Response;
     try {
       const controller = new AbortController();
+      const abortFromCaller = () => controller.abort();
+      if (signal?.aborted) {
+        controller.abort();
+      } else {
+        signal?.addEventListener('abort', abortFromCaller, { once: true });
+      }
       const timeout = setTimeout(
         () => controller.abort(),
         GEMINI_REQUEST_TIMEOUT_MS
@@ -346,6 +353,7 @@ const fetchTransport: GeminiTransport = {
         });
       } finally {
         clearTimeout(timeout);
+        signal?.removeEventListener('abort', abortFromCaller);
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -377,9 +385,13 @@ export class GeminiProvider implements GenerationInterface {
     private readonly modelId = GEMINI_MODEL
   ) {}
 
-  async generate(request: GenerationRequest): Promise<GenerationResponse> {
+  async generate(
+    request: GenerationRequest,
+    signal?: AbortSignal
+  ): Promise<GenerationResponse> {
     const result = await this.transport.generate({
       apiKey: this.apiKey,
+      signal,
       url: `https://generativelanguage.googleapis.com/v1beta/models/${this.modelId}:generateContent`,
       body: {
         systemInstruction: { parts: [{ text: systemInstruction }] },

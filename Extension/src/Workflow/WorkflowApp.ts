@@ -99,6 +99,12 @@ export function mountAnswerSenseApp(
   let configurationSelectionRevision = 0;
   let localGenerationSnapshotPending = false;
   let invalidatedGenerationOperationToken: number | null = null;
+  const GENERATION_WARNING_DELAY_MS = 20_000;
+  let generationWarningTimer: ReturnType<typeof setTimeout> | null = null;
+  let generationWarningSequence = 0;
+  let generationWarningVisible = false;
+  let cancelingGeneration = false;
+  let cancelConfirmationTimer: ReturnType<typeof setTimeout> | null = null;
   let lockedConfigurationControls: Array<{
     control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement;
     disabled: boolean;
@@ -313,6 +319,93 @@ export function mountAnswerSenseApp(
     );
     const overrideMessage = element<HTMLElement>('[data-override-message]');
     if (overrideMessage) overrideMessage.textContent = '';
+  }
+
+  function clearGenerationWarning(): void {
+    if (generationWarningTimer !== null) {
+      clearTimeout(generationWarningTimer);
+      generationWarningTimer = null;
+    }
+    generationWarningSequence += 1;
+    generationWarningVisible = false;
+    const cancelGeneration = element<HTMLButtonElement>(
+      '[data-generation-cancel]'
+    );
+    if (cancelGeneration) {
+      cancelGeneration.hidden = true;
+      cancelGeneration.disabled = false;
+      cancelGeneration.textContent = 'Cancel';
+    }
+  }
+
+  function scheduleGenerationWarning(): void {
+    if (generationWarningTimer !== null || generationWarningVisible) return;
+    const sequence = ++generationWarningSequence;
+    generationWarningTimer = setTimeout(() => {
+      generationWarningTimer = null;
+      if (sequence !== generationWarningSequence) return;
+      if (controller.state.name !== 'GENERATING') return;
+      generationWarningVisible = true;
+      renderGeneration(controller.state);
+    }, GENERATION_WARNING_DELAY_MS);
+  }
+
+  function resetGenerationAfterCancel(): void {
+    const current = controller.state;
+    const state = controller.stateMachine.setPage(
+      current.name === 'UNSUPPORTED' ? null : current.page
+    );
+    options.onState?.(state);
+    renderAll(state);
+  }
+
+  function clearCancelConfirmation(): void {
+    if (cancelConfirmationTimer !== null) {
+      clearTimeout(cancelConfirmationTimer);
+      cancelConfirmationTimer = null;
+    }
+  }
+
+  function setCancelAnnouncement(text: string): void {
+    const announcement = element<HTMLElement>(
+      '[data-generation-cancel-announcement]'
+    );
+    if (announcement) announcement.textContent = text;
+  }
+
+  function showCancelConfirmation(): void {
+    clearCancelConfirmation();
+    if (controller.state.name !== 'READY') return;
+    const status = element<HTMLElement>('[data-status]');
+    if (!status) return;
+    status.textContent = 'Canceled';
+    setCancelAnnouncement('Generation canceled.');
+    cancelConfirmationTimer = setTimeout(() => {
+      cancelConfirmationTimer = null;
+      if (controller.state.name !== 'READY') return;
+      renderGeneration(controller.state);
+    }, 1500);
+  }
+
+  async function cancelActiveGeneration(): Promise<void> {
+    if (cancelingGeneration || controller.state.name !== 'GENERATING') return;
+    cancelingGeneration = true;
+    localGenerationSnapshotPending = false;
+    invalidatedGenerationOperationToken =
+      controller.stateMachine.activeOperationToken;
+    clearGenerationWarning();
+    const cancelGeneration = element<HTMLButtonElement>(
+      '[data-generation-cancel]'
+    );
+    if (cancelGeneration) cancelGeneration.disabled = true;
+    resetGenerationAfterCancel();
+    try {
+      await send({ type: 'p7-cancel-generation' }).catch(() => undefined);
+      await refresh();
+      showCancelConfirmation();
+    } finally {
+      cancelingGeneration = false;
+    }
   }
 
   function resetGenerationForConfigurationChange(): void {
@@ -760,6 +853,13 @@ export function mountAnswerSenseApp(
     }
     renderConfigurationGenerationLock(state.name === 'GENERATING');
 
+    if (state.name !== 'GENERATING') {
+      clearGenerationWarning();
+    }
+    if (state.name !== 'READY') {
+      clearCancelConfirmation();
+    }
+
     const hideOverride = state.name !== 'REVIEW' || 'status' in state.result;
     if (overrideAction) {
       overrideAction.toggleAttribute('hidden', hideOverride);
@@ -823,7 +923,19 @@ export function mountAnswerSenseApp(
       progressBar.removeAttribute('aria-valuetext');
       progressText.textContent = 'Processing page…';
       progressBar.setAttribute('aria-label', 'Generate and Auto-Fill progress');
-      status.textContent = 'Generating answers...';
+      setCancelAnnouncement('');
+      if (generationWarningVisible) {
+        status.textContent = 'This is taking longer than usual';
+      } else {
+        status.textContent = 'Generating answers...';
+        scheduleGenerationWarning();
+      }
+      const cancelGeneration = element<HTMLButtonElement>(
+        '[data-generation-cancel]'
+      );
+      if (cancelGeneration) {
+        cancelGeneration.hidden = !generationWarningVisible;
+      }
       detail.textContent = 'Working with the current page.';
       primary.textContent = 'Generating...';
       primary.disabled = true;
@@ -2360,6 +2472,12 @@ export function mountAnswerSenseApp(
       }
     );
   }
+  element<HTMLButtonElement>('[data-generation-cancel]')?.addEventListener(
+    'click',
+    () => {
+      void cancelActiveGeneration().catch(() => undefined);
+    }
+  );
   primary.addEventListener('click', () => {
     if (!canGenerateCurrentSelection()) return;
     overridePresentation = null;
@@ -2420,6 +2538,7 @@ export function mountAnswerSenseApp(
     ready,
     dispose: () => {
       resetValidationTiming();
+      clearCancelConfirmation();
     },
   };
 }

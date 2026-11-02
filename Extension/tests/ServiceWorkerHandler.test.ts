@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   chromeCredentialStorage,
   createCredential,
@@ -15,6 +15,8 @@ import type { LifecycleSnapshot } from '../src/Lifecycle/PageLifecycle';
 const handlerState = vi.hoisted(() => ({
   adapterCalls: 0,
   providerCalls: 0,
+  generationSignals: [] as AbortSignal[],
+  pendingGeneration: null as Promise<void> | null,
 }));
 
 vi.mock('../src/Generation/ProviderRegistry', async () => {
@@ -34,8 +36,12 @@ vi.mock('../src/Generation/ProviderRegistry', async () => {
         handlerState.adapterCalls += 1;
         expect(secret).toBe('test-secret');
         return {
-          generate: async () => {
+          generate: async (_request: unknown, signal?: AbortSignal) => {
             handlerState.providerCalls += 1;
+            if (signal) handlerState.generationSignals.push(signal);
+            if (handlerState.pendingGeneration) {
+              await handlerState.pendingGeneration;
+            }
             return { cycleId: 'handler-cycle', results: [] };
           },
         };
@@ -290,6 +296,67 @@ describe('Service Worker generation handler security boundary', () => {
     ).resolves.toEqual({ cycleId: 'handler-cycle', results: [] });
     expect(handlerState.adapterCalls).toBe(1);
     expect(handlerState.providerCalls).toBe(1);
+  });
+});
+
+describe('Service Worker generation cancellation', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    handlerState.adapterCalls = 0;
+    handlerState.providerCalls = 0;
+    handlerState.generationSignals = [];
+    handlerState.pendingGeneration = null;
+  });
+
+  afterEach(() => {
+    handlerState.pendingGeneration = null;
+  });
+
+  it('aborts the in-flight provider request when the overlay cancels', async () => {
+    const state: ChromeTestState = { values: {}, queryCount: 0 };
+    installChrome(state);
+    const chromeApi = (
+      globalThis as typeof globalThis & {
+        chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+      }
+    ).chrome;
+    chromeApi.tabs.sendMessage.mockResolvedValue({});
+    let rejectGeneration!: (reason: unknown) => void;
+    handlerState.pendingGeneration = new Promise<void>((_resolve, reject) => {
+      rejectGeneration = reject;
+    });
+    const authorized = await authorizedState(testStorage());
+    const handleMessage = await loadHandler();
+
+    const generation = handleMessage(
+      {
+        type: 'gemini-generate',
+        request: {},
+        configurationDigest: authorized.resolved.configurationDigest,
+        configurationRevision: authorized.resolved.authorizationRevision,
+      },
+      sender(activeTabId)
+    );
+    await vi.waitFor(() =>
+      expect(handlerState.generationSignals).toHaveLength(1)
+    );
+    const signal = handlerState.generationSignals[0];
+    expect(signal?.aborted).toBe(false);
+
+    await expect(
+      handleMessage({ type: 'p7-cancel-generation' }, {
+        id: extensionId,
+      } as HandlerSender)
+    ).resolves.toEqual({ status: 'not-generating' });
+
+    expect(signal?.aborted).toBe(true);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(activeTabId, {
+      type: 'cancel-generation',
+    });
+
+    rejectGeneration(new Error('Provider request aborted.'));
+    await expect(generation).rejects.toBeInstanceOf(Error);
   });
 });
 

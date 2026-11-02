@@ -830,6 +830,13 @@ async function handleRequest(request: {
     return { report, fillReport };
   }
 
+  if (request.type === 'cancel-generation') {
+    await hydration;
+    generation.invalidate();
+    generation.adoptCycle(ensureLifecycle().currentCycle.cycleId);
+    return { status: 'canceled' };
+  }
+
   if (request.type === 'begin-next') {
     await hydration;
     ensureLifecycle().beginNext();

@@ -117,7 +117,17 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
     <main class="popup-shell" data-app-root>
       <header class="status-row"></header>
       <section class="status-panel" aria-live="polite">
-        <p class="status" data-status>Checking this page...</p>
+        <div class="status-message-row">
+          <p class="status" data-status>Checking this page...</p>
+          <button
+            type="button"
+            class="secondary generation-cancel"
+            data-generation-cancel
+            hidden
+          >
+            Cancel
+          </button>
+        </div>
         <p class="detail" data-detail></p>
       </section>
       <section class="configuration-section" aria-labelledby="configuration-section-heading">
@@ -284,6 +294,12 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
           <p class="message" data-override-message hidden></p>
         </div>
       </section>
+      <p
+        class="visually-hidden"
+        role="status"
+        aria-live="polite"
+        data-generation-cancel-announcement
+      ></p>
     </main>
   `;
 }

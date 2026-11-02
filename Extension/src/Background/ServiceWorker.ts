@@ -74,6 +74,7 @@ interface WorkerMessage {
 }
 
 const stateStore = new IntegrationStateStore(chrome.storage.session);
+const activeGenerationControllers = new Map<number, AbortController>();
 const UNSUPPORTED_PAGE_ALERT =
   "This page isn't supported.\nOpen a Google Forms respondent page to use AnswerSense.";
 
@@ -390,10 +391,20 @@ export async function handleMessage(
         'Generation configuration is stale.'
       );
     }
+    const generationController =
+      activeGenerationControllers.get(requestingTabId) ?? new AbortController();
+    const ownsGenerationController =
+      !activeGenerationControllers.has(requestingTabId);
+    if (ownsGenerationController) {
+      activeGenerationControllers.set(requestingTabId, generationController);
+    }
     try {
       const result = await resolved
         .adapter(resolved.secret, resolved.model.modelId)
-        .generate(message.request as GenerationRequest);
+        .generate(
+          message.request as GenerationRequest,
+          generationController.signal
+        );
       return result;
     } catch (error) {
       const safe = sanitizeProviderError(error);
@@ -402,6 +413,14 @@ export async function handleMessage(
         safe.message,
         safe.diagnostics
       );
+    } finally {
+      if (
+        ownsGenerationController &&
+        activeGenerationControllers.get(requestingTabId) ===
+          generationController
+      ) {
+        activeGenerationControllers.delete(requestingTabId);
+      }
     }
   }
 
@@ -741,6 +760,8 @@ export async function handleMessage(
         'Generation is already in progress for the current page.'
       );
     }
+    const generationController = new AbortController();
+    activeGenerationControllers.set(tabId, generationController);
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
@@ -801,7 +822,37 @@ export async function handleMessage(
       );
       notifyGenerationTerminalState(terminalSnapshot);
       throw failure;
+    } finally {
+      if (activeGenerationControllers.get(tabId) === generationController) {
+        activeGenerationControllers.delete(tabId);
+      }
     }
+  }
+  if (message.type === 'p7-cancel-generation') {
+    if (!isTrustedUiSender(sender, chrome.runtime.id)) {
+      throw new Error('Cancellation is only available to the extension UI.');
+    }
+    const tabId = await activeTabId();
+    activeGenerationControllers.get(tabId)?.abort();
+    activeGenerationControllers.delete(tabId);
+    await chrome.tabs
+      .sendMessage(tabId, { type: 'cancel-generation' })
+      .catch(() => undefined);
+    const currentSnapshot = await stateStore.get(tabId);
+    if (!currentSnapshot?.generationOperationId) {
+      return { status: 'not-generating' };
+    }
+    const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
+      tabId,
+      currentSnapshot.generationOperationId,
+      {
+        uiState: 'READY',
+        result: null,
+        error: null,
+        generationOperationId: null,
+      }
+    );
+    return { status: terminalSnapshot ? 'canceled' : 'not-generating' };
   }
   if (message.type === 'p7-begin-next') {
     if (!isTrustedUiSender(sender, chrome.runtime.id)) {

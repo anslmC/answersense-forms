@@ -81,5 +81,8 @@ export interface GenerationResponse {
 }
 
 export interface GenerationInterface {
-  generate(request: GenerationRequest): Promise<GenerationResponse>;
+  generate(
+    request: GenerationRequest,
+    signal?: AbortSignal
+  ): Promise<GenerationResponse>;
 }

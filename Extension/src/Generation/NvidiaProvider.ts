@@ -729,9 +729,16 @@ async function requestText(
   fetchImpl: FetchImplementation,
   timeoutMs: number,
   trace: RequestTrace,
-  stage: NvidiaTimeoutStage
+  stage: NvidiaTimeoutStage,
+  signal?: AbortSignal
 ): Promise<HttpResponseText> {
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
   let timedOut = false;
   let timeoutStage = stage;
   const timeout = setTimeout(() => {
@@ -764,6 +771,7 @@ async function requestText(
     );
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
@@ -772,7 +780,8 @@ async function postJson(
   body: Record<string, unknown>,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
-  trace: RequestTrace
+  trace: RequestTrace,
+  signal?: AbortSignal
 ): Promise<HttpResponseText> {
   return requestText(
     NVIDIA_ENDPOINT,
@@ -787,7 +796,8 @@ async function postJson(
     fetchImpl,
     timeoutMs,
     trace,
-    'REQUEST'
+    'REQUEST',
+    signal
   );
 }
 
@@ -796,7 +806,8 @@ async function getPendingResult(
   requestId: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
-  trace: RequestTrace
+  trace: RequestTrace,
+  signal?: AbortSignal
 ): Promise<HttpResponseText> {
   return requestText(
     `${NVIDIA_STATUS_ENDPOINT}${encodeURIComponent(requestId)}`,
@@ -810,12 +821,27 @@ async function getPendingResult(
     fetchImpl,
     timeoutMs,
     trace,
-    'POLLING'
+    'POLLING',
+    signal
   );
 }
 
-function delay(timeoutMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
+function delay(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new NvidiaProviderError('PROVIDER_UNAVAILABLE'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new NvidiaProviderError('PROVIDER_UNAVAILABLE'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 async function awaitPendingResult(
@@ -823,7 +849,8 @@ async function awaitPendingResult(
   apiKey: string,
   fetchImpl: FetchImplementation,
   deadline: number,
-  trace: RequestTrace
+  trace: RequestTrace,
+  signal?: AbortSignal
 ): Promise<HttpResponseText> {
   if (response.status !== 202) {
     return response;
@@ -842,7 +869,7 @@ async function awaitPendingResult(
   let intervalMs = pollIntervalMs(response.headers, NVIDIA_POLL_INTERVAL_MS);
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
-    await delay(Math.min(intervalMs, remaining));
+    await delay(Math.min(intervalMs, remaining), signal);
     if (Date.now() >= deadline) {
       break;
     }
@@ -852,7 +879,8 @@ async function awaitPendingResult(
       requestId,
       fetchImpl,
       Math.max(1, deadline - Date.now()),
-      trace
+      trace,
+      signal
     );
     if (polled.status !== 202) {
       trace.retryAfterMs = retryAfterMs(polled.headers);
@@ -1006,7 +1034,8 @@ async function requestGenerationResponse(
   request: GenerationRequest,
   modelId: string,
   fetchImpl: FetchImplementation,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<GenerationResponse> {
   const deadline = Date.now() + timeoutMs;
   const trace = createRequestTrace(modelId);
@@ -1016,7 +1045,8 @@ async function requestGenerationResponse(
     payload,
     fetchImpl,
     Math.max(1, deadline - Date.now()),
-    trace
+    trace,
+    signal
   );
   if (
     payload.response_format !== undefined &&
@@ -1032,7 +1062,8 @@ async function requestGenerationResponse(
       payload,
       fetchImpl,
       Math.max(1, deadline - Date.now()),
-      trace
+      trace,
+      signal
     );
   }
   response = await awaitPendingResult(
@@ -1040,7 +1071,8 @@ async function requestGenerationResponse(
     apiKey,
     fetchImpl,
     deadline,
-    trace
+    trace,
+    signal
   );
   if (response.status !== 200) {
     trace.retryAfterMs = retryAfterMs(response.headers);
@@ -1084,7 +1116,10 @@ export class NvidiaProvider implements GenerationInterface {
     private readonly timeoutMs?: number
   ) {}
 
-  async generate(request: GenerationRequest): Promise<GenerationResponse> {
+  async generate(
+    request: GenerationRequest,
+    signal?: AbortSignal
+  ): Promise<GenerationResponse> {
     if (!NVIDIA_MODELS.has(this.modelId)) {
       throw new NvidiaProviderError('INVALID_REQUEST');
     }
@@ -1093,7 +1128,8 @@ export class NvidiaProvider implements GenerationInterface {
       request,
       this.modelId,
       this.fetchImpl,
-      this.timeoutMs ?? defaultTimeoutMs(this.modelId)
+      this.timeoutMs ?? defaultTimeoutMs(this.modelId),
+      signal
     );
   }
 }
