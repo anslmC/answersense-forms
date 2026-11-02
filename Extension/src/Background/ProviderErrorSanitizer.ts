@@ -222,6 +222,15 @@ const PROVIDER_ERROR_CODES = new Set<ProviderErrorCode>([
   'PROVIDER_FAILURE',
 ]);
 
+export function isSafeProviderErrorCode(
+  value: unknown
+): value is SafeProviderErrorCode {
+  return (
+    typeof value === 'string' &&
+    PROVIDER_ERROR_CODES.has(value as ProviderErrorCode)
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }

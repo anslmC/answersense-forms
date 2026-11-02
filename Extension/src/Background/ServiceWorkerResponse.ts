@@ -13,6 +13,9 @@ export class SafeServiceWorkerError extends Error {
       | 'CONFIGURATION_STALE'
       | 'GENERATION_IN_PROGRESS'
       | 'GENERATION_PAGE_NOT_SYNCHRONIZED'
+      | 'GENERATION_SUPERSEDED'
+      | 'GENERATION_INVALID_RESULT'
+      | 'OVERRIDE_SELECTION_INVALID'
       | 'UNAUTHORIZED_SENDER',
     message: string,
     public readonly diagnostics?: SafeProviderDiagnostics
@@ -49,11 +52,84 @@ const SERVICE_WORKER_MESSAGES: Record<
     'The current page is not synchronized for generation.',
     'Override selection could not be validated.',
   ],
+  GENERATION_SUPERSEDED: [
+    'Generation was superseded before it completed. Generate the page again.',
+    'The page changed before the answers could be saved. Generate the page again.',
+  ],
+  GENERATION_INVALID_RESULT: ['Generation returned an invalid result.'],
+  OVERRIDE_SELECTION_INVALID: [
+    'Override selection is invalid. Select at least one filled answer.',
+  ],
   UNAUTHORIZED_SENDER: [
     'Generation request is not from a valid content tab.',
     'Generation request is not from the active tab.',
   ],
 };
+
+const CONTENT_GENERATION_FAILURES = new Map<string, ServiceWorkerErrorResponse>(
+  [
+    [
+      'Generation response was stale or invalidated.',
+      {
+        error:
+          'Generation was superseded before it completed. Generate the page again.',
+        code: 'GENERATION_SUPERSEDED',
+      },
+    ],
+    [
+      'Finalized handoff does not belong to the active page visit.',
+      {
+        error:
+          'The page changed before the answers could be saved. Generate the page again.',
+        code: 'GENERATION_SUPERSEDED',
+      },
+    ],
+    [
+      'Generation requires a synchronized current page.',
+      {
+        error: 'The page changed during generation. Try again.',
+        code: 'GENERATION_PAGE_NOT_SYNCHRONIZED',
+      },
+    ],
+    [
+      'Override generation requires a synchronized current page.',
+      {
+        error: 'The page changed during generation. Try again.',
+        code: 'GENERATION_PAGE_NOT_SYNCHRONIZED',
+      },
+    ],
+    [
+      'Generation is unavailable while page transition is pending.',
+      {
+        error:
+          'Generation is unavailable while the page transition is pending.',
+        code: 'GENERATION_PAGE_NOT_SYNCHRONIZED',
+      },
+    ],
+    [
+      'Override selection is invalid: <empty-selection>',
+      {
+        error:
+          'Override selection is invalid. Select at least one filled answer.',
+        code: 'OVERRIDE_SELECTION_INVALID',
+      },
+    ],
+    [
+      'Generation returned an invalid result.',
+      {
+        error: 'Generation returned an invalid result.',
+        code: 'GENERATION_INVALID_RESULT',
+      },
+    ],
+    [
+      'Generation configuration is missing.',
+      {
+        error: 'Generation configuration is not authorized.',
+        code: 'CONFIGURATION_NOT_AUTHORIZED',
+      },
+    ],
+  ]
+);
 
 const GENERIC_PROVIDER_FAILURE: ServiceWorkerErrorResponse = {
   error: 'Provider request failed.',
@@ -115,12 +191,25 @@ function safeServiceWorkerErrorResponse(
   return GENERIC_PROVIDER_FAILURE;
 }
 
+function contentGenerationFailure(
+  error: unknown
+): ServiceWorkerErrorResponse | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+  return CONTENT_GENERATION_FAILURES.get(error.message) ?? null;
+}
+
 export function serviceWorkerErrorResponse(
   error: unknown
 ): ServiceWorkerErrorResponse {
   try {
     if (error instanceof SafeServiceWorkerError) {
       return safeServiceWorkerErrorResponse(error);
+    }
+    const contentFailure = contentGenerationFailure(error);
+    if (contentFailure) {
+      return contentFailure;
     }
     const safe = sanitizeProviderError(error);
     return providerResponse(safe, safe.diagnostics);

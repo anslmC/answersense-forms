@@ -620,6 +620,25 @@ function createGeminiGenerator(
   };
 }
 
+function providerFailureFields(error: unknown): {
+  code?: string;
+  diagnostics?: unknown;
+} {
+  if (!(error instanceof Error)) {
+    return {};
+  }
+  const candidate = error as Error & {
+    code?: unknown;
+    diagnostics?: unknown;
+  };
+  if (typeof candidate.code !== 'string' || candidate.code.trim() === '') {
+    return {};
+  }
+  return candidate.diagnostics === undefined
+    ? { code: candidate.code }
+    : { code: candidate.code, diagnostics: candidate.diagnostics };
+}
+
 async function handleRequest(request: {
   type?: string;
   configurationDigest?: string;
@@ -884,6 +903,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       sendResponse({
         error:
           error instanceof Error ? error.message : 'Content operation failed.',
+        ...providerFailureFields(error),
       });
     });
   return true;

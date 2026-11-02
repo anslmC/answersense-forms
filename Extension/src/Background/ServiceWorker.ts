@@ -28,7 +28,11 @@ import {
   resolveActiveProviderConfiguration,
   resolveAuthorizedProviderConfiguration,
 } from './ServiceWorkerConfiguration';
-import { sanitizeProviderError } from './ProviderErrorSanitizer';
+import {
+  isSafeProviderErrorCode,
+  sanitizeProviderError,
+  type SafeProviderDiagnostics,
+} from './ProviderErrorSanitizer';
 import {
   isTrustedContentSender,
   isTrustedContentTabSender,
@@ -75,6 +79,32 @@ const UNSUPPORTED_PAGE_ALERT =
 
 function showUnsupportedPageAlert(message: string): void {
   window.alert(message);
+}
+
+function providerBoundaryError(error: unknown): unknown {
+  if (error instanceof SafeServiceWorkerError) {
+    return error;
+  }
+  if (typeof error !== 'object' || error === null) {
+    return error;
+  }
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    diagnostics?: unknown;
+  };
+  if (!isSafeProviderErrorCode(candidate.code)) {
+    return error;
+  }
+  const message = candidate.message;
+  if (typeof message !== 'string' || message.trim() === '') {
+    return error;
+  }
+  return new SafeServiceWorkerError(
+    candidate.code,
+    message,
+    candidate.diagnostics as SafeProviderDiagnostics | undefined
+  );
 }
 
 async function activeTabId(): Promise<number> {
@@ -719,7 +749,7 @@ export async function handleMessage(
         configurationRevision: resolved.authorizationRevision,
       });
       if (result?.error) {
-        throw new Error(String(result.error));
+        throw providerBoundaryError(result);
       }
       if (!isUiGenerationResult(result)) {
         throw new Error('Generation returned an invalid result.');
@@ -757,18 +787,20 @@ export async function handleMessage(
       notifyGenerationTerminalState(terminalSnapshot);
       return result;
     } catch (error) {
+      const failure = providerBoundaryError(error);
       const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
         tabId,
         generationOperationId,
         {
           uiState: 'ERROR',
-          error: error instanceof Error ? error.message : 'Generation failed.',
+          error:
+            failure instanceof Error ? failure.message : 'Generation failed.',
           result: null,
           generationOperationId: null,
         }
       );
       notifyGenerationTerminalState(terminalSnapshot);
-      throw error;
+      throw failure;
     }
   }
   if (message.type === 'p7-begin-next') {
