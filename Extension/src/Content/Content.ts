@@ -596,7 +596,24 @@ function createGeminiGenerator(
         configurationRevision,
       });
       if (response?.error) {
-        throw new Error(String(response.error));
+        const failure = response as {
+          error: unknown;
+          code?: unknown;
+          diagnostics?: unknown;
+        };
+        const error = new Error(String(failure.error));
+        error.name = 'GenerationRequestError';
+        Object.assign(error, {
+          code: failure.code,
+          diagnostics: failure.diagnostics,
+        });
+        if (failure.diagnostics) {
+          console.debug(
+            `[${EXTENSION_NAME}] generation diagnostics`,
+            failure.diagnostics
+          );
+        }
+        throw error;
       }
       return response as GenerationResponse;
     },

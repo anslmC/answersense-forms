@@ -166,6 +166,90 @@ describe('Service Worker provider error sanitization', () => {
     });
   });
 
+  it('preserves only sanitized NVIDIA response diagnostics across the runtime boundary', () => {
+    const diagnostics = {
+      diagnostic: 'TRUNCATED_RESPONSE' as const,
+      httpStatus: 200,
+      finishReason: 'length',
+      contentPresent: true,
+      contentLength: 4_321,
+      reasoningFieldPresent: false,
+      reasoningBlockPresent: true,
+      extractionOutcome: 'DIRECT' as const,
+      usage: {
+        promptTokens: 900,
+        completionTokens: 8192,
+        totalTokens: 9092,
+      },
+    };
+    const safe = sanitizeProviderError(
+      new NvidiaProviderError(
+        'INCOMPLETE_PROVIDER_RESPONSE',
+        undefined,
+        diagnostics
+      )
+    );
+    expect(safe.diagnostics).toEqual(diagnostics);
+
+    const response = serviceWorkerErrorResponse(
+      new SafeServiceWorkerError(safe.code, safe.message, safe.diagnostics)
+    );
+    expect(response).toEqual({
+      code: 'INCOMPLETE_PROVIDER_RESPONSE',
+      error: 'NVIDIA output was truncated. Try fewer or shorter questions.',
+      diagnostics,
+    });
+    expect(JSON.stringify(response)).not.toContain('private completion');
+  });
+
+  it('preserves bounded request trace diagnostics across the runtime boundary', () => {
+    const diagnostics = {
+      diagnostic: 'HTTP_STATUS' as const,
+      httpStatus: 503,
+      finishReason: null,
+      contentPresent: false,
+      contentLength: 0,
+      reasoningFieldPresent: false,
+      reasoningBlockPresent: false,
+      extractionOutcome: 'NOT_ATTEMPTED' as const,
+      usage: null,
+      modelId: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+      attempt: 2,
+      elapsedMs: 1_234,
+      fallbackUsed: true,
+      pollingUsed: true,
+      pollCount: 2,
+      requestId: '00000000-0000-4000-8000-000000000000',
+      retryAfterMs: 3_000,
+      timeoutStage: 'POLLING' as const,
+    };
+    const safe = sanitizeProviderError(
+      new NvidiaProviderError(
+        'PROVIDER_UNAVAILABLE',
+        'SERVER_BUSY',
+        diagnostics
+      )
+    );
+
+    expect(safe.diagnostics).toEqual(diagnostics);
+  });
+
+  it('drops diagnostics that do not match the safe diagnostic contract', () => {
+    const safe = sanitizeProviderError({
+      safeCode: 'MALFORMED_PROVIDER_RESPONSE',
+      diagnostics: {
+        diagnostic: 'RAW_PROVIDER_BODY',
+        content: 'private completion text',
+        httpStatus: 200,
+      },
+    });
+
+    expect(safe).toEqual({
+      code: 'MALFORMED_PROVIDER_RESPONSE',
+      message: 'Provider returned an invalid response.',
+    });
+  });
+
   it('does not expose bodies, headers, secrets, or stacks for unknown failures', () => {
     const error = new Error('api-key=secret raw provider response');
     error.stack = 'Error at C:\\private\\provider.ts:1';

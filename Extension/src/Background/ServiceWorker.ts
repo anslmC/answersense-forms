@@ -248,7 +248,7 @@ async function validateActiveConfiguration(
     } else {
       await invalidateValidation(resolved.configurationDigest);
     }
-    throw new SafeServiceWorkerError(safe.code, safe.message);
+    throw new SafeServiceWorkerError(safe.code, safe.message, safe.diagnostics);
   }
   const current = await resolveActiveProviderConfiguration();
   if (current.configurationDigest !== resolved.configurationDigest) {
@@ -367,7 +367,11 @@ export async function handleMessage(
       return result;
     } catch (error) {
       const safe = sanitizeProviderError(error);
-      throw new SafeServiceWorkerError(safe.code, safe.message);
+      throw new SafeServiceWorkerError(
+        safe.code,
+        safe.message,
+        safe.diagnostics
+      );
     }
   }
 
@@ -816,16 +820,7 @@ chrome.runtime.onMessage.addListener(
     void handleMessage(message ?? {}, sender)
       .then((response) => sendResponse(response))
       .catch((error: unknown) => {
-        if (error instanceof SafeServiceWorkerError) {
-          sendResponse(serviceWorkerErrorResponse(error));
-          return;
-        }
-        sendResponse({
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Browser bridge operation failed.',
-        });
+        sendResponse(serviceWorkerErrorResponse(error));
       });
     return true;
   }

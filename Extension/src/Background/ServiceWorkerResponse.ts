@@ -1,6 +1,7 @@
 import {
   sanitizeProviderError,
   NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE,
+  type SafeProviderDiagnostics,
   type SafeProviderErrorCode,
 } from './ProviderErrorSanitizer';
 
@@ -13,7 +14,8 @@ export class SafeServiceWorkerError extends Error {
       | 'GENERATION_IN_PROGRESS'
       | 'GENERATION_PAGE_NOT_SYNCHRONIZED'
       | 'UNAUTHORIZED_SENDER',
-    message: string
+    message: string,
+    public readonly diagnostics?: SafeProviderDiagnostics
   ) {
     super(message);
     this.name = 'SafeServiceWorkerError';
@@ -23,6 +25,7 @@ export class SafeServiceWorkerError extends Error {
 export interface ServiceWorkerErrorResponse {
   error: string;
   code: SafeServiceWorkerError['code'];
+  diagnostics?: SafeProviderDiagnostics;
 }
 
 type ServiceWorkerOnlyErrorCode = Exclude<
@@ -57,13 +60,27 @@ const GENERIC_PROVIDER_FAILURE: ServiceWorkerErrorResponse = {
   code: 'PROVIDER_FAILURE',
 };
 
+function providerResponse(
+  safe: { message: string; code: ServiceWorkerErrorResponse['code'] },
+  diagnostics?: SafeProviderDiagnostics
+): ServiceWorkerErrorResponse {
+  return {
+    error: safe.message,
+    code: safe.code,
+    ...(diagnostics ? { diagnostics } : {}),
+  };
+}
+
 function safeServiceWorkerErrorResponse(
   error: SafeServiceWorkerError
 ): ServiceWorkerErrorResponse {
-  const { code, message } = error;
-  const providerError = sanitizeProviderError({ safeCode: code });
+  const { code, message, diagnostics } = error;
+  const providerError = sanitizeProviderError({
+    safeCode: code,
+    diagnostics,
+  });
   if (providerError.code === code && providerError.message === message) {
-    return { error: providerError.message, code: providerError.code };
+    return providerResponse(providerError, providerError.diagnostics);
   }
 
   if (
@@ -74,15 +91,16 @@ function safeServiceWorkerErrorResponse(
     const unavailableError = sanitizeProviderError({
       safeCode: code,
       safeMessageCode: 'SERVER_BUSY',
+      diagnostics,
     });
-    return { error: unavailableError.message, code: unavailableError.code };
+    return providerResponse(unavailableError, unavailableError.diagnostics);
   }
 
   if (
     code === 'PERMISSION_DENIED' &&
     message === NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE
   ) {
-    return { error: message, code };
+    return { error: message, code, ...(diagnostics ? { diagnostics } : {}) };
   }
 
   if (
@@ -105,7 +123,7 @@ export function serviceWorkerErrorResponse(
       return safeServiceWorkerErrorResponse(error);
     }
     const safe = sanitizeProviderError(error);
-    return { error: safe.message, code: safe.code };
+    return providerResponse(safe, safe.diagnostics);
   } catch {
     return GENERIC_PROVIDER_FAILURE;
   }
