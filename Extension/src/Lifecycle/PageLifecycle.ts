@@ -12,6 +12,7 @@ import {
 } from '../Forms/Normalization';
 import type { FinalizedPageHandoff } from '../Fill/Handoff';
 import { captureAnswerSnapshot } from '../Fill/Handoff';
+import { createQuestionTargetIndex } from '../Fill/Resolver';
 import {
   capturePendingPageAtSettlement,
   commitPendingPageAfterSuccessfulTransition,
@@ -179,12 +180,14 @@ export class PageLifecycle {
    * reconciliation gap does not discard a legitimate captured answer.
    */
   captureCurrentAnswers(document: Document): NormalizedActivePage {
+    const index = createQuestionTargetIndex(document);
     const questions = this.activePage.form.questions.map((question) => {
       if (!question.supported || question.id === null) return question;
       const capture = captureAnswerSnapshot(
         document,
         this.activePage.form,
-        question.id
+        question.id,
+        index
       );
       if (capture.status === 'unavailable') return question;
       this.capturedQuestionIds.add(question.id);
@@ -398,13 +401,15 @@ export class PageLifecycle {
         answersById.set(entry.answer.questionId, entry);
       }
     }
+    const sourceIndex = createQuestionTargetIndex(sourceDocument);
     for (const question of this.activePage.form.questions) {
       if (!question.supported || question.id === null) continue;
       const capture = this.oldPageDocument
         ? captureAnswerSnapshot(
             sourceDocument,
             this.activePage.form,
-            question.id
+            question.id,
+            sourceIndex
           )
         : { status: 'unavailable' as const, answer: null };
       if (capture.answer) {
@@ -589,6 +594,7 @@ export class PageLifecycle {
         .map((question) => [question.id, question])
     );
 
+    const index = createQuestionTargetIndex(document);
     const questions = next.form.questions.map((question) => {
       if (!question.supported || question.id === null) {
         return question;
@@ -597,7 +603,12 @@ export class PageLifecycle {
       if (!previousQuestion || previousQuestion.type !== question.type) {
         return question;
       }
-      const capture = captureAnswerSnapshot(document, next.form, question.id);
+      const capture = captureAnswerSnapshot(
+        document,
+        next.form,
+        question.id,
+        index
+      );
       if (capture.status !== 'unavailable') {
         return question;
       }

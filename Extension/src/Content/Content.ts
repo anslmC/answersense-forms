@@ -35,10 +35,12 @@ import type {
 import {
   createOverrideFilledIntent,
   parseGenerationIntent,
-  validOverrideQuestionIds,
-  validateOverrideSelection,
   type GenerationIntent,
 } from '../Generation/Intent';
+import {
+  eligibleOverrideQuestionIds,
+  inspectOverrideTargets,
+} from '../Fill/Override';
 import type { DiscoveredPage } from '../Forms/Discovery';
 
 log(`${EXTENSION_NAME} content script initialized.`);
@@ -668,19 +670,30 @@ async function handleRequest(request: {
       );
     }
     const intent = parseGenerationIntent(request.intent);
-    const validation = validateOverrideSelection(
-      ensureLifecycle().currentPage,
-      intent
-    );
     if (
       intent.type === 'OVERRIDE_FILLED' &&
       intent.selectedQuestionIds.length === 0
     ) {
       throw new Error('Override selection is invalid: <empty-selection>');
     }
+    const overrideTargets =
+      intent.type === 'OVERRIDE_FILLED'
+        ? inspectOverrideTargets(
+            document,
+            ensureLifecycle().currentPage.form,
+            intent.selectedQuestionIds
+          )
+        : [];
     return {
       status: 'valid',
-      invalidQuestionIds: validation.invalidQuestionIds,
+      invalidQuestions: overrideTargets
+        .filter((target) => target.status !== 'eligible')
+        .map(({ questionId, status, code, reason }) => ({
+          questionId,
+          status,
+          code,
+          reason,
+        })),
     };
   }
 
@@ -706,21 +719,33 @@ async function handleRequest(request: {
       ? parseGenerationIntent(request.intent)
       : { type: 'GENERATE_UNANSWERED' };
     let executionIntent = intent;
-    let invalidOverrideQuestionIds: readonly string[] = [];
+    let overrideFailures: FillOutcome[] = [];
     if (intent.type === 'OVERRIDE_FILLED') {
-      const validation = validateOverrideSelection(
-        pageLifecycle.currentPage,
-        intent
-      );
       if (intent.selectedQuestionIds.length === 0) {
         throw new Error('Override selection is invalid: <empty-selection>');
       }
-      invalidOverrideQuestionIds = validation.invalidQuestionIds;
-      executionIntent = createOverrideFilledIntent(
-        validOverrideQuestionIds(pageLifecycle.currentPage, intent)
+      const overrideTargets = inspectOverrideTargets(
+        document,
+        pageLifecycle.currentPage.form,
+        intent.selectedQuestionIds
       );
+      executionIntent = createOverrideFilledIntent(
+        eligibleOverrideQuestionIds(overrideTargets)
+      );
+      overrideFailures = overrideTargets
+        .filter((target) => target.status !== 'eligible')
+        .map((target) => ({
+          questionId: target.questionId,
+          status: 'FILL_FAILED' as const,
+          answer: null,
+          reason: target.reason,
+          code: target.code,
+        }));
     }
-    if (!shouldGeneratePage(pageLifecycle.currentRevisitStatus)) {
+    if (
+      intent.type === 'GENERATE_UNANSWERED' &&
+      !shouldGeneratePage(pageLifecycle.currentRevisitStatus)
+    ) {
       return {
         status: 'reused',
         pageId: pageLifecycle.currentPage.form.activePageId,
@@ -747,26 +772,9 @@ async function handleRequest(request: {
       executionIntent.type === 'OVERRIDE_FILLED'
     );
     pageLifecycle.captureCurrentAnswers(document);
-    const invalidOutcomes: FillOutcome[] = invalidOverrideQuestionIds.map(
-      (questionId) => {
-        const question = pageLifecycle?.currentPage.form.questions.find(
-          (candidate) => candidate.id === questionId
-        );
-        const isEmpty = question?.existingInput?.hasValue !== true;
-        return {
-          questionId,
-          status: 'FILL_FAILED',
-          answer: null,
-          reason: isEmpty
-            ? 'The question was empty. Consider manually entering an answer or using Auto-Generate.'
-            : 'The question could not be validated for Override.',
-          code: 'OVERRIDE_VALIDATION_FAILED',
-        };
-      }
-    );
     const fillReport = {
       cycleId: filledReport.cycleId,
-      outcomes: Object.freeze([...filledReport.outcomes, ...invalidOutcomes]),
+      outcomes: Object.freeze([...filledReport.outcomes, ...overrideFailures]),
     };
     const handoff = createFinalizedPageHandoff(
       document,

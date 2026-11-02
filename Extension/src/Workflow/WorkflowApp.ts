@@ -15,7 +15,9 @@ import type { FillOutcome } from '../Fill/Filler';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
+  describeOverrideFailure,
   filledOverrideCandidates,
+  overrideFailureQuestionLabel,
   overrideQuestionLabel,
   type GeneratedUiResult,
   type PageSummary,
@@ -1025,14 +1027,13 @@ export function mountAnswerSenseApp(
               typeof outcome.questionId === 'string'
           );
         if (failedOverrides.length > 0) {
-          const labels = failedOverrides.map(({ questionId }) => {
-            const questionIndex = state.page.questions?.findIndex(
-              (question) => question.id === questionId
-            );
-            return questionIndex !== undefined && questionIndex >= 0
-              ? `Q${questionIndex + 1}`
-              : (questionId as string);
-          });
+          const overrideQuestions = state.page.questions ?? [];
+          const labels = failedOverrides.map(({ questionId }) =>
+            overrideFailureQuestionLabel(
+              questionId as string,
+              overrideQuestions
+            )
+          );
           const failureNote = createElement('p');
           failureNote.className = 'result-note override-failure';
           failureNote.append(`Override failed for ${labels.join(', ')}. `);
@@ -1041,7 +1042,15 @@ export function mountAnswerSenseApp(
           results.append(failureNote);
           const failureDetail = createElement('p');
           failureDetail.className = 'result-note override-failure-detail';
-          failureDetail.textContent = `${labels.join(' and ')} ${labels.length === 1 ? 'was' : 'were'} empty. Consider manually entering ${labels.length === 1 ? 'an answer' : 'answers'} or using Auto-Generate.`;
+          failureDetail.textContent = failedOverrides
+            .map(({ questionId, reason }) =>
+              describeOverrideFailure(
+                questionId as string,
+                reason,
+                overrideQuestions
+              )
+            )
+            .join(' ');
           results.append(failureDetail);
         }
       }

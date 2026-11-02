@@ -4,6 +4,7 @@ import {
   type SupportedQuestionType,
 } from '../../../Shared/QuestionTypes';
 import type { PageEntryRange } from '../Models/Logical';
+import { countAnswerParts } from '../Generation/AnswerParts';
 import { findTopLevelQuestionContainers } from './QuestionBoundary';
 import { extractQuestionId } from './QuestionIdentity';
 export type { SupportedQuestionType } from '../../../Shared/QuestionTypes';
@@ -21,6 +22,7 @@ export interface DiscoveredQuestion {
   required: boolean;
   options: DiscoveredOption[];
   existingValue: string | string[] | null;
+  answerParts?: number;
 }
 
 export interface UnsupportedQuestion {
@@ -118,7 +120,7 @@ function getQuestionType(question: HTMLElement): SupportedQuestionType | null {
   if (question.querySelector('[role="checkbox"]')) {
     return 'multiple-choice';
   }
-  if (question.querySelector('textarea')) {
+  if (question.querySelector('textarea, [contenteditable="true"]')) {
     return 'paragraph';
   }
   if (question.querySelector('input[type="text"]')) {
@@ -149,10 +151,17 @@ function getExistingValue(
   options: DiscoveredOption[]
 ): string | string[] | null {
   if (type === 'short-text' || type === 'paragraph') {
-    const input = question.querySelector<
-      HTMLInputElement | HTMLTextAreaElement
-    >('input[type="text"], textarea');
-    return input?.value || null;
+    const control = question.querySelector<HTMLElement>(
+      'input[type="text"], textarea, [contenteditable="true"]'
+    );
+    if (!control) {
+      return null;
+    }
+    const value =
+      'value' in control
+        ? String((control as HTMLInputElement).value ?? '')
+        : (control.textContent ?? '');
+    return value || null;
   }
 
   if (type === 'single-choice') {
@@ -216,6 +225,7 @@ function discoverQuestion(
   }
 
   const options = getOptions(question);
+  const answerParts = countAnswerParts(text);
   return {
     kind: 'supported',
     id,
@@ -224,6 +234,7 @@ function discoverQuestion(
     required: isRequired(question),
     options,
     existingValue: getExistingValue(question, type, options),
+    ...(answerParts > 1 ? { answerParts } : {}),
   };
 }
 

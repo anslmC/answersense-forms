@@ -2,6 +2,7 @@ import type { Answer, AnswerValue, Form } from '../Models/Logical';
 import type { GenerationReport } from './Report';
 import type { SettledPageState } from './Context';
 import { snapshotAnswer, type FinalizedPageHandoff } from '../Fill/Handoff';
+import { createQuestionTargetIndex } from '../Fill/Resolver';
 import { computePageFingerprint } from '../Forms/Normalization';
 import { cloneAnswerValue } from '../Shared/Utils';
 
@@ -99,8 +100,9 @@ export function capturePendingPageAtSettlement(
   form: Form,
   state: PendingPageState
 ): PendingPageState {
+  const index = createQuestionTargetIndex(document);
   const answers = state.answers.map((answer) => {
-    const current = snapshotAnswer(document, form, answer.questionId);
+    const current = snapshotAnswer(document, form, answer.questionId, index);
     return current
       ? {
           ...answer,

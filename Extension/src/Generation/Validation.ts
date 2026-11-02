@@ -6,6 +6,16 @@ import type {
 } from '../Models/Logical';
 import { questionTitleRejectionReason } from '../../../Shared/QuestionTypes';
 import type { GenerationResponse, GenerationResult } from './Contract';
+import {
+  formatAnswerParts,
+  resolveAnswerParts,
+  splitAnswerParts,
+} from './AnswerParts';
+
+const CONTRACT_MISMATCH_REASON =
+  'Generated answer does not match the question contract.';
+const INCOMPLETE_PARTS_REASON =
+  'The generated answer did not include a value for every blank in the question.';
 
 export class GenerationResponseValidationError extends Error {
   constructor(message: string) {
@@ -25,28 +35,60 @@ function isAnswerValue(value: unknown): value is AnswerValue {
   );
 }
 
-function isValidAnswer(
+type NormalizedAnswer =
+  { ok: true; value: AnswerValue } | { ok: false; reason: string };
+
+function normalizeTextAnswer(
   question: Question,
-  value: unknown
-): value is AnswerValue {
+  value: AnswerValue
+): NormalizedAnswer {
+  const answerParts = resolveAnswerParts(question);
+  if (Array.isArray(value)) {
+    if (answerParts < 2) {
+      return { ok: false, reason: CONTRACT_MISMATCH_REASON };
+    }
+    const parts = value.map((part) => part.trim()).filter(Boolean);
+    if (parts.length < answerParts) {
+      return { ok: false, reason: INCOMPLETE_PARTS_REASON };
+    }
+    return { ok: true, value: formatAnswerParts(parts) };
+  }
+
+  if (answerParts < 2) {
+    return { ok: true, value };
+  }
+  const parts = splitAnswerParts(value);
+  if (parts.length < answerParts) {
+    return { ok: false, reason: INCOMPLETE_PARTS_REASON };
+  }
+  return {
+    ok: true,
+    value:
+      parts.length === answerParts ? formatAnswerParts(parts) : value.trim(),
+  };
+}
+
+function normalizeAnswer(question: Question, value: unknown): NormalizedAnswer {
   if (!isAnswerValue(value) || question.type === null) {
-    return false;
+    return { ok: false, reason: CONTRACT_MISMATCH_REASON };
   }
 
   if (question.type === 'short-text' || question.type === 'paragraph') {
-    return typeof value === 'string';
+    return normalizeTextAnswer(question, value);
   }
 
   const optionLabels = new Set(question.options.map((option) => option.label));
   if (question.type === 'multiple-choice') {
-    return (
-      Array.isArray(value) &&
+    return Array.isArray(value) &&
       new Set(value).size === value.length &&
       value.every((option) => optionLabels.has(option))
-    );
+      ? { ok: true, value }
+      : { ok: false, reason: CONTRACT_MISMATCH_REASON };
   }
 
-  return typeof value === 'string' && optionLabels.has(value);
+  return typeof value === 'string' && optionLabels.has(value)
+    ? { ok: true, value }
+    : { ok: false, reason: CONTRACT_MISMATCH_REASON };
 }
 
 function validateResponseShape(
@@ -225,13 +267,14 @@ export function validateGenerationResponse(
       ];
     }
 
-    if (!isValidAnswer(question, result.answer.value)) {
+    const normalized = normalizeAnswer(question, result.answer.value);
+    if (!normalized.ok) {
       return [
         {
           questionId,
           status: 'VALIDATION_FAILED',
           answer: null,
-          reason: 'Generated answer does not match the question contract.',
+          reason: normalized.reason,
         },
       ];
     }
@@ -240,7 +283,7 @@ export function validateGenerationResponse(
       {
         questionId,
         status: 'GENERATED',
-        answer: { questionId, value: result.answer.value },
+        answer: { questionId, value: normalized.value },
         reason: null,
       },
     ];

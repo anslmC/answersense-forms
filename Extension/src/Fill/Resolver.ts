@@ -60,29 +60,53 @@ function getCurrentQuestionType(
   return null;
 }
 
+export interface QuestionTargetIndex {
+  find(questionId: string): HTMLElement | null;
+}
+
+function buildQuestionElementMap(document: Document): Map<string, HTMLElement> {
+  const elementsByQuestionId = new Map<string, HTMLElement>();
+  const respondentForm = document.querySelector<HTMLFormElement>(
+    'form[data-clean-viewform-url]'
+  );
+  const containers = respondentForm
+    ? (findTopLevelQuestionContainers(respondentForm) ?? [])
+    : Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[role="listitem"], [data-question-id], [aria-labelledby], [id]'
+        )
+      );
+
+  for (const container of containers) {
+    const questionId = extractQuestionId(container);
+    if (questionId !== null && !elementsByQuestionId.has(questionId)) {
+      elementsByQuestionId.set(questionId, container);
+    }
+  }
+  return elementsByQuestionId;
+}
+
+export function createQuestionTargetIndex(
+  document: Document
+): QuestionTargetIndex {
+  let elementsByQuestionId = buildQuestionElementMap(document);
+  return {
+    find(questionId) {
+      const cached = elementsByQuestionId.get(questionId);
+      if (cached) {
+        return cached;
+      }
+      elementsByQuestionId = buildQuestionElementMap(document);
+      return elementsByQuestionId.get(questionId) ?? null;
+    },
+  };
+}
+
 function findQuestionElement(
   document: Document,
   questionId: string
 ): HTMLElement | null {
-  const respondentForm = document.querySelector<HTMLFormElement>(
-    'form[data-clean-viewform-url]'
-  );
-  if (respondentForm) {
-    return (
-      findTopLevelQuestionContainers(respondentForm)?.find(
-        (candidate) => extractQuestionId(candidate) === questionId
-      ) ?? null
-    );
-  }
-
-  const candidates = document.querySelectorAll<HTMLElement>(
-    '[role="listitem"], [data-question-id], [aria-labelledby], [id]'
-  );
-  return (
-    Array.from(candidates).find(
-      (candidate) => extractQuestionId(candidate) === questionId
-    ) ?? null
-  );
+  return createQuestionTargetIndex(document).find(questionId);
 }
 
 function getChoiceOptions(
@@ -95,7 +119,8 @@ function getChoiceOptions(
 
 export function resolveCurrentQuestionTarget(
   document: Document,
-  question: Question
+  question: Question,
+  index?: QuestionTargetIndex
 ): ResolutionResult {
   const questionId = question.id;
   if (questionId === null) {
@@ -107,7 +132,9 @@ export function resolveCurrentQuestionTarget(
     };
   }
 
-  const questionElement = findQuestionElement(document, questionId);
+  const questionElement = index
+    ? index.find(questionId)
+    : findQuestionElement(document, questionId);
   if (!questionElement) {
     return {
       ok: false,

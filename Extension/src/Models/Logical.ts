@@ -28,6 +28,7 @@ export interface Question {
   existingInput: ExistingInput | null;
   supported: boolean;
   unsupportedReason: string | null;
+  answerParts?: number;
 }
 
 export type QuestionResultStatus =

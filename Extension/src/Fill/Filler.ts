@@ -7,9 +7,11 @@ import type {
 import type { GenerationReport } from '../Generation/Report';
 import type { ReviewDecision } from '../Review/Decisions';
 import {
+  createQuestionTargetIndex,
   getOptionLabel,
   isOptionSelected,
   resolveCurrentQuestionTarget,
+  type QuestionTargetIndex,
   type ResolutionFailure,
   type ResolvedChoiceTarget,
   type ResolvedTextTarget,
@@ -426,9 +428,10 @@ async function fillQuestion(
   document: Document,
   question: Question,
   answer: Answer,
-  overwriteExisting: boolean
+  overwriteExisting: boolean,
+  index?: QuestionTargetIndex
 ): Promise<FillOutcome> {
-  const resolved = resolveCurrentQuestionTarget(document, question);
+  const resolved = resolveCurrentQuestionTarget(document, question, index);
   if (!resolved.ok) {
     return failureOutcome(question.id, resolved, answer);
   }
@@ -472,6 +475,10 @@ export async function fillReviewedAnswers(
   const decisionsById = new Map(
     decisions.map((decision) => [decision.questionId, decision])
   );
+  const questionsById = new Map(
+    form.questions.map((question) => [question.id, question])
+  );
+  const index = createQuestionTargetIndex(document);
   const outcomes: FillOutcome[] = [];
   for (const result of report.results) {
     const questionId = result.questionId;
@@ -503,9 +510,8 @@ export async function fillReviewedAnswers(
       continue;
     }
 
-    const question = form.questions.find(
-      (candidate) => candidate.id === questionId
-    );
+    const question =
+      questionId === null ? undefined : questionsById.get(questionId);
     if (!question) {
       outcomes.push(
         failureOutcome(
@@ -522,7 +528,13 @@ export async function fillReviewedAnswers(
     }
 
     outcomes.push(
-      await fillQuestion(document, question, decision.answer, overwriteExisting)
+      await fillQuestion(
+        document,
+        question,
+        decision.answer,
+        overwriteExisting,
+        index
+      )
     );
   }
 

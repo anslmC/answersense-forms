@@ -6,6 +6,7 @@ import type {
   ProviderErrorCode,
 } from './Contract';
 import { systemInstruction } from './SystemInstructions';
+import { buildAnswerPartsInstructions } from './AnswerParts';
 
 export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 export const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -137,27 +138,16 @@ export const responseJsonSchema: Record<string, unknown> = {
   required: ['cycleId', 'results'],
 };
 
-function paragraphHasMultipleBlanks(text: string): boolean {
-  return (text.match(/_{2,}/g) ?? []).length >= 2;
-}
-
 function buildPrompt(request: GenerationRequest): string {
-  const requestedMultiBlankParagraghValues = request.questions
-    .filter(
-      (question) =>
-        question.type === 'paragraph' &&
-        paragraphHasMultipleBlanks(question.text)
-    )
-    .map(
-      (question) =>
-        `Question ${question.questionId} is a paragraph with multiple blank markers in its text. Return only the blank values separated by commas in blank order, with exactly one answer value per blank.`
-    );
+  const answerPartsInstructions = buildAnswerPartsInstructions(
+    request.questions
+  );
 
   return JSON.stringify({
     task:
       'Generate answers for the supplied questions.' +
-      (requestedMultiBlankParagraghValues.length > 0
-        ? ' ' + requestedMultiBlankParagraghValues.join(' ')
+      (answerPartsInstructions.length > 0
+        ? ' ' + answerPartsInstructions.join(' ')
         : ''),
     cycleId: request.cycleId,
     questions: request.questions,
@@ -243,11 +233,28 @@ function parseResponse(value: unknown): string | null {
   if (!Array.isArray(parts)) {
     return null;
   }
-  const textPart = parts.find(
-    (part) => typeof part === 'object' && part !== null && 'text' in part
-  );
-  const text = textPart && (textPart as { text?: unknown }).text;
-  return typeof text === 'string' ? text : null;
+  return readTextPart(parts);
+}
+
+function readTextPart(parts: readonly unknown[]): string | null {
+  let firstText: string | null = null;
+  let answerText: string | null = null;
+  for (const part of parts) {
+    if (typeof part !== 'object' || part === null || !('text' in part)) {
+      continue;
+    }
+    const text = (part as { text?: unknown }).text;
+    if (typeof text !== 'string') {
+      continue;
+    }
+    if (firstText === null) {
+      firstText = text;
+    }
+    if ((part as { thought?: unknown }).thought !== true) {
+      answerText = text;
+    }
+  }
+  return answerText ?? firstText;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -23,6 +23,7 @@ export interface GenerationQuestion {
   type: SupportedQuestionType;
   required: boolean;
   options: string[];
+  answerParts?: number;
 }
 
 export interface SettledContextItem {

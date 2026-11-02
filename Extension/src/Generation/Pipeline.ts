@@ -55,6 +55,9 @@ function createRequest(
     type: question.type as NonNullable<Question['type']>,
     required: question.required,
     options: question.options.map((option) => option.label),
+    ...(question.answerParts && question.answerParts > 1
+      ? { answerParts: question.answerParts }
+      : {}),
   }));
   return {
     cycleId,

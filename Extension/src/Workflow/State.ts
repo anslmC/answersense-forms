@@ -42,6 +42,32 @@ export function overrideQuestionLabel(question: WorkflowQuestion): string {
   return question.text ?? '';
 }
 
+export function overrideFailureQuestionLabel(
+  questionId: string,
+  questions: readonly WorkflowQuestion[]
+): string {
+  const questionIndex = questions.findIndex(
+    (question) => question.id === questionId
+  );
+  return questionIndex >= 0 ? `Q${questionIndex + 1}` : questionId;
+}
+
+export function describeOverrideFailure(
+  questionId: string,
+  reason: string | null,
+  questions: readonly WorkflowQuestion[]
+): string {
+  const label = overrideFailureQuestionLabel(questionId, questions);
+  const recordedReason = reason?.replace(/\s+/g, ' ').trim();
+  if (!recordedReason) {
+    return `${label} could not be overridden.`;
+  }
+  const questionPrefix = 'The question was ';
+  return recordedReason.startsWith(questionPrefix)
+    ? `${label} was ${recordedReason.slice(questionPrefix.length)}`
+    : `${label}: ${recordedReason}`;
+}
+
 export function createAllOverrideIntent(
   page: PageSummary
 ): OverrideFilledIntent {

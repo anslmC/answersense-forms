@@ -54,6 +54,9 @@ function normalizeSupportedQuestion(question: DiscoveredQuestion): Question {
     existingInput: normalizeExistingInput(question),
     supported: true,
     unsupportedReason: null,
+    ...(question.answerParts && question.answerParts > 1
+      ? { answerParts: question.answerParts }
+      : {}),
   };
 }
 

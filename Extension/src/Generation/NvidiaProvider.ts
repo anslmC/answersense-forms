@@ -6,6 +6,7 @@ import type {
   ProviderErrorContract,
 } from './Contract';
 import { systemInstruction } from './SystemInstructions';
+import { buildAnswerPartsInstructions } from './AnswerParts';
 
 export const NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 export const NVIDIA_NEMOTRON_LIGHTNING_MODEL =
@@ -64,8 +65,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function createUserContent(request: GenerationRequest): string {
+  const answerPartsInstructions = buildAnswerPartsInstructions(
+    request.questions
+  );
   return JSON.stringify({
-    task: 'Generate answers for the supplied questions.',
+    task:
+      'Generate answers for the supplied questions.' +
+      (answerPartsInstructions.length > 0
+        ? ' ' + answerPartsInstructions.join(' ')
+        : ''),
     cycleId: request.cycleId,
     questions: request.questions,
     settledContext: request.settledContext,
