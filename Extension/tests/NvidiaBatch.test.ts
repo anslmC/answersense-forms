@@ -29,6 +29,7 @@ import {
   NVIDIA_OVERALL_TIMEOUT_MS,
   NvidiaProvider,
   NvidiaProviderError,
+  getNvidiaModelPolicy,
   validateNvidiaCredential,
 } from '../src/Generation/NvidiaProvider';
 import type { Form } from '../src/Models/Logical';
@@ -193,6 +194,75 @@ describe('NVIDIA batch planning', () => {
     expect(outputLimited.map((batch) => batch.questions.length)).toEqual([
       1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     ]);
+  });
+
+  it('applies model-specific output reserves when planning batches', () => {
+    const request = makeRequest(10);
+    const superPolicy = getNvidiaModelPolicy(NVIDIA_MODEL);
+    const lightningPolicy = getNvidiaModelPolicy(
+      NVIDIA_NEMOTRON_LIGHTNING_MODEL
+    );
+    expect(superPolicy).toBeDefined();
+    expect(lightningPolicy).toBeDefined();
+
+    const superBatches = planNvidiaBatches(request, superPolicy!.batchLimits, {
+      payloadProfile: superPolicy!.payloadProfile,
+      reasoningTokenReserve: superPolicy!.reasoningTokenReserve,
+    });
+    const lightningBatches = planNvidiaBatches(
+      request,
+      lightningPolicy!.batchLimits,
+      {
+        payloadProfile: lightningPolicy!.payloadProfile,
+        reasoningTokenReserve: lightningPolicy!.reasoningTokenReserve,
+      }
+    );
+
+    expect(superBatches).toHaveLength(1);
+    expect(lightningBatches).toHaveLength(1);
+    expect(
+      superBatches[0].estimatedOutputTokens -
+        lightningBatches[0].estimatedOutputTokens
+    ).toBe(superPolicy!.reasoningTokenReserve);
+    expect(superBatches[0].estimatedOutputTokens).toBeLessThanOrEqual(
+      superPolicy!.batchLimits.maxEstimatedOutputTokens
+    );
+    expect(superBatches[0].estimatedOutputTokens).toBeLessThan(
+      superPolicy!.payloadProfile.maxTokens
+    );
+    expect(lightningBatches[0].estimatedOutputTokens).toBeLessThanOrEqual(
+      lightningPolicy!.batchLimits.maxEstimatedOutputTokens
+    );
+  });
+
+  it('measures payloads with each model response-format policy', () => {
+    const request = makeRequest(1);
+    const superPolicy = getNvidiaModelPolicy(NVIDIA_MODEL);
+    const lightningPolicy = getNvidiaModelPolicy(
+      NVIDIA_NEMOTRON_LIGHTNING_MODEL
+    );
+    expect(superPolicy).toBeDefined();
+    expect(lightningPolicy).toBeDefined();
+
+    const superSerialized = serializeNvidiaPayload(
+      request,
+      superPolicy!.payloadProfile
+    );
+    const lightningSerialized = serializeNvidiaPayload(
+      request,
+      lightningPolicy!.payloadProfile
+    );
+
+    expect(superSerialized).not.toContain('response_format');
+    expect(lightningSerialized).toContain(
+      '"response_format":{"type":"json_object"}'
+    );
+    expect(
+      measureNvidiaRequest(request, lightningPolicy!.payloadProfile)
+        .serializedBytes
+    ).toBeGreaterThan(
+      measureNvidiaRequest(request, superPolicy!.payloadProfile).serializedBytes
+    );
   });
 
   it('rejects an oversized single question', () => {

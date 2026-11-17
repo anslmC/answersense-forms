@@ -7,9 +7,9 @@ import type {
 } from './Contract';
 import { NvidiaBatchCancellationError } from './NvidiaBatchExecution';
 import {
-  DEFAULT_NVIDIA_BATCH_LIMITS,
   NvidiaBatchLimitError,
   planNvidiaBatches,
+  type NvidiaBatchLimits,
   type NvidiaQuestionBatch,
 } from './NvidiaBatchPlanning';
 import {
@@ -43,13 +43,61 @@ const NVIDIA_MAX_RETRY_AFTER_MS = 3_600_000;
 const NVIDIA_FALLBACK_ERROR_BODY_LIMIT = 16_384;
 const NVCF_REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze(
-  {
-    [NVIDIA_MODEL]: 131072,
-    [NVIDIA_NEMOTRON_LIGHTNING_MODEL]: 32768,
-  }
-);
-const NVIDIA_MODELS = new Set(Object.keys(NVIDIA_MODEL_MAX_TOKENS));
+export interface NvidiaModelPolicy {
+  readonly modelId: string;
+  readonly payloadProfile: NvidiaPayloadProfile;
+  readonly requestTimeoutMs: number;
+  readonly overallTimeoutMs: number;
+  readonly batchLimits: NvidiaBatchLimits;
+  readonly reasoningTokenReserve: number;
+}
+
+export const NVIDIA_MODEL_POLICIES: Readonly<
+  Record<string, NvidiaModelPolicy>
+> = Object.freeze({
+  [NVIDIA_MODEL]: Object.freeze({
+    modelId: NVIDIA_MODEL,
+    payloadProfile: Object.freeze({
+      modelId: NVIDIA_MODEL,
+      maxTokens: 131072,
+      includeResponseFormat: false,
+      lightning: false,
+    }),
+    requestTimeoutMs: NVIDIA_REQUEST_TIMEOUT_MS,
+    overallTimeoutMs: NVIDIA_OVERALL_TIMEOUT_MS,
+    batchLimits: Object.freeze({
+      maxQuestionsPerBatch: 10,
+      maxEstimatedInputTokens: 12_000,
+      maxEstimatedOutputTokens: 8_000,
+      maxSerializedBytes: 48_000,
+    }),
+    reasoningTokenReserve: 4_096,
+  }),
+  [NVIDIA_NEMOTRON_LIGHTNING_MODEL]: Object.freeze({
+    modelId: NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+    payloadProfile: Object.freeze({
+      modelId: NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+      maxTokens: 32768,
+      includeResponseFormat: true,
+      lightning: true,
+    }),
+    requestTimeoutMs: NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS,
+    overallTimeoutMs: NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS,
+    batchLimits: Object.freeze({
+      maxQuestionsPerBatch: 10,
+      maxEstimatedInputTokens: 12_000,
+      maxEstimatedOutputTokens: 4_000,
+      maxSerializedBytes: 48_000,
+    }),
+    reasoningTokenReserve: 0,
+  }),
+});
+
+export function getNvidiaModelPolicy(
+  modelId: string
+): NvidiaModelPolicy | undefined {
+  return NVIDIA_MODEL_POLICIES[modelId];
+}
 
 export type NvidiaResponseDiagnostic =
   | 'HTTP_STATUS'
@@ -576,31 +624,25 @@ interface PayloadOptions {
 }
 
 function defaultTimeoutMs(modelId: string): number {
-  return modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL
-    ? NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS
-    : NVIDIA_REQUEST_TIMEOUT_MS;
-}
-
-function defaultOverallTimeoutMs(modelId: string): number {
-  return modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL
-    ? NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS
-    : NVIDIA_OVERALL_TIMEOUT_MS;
+  return (
+    getNvidiaModelPolicy(modelId)?.requestTimeoutMs ?? NVIDIA_REQUEST_TIMEOUT_MS
+  );
 }
 
 function payloadProfileFor(
   modelId: string,
   options: PayloadOptions = {}
 ): NvidiaPayloadProfile {
-  const maxTokens = NVIDIA_MODEL_MAX_TOKENS[modelId];
-  if (maxTokens === undefined) {
+  const policy = getNvidiaModelPolicy(modelId);
+  if (!policy) {
     throw new NvidiaProviderError('INVALID_REQUEST');
   }
-  const lightning = modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL;
+  if (options.includeResponseFormat === undefined) {
+    return policy.payloadProfile;
+  }
   return {
-    modelId,
-    maxTokens,
-    includeResponseFormat: options.includeResponseFormat ?? lightning,
-    lightning,
+    ...policy.payloadProfile,
+    includeResponseFormat: options.includeResponseFormat,
   };
 }
 
@@ -1229,7 +1271,8 @@ export class NvidiaProvider implements GenerationInterface {
     request: GenerationRequest,
     signal?: AbortSignal
   ): Promise<GenerationResponse> {
-    if (!NVIDIA_MODELS.has(this.modelId)) {
+    const policy = getNvidiaModelPolicy(this.modelId);
+    if (!policy) {
       throw new NvidiaProviderError('INVALID_REQUEST');
     }
     if (request.questions.length === 0) {
@@ -1237,13 +1280,13 @@ export class NvidiaProvider implements GenerationInterface {
     }
     assertUniqueQuestionIds(request);
 
-    const timeoutMs = this.timeoutMs ?? defaultTimeoutMs(this.modelId);
-    const overallTimeoutMs =
-      this.overallTimeoutMs ?? defaultOverallTimeoutMs(this.modelId);
+    const timeoutMs = this.timeoutMs ?? policy.requestTimeoutMs;
+    const overallTimeoutMs = this.overallTimeoutMs ?? policy.overallTimeoutMs;
     let batches: NvidiaQuestionBatch[];
     try {
-      batches = planNvidiaBatches(request, DEFAULT_NVIDIA_BATCH_LIMITS, {
-        payloadProfile: payloadProfileFor(this.modelId),
+      batches = planNvidiaBatches(request, policy.batchLimits, {
+        payloadProfile: policy.payloadProfile,
+        reasoningTokenReserve: policy.reasoningTokenReserve,
       });
     } catch (error) {
       if (error instanceof NvidiaBatchLimitError) {
@@ -1290,8 +1333,9 @@ export class NvidiaProvider implements GenerationInterface {
         {
           signal,
           overallTimeoutMs,
-          limits: DEFAULT_NVIDIA_BATCH_LIMITS,
-          payloadProfile: payloadProfileFor(this.modelId),
+          limits: policy.batchLimits,
+          payloadProfile: policy.payloadProfile,
+          reasoningTokenReserve: policy.reasoningTokenReserve,
         }
       );
       const validation = validateGenerationResponseForRequest(
@@ -1327,7 +1371,7 @@ export async function validateNvidiaCredential(
   fetchImpl: FetchImplementation = fetch,
   timeoutMs = defaultTimeoutMs(modelId)
 ): Promise<void> {
-  if (!NVIDIA_MODELS.has(modelId)) {
+  if (!getNvidiaModelPolicy(modelId)) {
     throw new NvidiaProviderError('INVALID_REQUEST');
   }
 

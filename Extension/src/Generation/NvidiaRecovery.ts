@@ -72,6 +72,7 @@ export interface NvidiaRecoveryOptions {
   readonly overallTimeoutMs?: number;
   readonly limits?: NvidiaBatchLimits;
   readonly payloadProfile?: NvidiaPayloadProfile;
+  readonly reasoningTokenReserve?: number;
 }
 
 interface NormalizedRecoveryOptions {
@@ -85,6 +86,7 @@ interface NormalizedRecoveryOptions {
   readonly deadlineAt: number | null;
   readonly limits: NvidiaBatchLimits;
   readonly payloadProfile: NvidiaPayloadProfile;
+  readonly reasoningTokenReserve: number;
 }
 
 interface RecoveryTask {
@@ -162,6 +164,10 @@ function normalizeOptions(
     ),
     payloadProfile:
       options.payloadProfile ?? DEFAULT_NVIDIA_MEASUREMENT_PROFILE,
+    reasoningTokenReserve: normalizeNonNegativeInteger(
+      options.reasoningTokenReserve,
+      0
+    ),
   };
 }
 
@@ -387,7 +393,10 @@ export async function executeNvidiaRecovery(
       request,
       retryable,
       nextBatchIndex,
-      { payloadProfile: normalized.payloadProfile }
+      {
+        payloadProfile: normalized.payloadProfile,
+        reasoningTokenReserve: normalized.reasoningTokenReserve,
+      }
     );
     if (isNvidiaBatchWithinLimits(batch, normalized.limits)) {
       nextBatchIndex += 1;

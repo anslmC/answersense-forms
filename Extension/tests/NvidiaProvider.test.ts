@@ -3,10 +3,13 @@ import {
   NVIDIA_ENDPOINT,
   NVIDIA_NEMOTRON_LIGHTNING_MODEL,
   NVIDIA_MODEL,
+  NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS,
   NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS,
   NvidiaProvider,
   NvidiaProviderError,
+  NVIDIA_OVERALL_TIMEOUT_MS,
   NVIDIA_REQUEST_TIMEOUT_MS,
+  getNvidiaModelPolicy,
   validateNvidiaCredential,
 } from '../src/Generation/NvidiaProvider';
 import type { GenerationRequest } from '../src/Generation/Contract';
@@ -128,6 +131,48 @@ async function generateError(
 }
 
 describe('NVIDIA Nemotron provider', () => {
+  it('defines explicit model-specific request policies', () => {
+    expect(getNvidiaModelPolicy(NVIDIA_MODEL)).toMatchObject({
+      modelId: NVIDIA_MODEL,
+      payloadProfile: {
+        modelId: NVIDIA_MODEL,
+        maxTokens: 131072,
+        includeResponseFormat: false,
+        lightning: false,
+      },
+      requestTimeoutMs: NVIDIA_REQUEST_TIMEOUT_MS,
+      overallTimeoutMs: NVIDIA_OVERALL_TIMEOUT_MS,
+      batchLimits: {
+        maxQuestionsPerBatch: 10,
+        maxEstimatedInputTokens: 12_000,
+        maxEstimatedOutputTokens: 8_000,
+        maxSerializedBytes: 48_000,
+      },
+      reasoningTokenReserve: 4_096,
+    });
+    expect(getNvidiaModelPolicy(NVIDIA_NEMOTRON_LIGHTNING_MODEL)).toMatchObject(
+      {
+        modelId: NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+        payloadProfile: {
+          modelId: NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+          maxTokens: 32768,
+          includeResponseFormat: true,
+          lightning: true,
+        },
+        requestTimeoutMs: NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS,
+        overallTimeoutMs: NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS,
+        batchLimits: {
+          maxQuestionsPerBatch: 10,
+          maxEstimatedInputTokens: 12_000,
+          maxEstimatedOutputTokens: 4_000,
+          maxSerializedBytes: 48_000,
+        },
+        reasoningTokenReserve: 0,
+      }
+    );
+    expect(getNvidiaModelPolicy('attacker/model')).toBeUndefined();
+  });
+
   it('sends the fixed endpoint, Bearer authentication, and tested request settings', async () => {
     const fetchMock = successfulFetch(
       JSON.stringify(validGenerationResponse())
@@ -217,6 +262,7 @@ describe('NVIDIA Nemotron provider', () => {
     const userMessage = JSON.parse(payload.messages[1].content);
     expect(userMessage.cycleId).toBe(request.cycleId);
     expect(userMessage.questions).toEqual(request.questions);
+    expect(userMessage).not.toHaveProperty('settledContext');
     expect(userMessage.responseContract.requiredTopLevelFields).toEqual([
       'cycleId',
       'results',
@@ -241,6 +287,39 @@ describe('NVIDIA Nemotron provider', () => {
     expect(userMessage.responseContract.answerRules).toMatch(
       /supplied option/u
     );
+  });
+
+  it('preserves populated settled context without repeating empty context', async () => {
+    const settledContext = [
+      {
+        questionId: 'settled-garden-tools',
+        questionText: 'Which garden tools are shared?',
+        answer: 'Spades and trowels.',
+      },
+    ];
+    const fetchMock = successfulFetch(
+      JSON.stringify(validGenerationResponse())
+    );
+    const provider = new NvidiaProvider(
+      'synthetic-test-key',
+      NVIDIA_MODEL,
+      fetchMock
+    );
+
+    await provider.generate({ ...request, settledContext });
+    await provider.generate({ ...request, settledContext: [] });
+
+    const calls = fetchMock.mock.calls as unknown as Array<
+      [string, RequestInit]
+    >;
+    const firstUserMessage = JSON.parse(
+      JSON.parse(String(calls[0][1].body)).messages[1].content
+    );
+    const secondUserMessage = JSON.parse(
+      JSON.parse(String(calls[1][1].body)).messages[1].content
+    );
+    expect(firstUserMessage.settledContext).toEqual(settledContext);
+    expect(secondUserMessage).not.toHaveProperty('settledContext');
   });
 
   it('parses assistant completion content into the shared generation response shape', async () => {

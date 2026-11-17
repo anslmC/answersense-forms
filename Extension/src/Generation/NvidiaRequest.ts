@@ -25,7 +25,7 @@ export const DEFAULT_NVIDIA_MEASUREMENT_PROFILE: NvidiaPayloadProfile =
   Object.freeze({
     modelId: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
     maxTokens: 131072,
-    includeResponseFormat: true,
+    includeResponseFormat: false,
     lightning: false,
   });
 
@@ -51,7 +51,9 @@ export function createNvidiaUserContent(
     cycleId: request.cycleId,
     questions: request.questions,
     ...(samePageContext.length > 0 ? { samePageContext } : {}),
-    settledContext: request.settledContext,
+    ...(request.settledContext.length > 0
+      ? { settledContext: request.settledContext }
+      : {}),
     responseContract: {
       format:
         'Return one JSON object only. Do not include Markdown fences, commentary, reasoning, or <think> tags.',

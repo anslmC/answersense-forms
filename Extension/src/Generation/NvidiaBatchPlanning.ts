@@ -26,6 +26,7 @@ export const DEFAULT_NVIDIA_BATCH_LIMITS: NvidiaBatchLimits = Object.freeze({
 
 export interface NvidiaBatchPlanningOptions {
   readonly payloadProfile?: NvidiaPayloadProfile;
+  readonly reasoningTokenReserve?: number;
 }
 
 export interface NvidiaQuestionBatch {
@@ -61,6 +62,13 @@ function normalizeLimit(value: number): number {
     return 1;
   }
   return Math.max(1, Math.floor(value));
+}
+
+function normalizeReasoningTokenReserve(value: number | undefined): number {
+  if (value === undefined || Number.isNaN(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(value));
 }
 
 export function normalizeNvidiaBatchLimits(
@@ -211,7 +219,8 @@ export function buildNvidiaSamePageContext(
 function estimateBatch(
   request: GenerationRequest,
   questions: readonly GenerationQuestion[],
-  profile: NvidiaPayloadProfile
+  profile: NvidiaPayloadProfile,
+  reasoningTokenReserve: number
 ): Pick<
   NvidiaQuestionBatch,
   'estimatedInputTokens' | 'estimatedOutputTokens' | 'serializedBytes'
@@ -221,13 +230,18 @@ function estimateBatch(
     questions: [...questions],
     samePageContext: buildNvidiaSamePageContext(request, questions),
   };
+  const answerOutputTokens = questions.reduce(
+    (total, question) =>
+      total + estimateQuestionOutputTokens(question) + RESULT_OVERHEAD_TOKENS,
+    0
+  );
   return {
     ...measureNvidiaRequest(measurementRequest, profile),
-    estimatedOutputTokens: questions.reduce(
-      (total, question) =>
-        total + estimateQuestionOutputTokens(question) + RESULT_OVERHEAD_TOKENS,
-      0
-    ),
+    estimatedOutputTokens:
+      questions.length === 0
+        ? 0
+        : answerOutputTokens +
+          normalizeReasoningTokenReserve(reasoningTokenReserve),
   };
 }
 
@@ -244,7 +258,12 @@ export function createNvidiaQuestionBatch(
   return {
     index,
     questions: [...questions],
-    ...estimateBatch(request, questions, profile),
+    ...estimateBatch(
+      request,
+      questions,
+      profile,
+      options.reasoningTokenReserve ?? 0
+    ),
   };
 }
 
@@ -270,9 +289,10 @@ function assertBatchFits(
 function assertOversizedInputsAbsent(
   request: GenerationRequest,
   limits: NvidiaBatchLimits,
-  profile: NvidiaPayloadProfile
+  profile: NvidiaPayloadProfile,
+  reasoningTokenReserve: number
 ): void {
-  const contextOnly = estimateBatch(request, [], profile);
+  const contextOnly = estimateBatch(request, [], profile, 0);
   if (
     contextOnly.estimatedInputTokens > limits.maxEstimatedInputTokens ||
     contextOnly.serializedBytes > limits.maxSerializedBytes
@@ -281,7 +301,12 @@ function assertOversizedInputsAbsent(
   }
 
   for (const question of request.questions) {
-    const singleQuestion = estimateBatch(request, [question], profile);
+    const singleQuestion = estimateBatch(
+      request,
+      [question],
+      profile,
+      reasoningTokenReserve
+    );
     assertBatchFits(singleQuestion, limits, [question.questionId], 'QUESTION');
   }
 }
@@ -297,7 +322,15 @@ export function planNvidiaBatches(
 
   const normalizedLimits = normalizeNvidiaBatchLimits(limits);
   const profile = options.payloadProfile ?? DEFAULT_NVIDIA_MEASUREMENT_PROFILE;
-  assertOversizedInputsAbsent(request, normalizedLimits, profile);
+  const reasoningTokenReserve = normalizeReasoningTokenReserve(
+    options.reasoningTokenReserve
+  );
+  assertOversizedInputsAbsent(
+    request,
+    normalizedLimits,
+    profile,
+    reasoningTokenReserve
+  );
 
   const batches: NvidiaQuestionBatch[] = [];
   let currentQuestions: GenerationQuestion[] = [];
@@ -309,6 +342,7 @@ export function planNvidiaBatches(
     batches.push(
       createNvidiaQuestionBatch(request, currentQuestions, batches.length, {
         payloadProfile: profile,
+        reasoningTokenReserve,
       })
     );
     currentQuestions = [];
@@ -316,7 +350,12 @@ export function planNvidiaBatches(
 
   for (const question of request.questions) {
     const candidate = [...currentQuestions, question];
-    const estimate = estimateBatch(request, candidate, profile);
+    const estimate = estimateBatch(
+      request,
+      candidate,
+      profile,
+      reasoningTokenReserve
+    );
     const exceedsLimits =
       currentQuestions.length > 0 &&
       (candidate.length > normalizedLimits.maxQuestionsPerBatch ||
