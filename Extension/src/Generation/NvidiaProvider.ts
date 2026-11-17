@@ -5,8 +5,27 @@ import type {
   ProviderErrorCode,
   ProviderErrorContract,
 } from './Contract';
-import { systemInstruction } from './SystemInstructions';
-import { buildAnswerPartsInstructions } from './AnswerParts';
+import {
+  executeNvidiaBatches,
+  NvidiaBatchCancellationError,
+  NvidiaBatchDeadlineError,
+  type NvidiaBatchFailure,
+} from './NvidiaBatchExecution';
+import {
+  DEFAULT_NVIDIA_BATCH_LIMITS,
+  NvidiaBatchLimitError,
+  planNvidiaBatches,
+  type NvidiaQuestionBatch,
+} from './NvidiaBatchPlanning';
+import {
+  createNvidiaPayload,
+  type NvidiaGenerationRequest,
+  type NvidiaPayloadProfile,
+} from './NvidiaRequest';
+import {
+  assembleNvidiaBatchResponse,
+  type NvidiaBatchFailureDescriptor,
+} from './NvidiaResponseAssembly';
 
 export const NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 export const NVIDIA_NEMOTRON_LIGHTNING_MODEL =
@@ -17,6 +36,10 @@ export const NVIDIA_STATUS_ENDPOINT =
   'https://integrate.api.nvidia.com/v2/nvcf/pexec/status/';
 export const NVIDIA_REQUEST_TIMEOUT_MS = 30_000;
 export const NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS = 60_000;
+
+// Three worst-case request waves at the current ten-question batch cap.
+export const NVIDIA_OVERALL_TIMEOUT_MS = 90_000;
+export const NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS = 180_000;
 const NVIDIA_POLL_INTERVAL_MS = 1_000;
 const NVIDIA_MAX_POLL_INTERVAL_MS = 30_000;
 const NVIDIA_MAX_RETRY_AFTER_MS = 3_600_000;
@@ -25,7 +48,7 @@ const NVCF_REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const NVIDIA_MODEL_MAX_TOKENS: Readonly<Record<string, number>> = Object.freeze(
   {
-    [NVIDIA_MODEL]: 16384,
+    [NVIDIA_MODEL]: 131072,
     [NVIDIA_NEMOTRON_LIGHTNING_MODEL]: 32768,
   }
 );
@@ -107,6 +130,39 @@ export class NvidiaProviderError
     super(SAFE_MESSAGES[safeCode]);
     this.name = 'NvidiaProviderError';
     this.safeMessageCode = safeMessageCode;
+  }
+}
+
+function batchFailureDescriptor(error: unknown): NvidiaBatchFailureDescriptor {
+  return error instanceof NvidiaProviderError
+    ? { code: error.safeCode, message: error.message }
+    : {
+        code: 'PROVIDER_FAILURE',
+        message: SAFE_MESSAGES.PROVIDER_FAILURE,
+      };
+}
+
+function firstBatchFailureError(
+  outcomes: readonly NvidiaBatchFailure[]
+): NvidiaProviderError | null {
+  const safeFailure = outcomes.find(
+    (outcome) => outcome.error instanceof NvidiaProviderError
+  );
+  if (safeFailure?.error instanceof NvidiaProviderError) {
+    return safeFailure.error;
+  }
+  return outcomes.length > 0
+    ? new NvidiaProviderError('PROVIDER_FAILURE')
+    : null;
+}
+
+function assertUniqueQuestionIds(request: GenerationRequest): void {
+  const questionIds = new Set<string>();
+  for (const question of request.questions) {
+    if (questionIds.has(question.questionId)) {
+      throw new NvidiaProviderError('INVALID_REQUEST');
+    }
+    questionIds.add(question.questionId);
   }
 }
 
@@ -541,54 +597,6 @@ function validateGenerationResponseForRequest(
   return { ok: true };
 }
 
-function createUserContent(request: GenerationRequest): string {
-  const answerPartsInstructions = buildAnswerPartsInstructions(
-    request.questions
-  );
-  return JSON.stringify({
-    task:
-      'Generate answers for the supplied questions.' +
-      (answerPartsInstructions.length > 0
-        ? ' ' + answerPartsInstructions.join(' ')
-        : ''),
-    cycleId: request.cycleId,
-    questions: request.questions,
-    settledContext: request.settledContext,
-    responseContract: {
-      format:
-        'Return one JSON object only. Do not include Markdown fences, commentary, reasoning, or <think> tags.',
-      requiredTopLevelFields: ['cycleId', 'results'],
-      cycleId: 'Copy the nonblank cycleId from this request exactly.',
-      results:
-        'Return an array with exactly one result for every supplied question. Each questionId must be unique and match one supplied questionId.',
-      numberOfResults: request.questions.length,
-      responseExample: {
-        cycleId: request.cycleId,
-        results: [
-          {
-            questionId: '<supplied questionId>',
-            status: 'GENERATED',
-            answer: {
-              questionId: '<same supplied questionId>',
-              value: '<answer value>',
-            },
-          },
-        ],
-      },
-      resultVariants: {
-        GENERATED:
-          '{ questionId, status: "GENERATED", answer: { questionId: same questionId, value } }',
-        ABSTAINED:
-          '{ questionId, status: "ABSTAINED", answer: null, reason: "LOW_CONFIDENCE" | "UNABLE_TO_DETERMINE" | "NOT_APPLICABLE" }',
-        GENERATION_FAILED:
-          '{ questionId, status: "GENERATION_FAILED", answer: null, failure: { code: string, message: string } }',
-      },
-      answerRules:
-        'short-text and paragraph values must be strings; single-choice values must be one supplied option string; multiple-choice values must be arrays of distinct strings, each matching a supplied option.',
-    },
-  });
-}
-
 interface PayloadOptions {
   readonly includeResponseFormat?: boolean;
 }
@@ -599,35 +607,35 @@ function defaultTimeoutMs(modelId: string): number {
     : NVIDIA_REQUEST_TIMEOUT_MS;
 }
 
-function createPayload(
-  request: GenerationRequest,
+function defaultOverallTimeoutMs(modelId: string): number {
+  return modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL
+    ? NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS
+    : NVIDIA_OVERALL_TIMEOUT_MS;
+}
+
+function payloadProfileFor(
   modelId: string,
   options: PayloadOptions = {}
-): Record<string, unknown> {
+): NvidiaPayloadProfile {
   const maxTokens = NVIDIA_MODEL_MAX_TOKENS[modelId];
   if (maxTokens === undefined) {
     throw new NvidiaProviderError('INVALID_REQUEST');
   }
-  const isLightning = modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL;
-  const reasoningParameters = isLightning
-    ? { chat_template_kwargs: { enable_thinking: false } }
-    : { reasoning_effort: 'low' };
-  const includeResponseFormat = options.includeResponseFormat ?? isLightning;
+  const lightning = modelId === NVIDIA_NEMOTRON_LIGHTNING_MODEL;
   return {
-    model: modelId,
-    messages: [
-      { role: 'system', content: systemInstruction },
-      { role: 'user', content: createUserContent(request) },
-    ],
-    temperature: 1.0,
-    top_p: 0.95,
-    max_tokens: maxTokens,
-    ...reasoningParameters,
-    ...(includeResponseFormat
-      ? { response_format: { type: 'json_object' } }
-      : {}),
-    stream: false,
+    modelId,
+    maxTokens,
+    includeResponseFormat: options.includeResponseFormat ?? lightning,
+    lightning,
   };
+}
+
+function createPayload(
+  request: NvidiaGenerationRequest,
+  modelId: string,
+  options: PayloadOptions = {}
+): Record<string, unknown> {
+  return createNvidiaPayload(request, payloadProfileFor(modelId, options));
 }
 
 const RESPONSE_FORMAT_REJECTION_MARKERS = [
@@ -1031,7 +1039,7 @@ function parseCompletionEnvelope(
 
 async function requestGenerationResponse(
   apiKey: string,
-  request: GenerationRequest,
+  request: NvidiaGenerationRequest,
   modelId: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
@@ -1113,7 +1121,8 @@ export class NvidiaProvider implements GenerationInterface {
     private readonly apiKey: string,
     private readonly modelId = NVIDIA_MODEL,
     private readonly fetchImpl: FetchImplementation = fetch,
-    private readonly timeoutMs?: number
+    private readonly timeoutMs?: number,
+    private readonly overallTimeoutMs?: number
   ) {}
 
   async generate(
@@ -1123,14 +1132,86 @@ export class NvidiaProvider implements GenerationInterface {
     if (!NVIDIA_MODELS.has(this.modelId)) {
       throw new NvidiaProviderError('INVALID_REQUEST');
     }
-    return requestGenerationResponse(
-      this.apiKey,
-      request,
-      this.modelId,
-      this.fetchImpl,
-      this.timeoutMs ?? defaultTimeoutMs(this.modelId),
-      signal
-    );
+    if (request.questions.length === 0) {
+      return { cycleId: request.cycleId, results: [] };
+    }
+    assertUniqueQuestionIds(request);
+
+    const timeoutMs = this.timeoutMs ?? defaultTimeoutMs(this.modelId);
+    const overallTimeoutMs =
+      this.overallTimeoutMs ?? defaultOverallTimeoutMs(this.modelId);
+    let batches: NvidiaQuestionBatch[];
+    try {
+      batches = planNvidiaBatches(request, DEFAULT_NVIDIA_BATCH_LIMITS, {
+        payloadProfile: payloadProfileFor(this.modelId),
+      });
+    } catch (error) {
+      if (error instanceof NvidiaBatchLimitError) {
+        throw new NvidiaProviderError('INVALID_REQUEST');
+      }
+      throw error;
+    }
+
+    if (batches.length === 1) {
+      try {
+        return await requestGenerationResponse(
+          this.apiKey,
+          request,
+          this.modelId,
+          this.fetchImpl,
+          timeoutMs,
+          signal
+        );
+      } catch (error) {
+        if (
+          signal?.aborted &&
+          error instanceof NvidiaProviderError &&
+          error.safeCode === 'TIMEOUT'
+        ) {
+          throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
+        }
+        throw error;
+      }
+    }
+
+    try {
+      const outcomes = await executeNvidiaBatches(
+        request,
+        batches,
+        (batchRequest, batchSignal) =>
+          requestGenerationResponse(
+            this.apiKey,
+            batchRequest,
+            this.modelId,
+            this.fetchImpl,
+            timeoutMs,
+            batchSignal
+          ),
+        { signal, overallTimeoutMs }
+      );
+      const failures = outcomes.filter(
+        (outcome): outcome is NvidiaBatchFailure => !outcome.ok
+      );
+      if (failures.length === outcomes.length) {
+        const failure = firstBatchFailureError(failures);
+        if (failure) {
+          throw failure;
+        }
+      }
+      return assembleNvidiaBatchResponse(
+        request,
+        outcomes,
+        batchFailureDescriptor
+      );
+    } catch (error) {
+      if (error instanceof NvidiaBatchCancellationError) {
+        throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
+      }
+      if (error instanceof NvidiaBatchDeadlineError) {
+        throw new NvidiaProviderError('TIMEOUT');
+      }
+      throw error;
+    }
   }
 }
 

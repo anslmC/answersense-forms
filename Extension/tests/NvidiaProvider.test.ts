@@ -163,7 +163,7 @@ describe('NVIDIA Nemotron provider', () => {
     expect(payload.stream).toBe(false);
     expect(payload.reasoning_effort).toBe('low');
     expect(payload).not.toHaveProperty('chat_template_kwargs');
-    expect(payload.max_tokens).toBe(16384);
+    expect(payload.max_tokens).toBe(131072);
   });
 
   it('uses Nemotron 3.5 Lightning model-specific request settings', async () => {
