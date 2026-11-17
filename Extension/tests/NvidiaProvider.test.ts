@@ -167,7 +167,7 @@ describe('NVIDIA Nemotron provider', () => {
           maxEstimatedOutputTokens: 4_000,
           maxSerializedBytes: 48_000,
         },
-        reasoningTokenReserve: 0,
+        reasoningTokenReserve: 4_096,
       }
     );
     expect(getNvidiaModelPolicy('attacker/model')).toBeUndefined();
@@ -230,7 +230,7 @@ describe('NVIDIA Nemotron provider', () => {
     const payload = JSON.parse(String(init.body));
     expect(payload.model).toBe('nvidia/nemotron-3.5-lightning-30b-a3b');
     expect(payload.model).toBe(NVIDIA_NEMOTRON_LIGHTNING_MODEL);
-    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: true });
     expect(payload).not.toHaveProperty('reasoning_effort');
     expect(payload).not.toHaveProperty('reasoning_budget');
     expect(payload).not.toHaveProperty('enable_thinking');
@@ -550,7 +550,7 @@ describe('NVIDIA Nemotron provider', () => {
     const payload = JSON.parse(String(init.body));
     expect(payload.model).toBe('nvidia/nemotron-3.5-lightning-30b-a3b');
     expect(payload.model).toBe(NVIDIA_NEMOTRON_LIGHTNING_MODEL);
-    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: true });
     expect(payload).not.toHaveProperty('reasoning_effort');
     expect(payload).not.toHaveProperty('reasoning_budget');
     expect(payload.response_format).toEqual({ type: 'json_object' });

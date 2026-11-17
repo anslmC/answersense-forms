@@ -71,6 +71,19 @@ function normalizeReasoningTokenReserve(value: number | undefined): number {
   return Math.max(0, Math.floor(value));
 }
 
+function withPlanningOutputLimit(
+  limits: NvidiaBatchLimits,
+  reasoningTokenReserve: number
+): NvidiaBatchLimits {
+  const reserve = normalizeReasoningTokenReserve(reasoningTokenReserve);
+  return reserve >= limits.maxEstimatedOutputTokens
+    ? {
+        ...limits,
+        maxEstimatedOutputTokens: limits.maxEstimatedOutputTokens + reserve,
+      }
+    : limits;
+}
+
 export function normalizeNvidiaBatchLimits(
   limits: NvidiaBatchLimits
 ): NvidiaBatchLimits {
@@ -84,9 +97,13 @@ export function normalizeNvidiaBatchLimits(
 
 export function isNvidiaBatchWithinLimits(
   batch: NvidiaQuestionBatch,
-  limits: NvidiaBatchLimits
+  limits: NvidiaBatchLimits,
+  reasoningTokenReserve = 0
 ): boolean {
-  const normalized = normalizeNvidiaBatchLimits(limits);
+  const normalized = withPlanningOutputLimit(
+    normalizeNvidiaBatchLimits(limits),
+    reasoningTokenReserve
+  );
   return (
     batch.questions.length <= normalized.maxQuestionsPerBatch &&
     batch.estimatedInputTokens <= normalized.maxEstimatedInputTokens &&
@@ -320,11 +337,14 @@ export function planNvidiaBatches(
     return [];
   }
 
-  const normalizedLimits = normalizeNvidiaBatchLimits(limits);
-  const profile = options.payloadProfile ?? DEFAULT_NVIDIA_MEASUREMENT_PROFILE;
   const reasoningTokenReserve = normalizeReasoningTokenReserve(
     options.reasoningTokenReserve
   );
+  const normalizedLimits = withPlanningOutputLimit(
+    normalizeNvidiaBatchLimits(limits),
+    reasoningTokenReserve
+  );
+  const profile = options.payloadProfile ?? DEFAULT_NVIDIA_MEASUREMENT_PROFILE;
   assertOversizedInputsAbsent(
     request,
     normalizedLimits,

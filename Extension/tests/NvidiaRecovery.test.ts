@@ -11,8 +11,10 @@ import {
   planNvidiaBatches,
 } from '../src/Generation/NvidiaBatchPlanning';
 import {
+  NVIDIA_NEMOTRON_LIGHTNING_MODEL,
   NvidiaProvider,
   NvidiaProviderError,
+  getNvidiaModelPolicy,
 } from '../src/Generation/NvidiaProvider';
 import {
   NvidiaRecoveryDeadlineError,
@@ -438,6 +440,53 @@ describe('NVIDIA recovery orchestration', () => {
       generatedResult('q-1', 'A'),
       generatedResult('q-2', 'A'),
     ]);
+  });
+
+  it('uses the Lightning reasoning reserve for initial and split planning', async () => {
+    const policy = getNvidiaModelPolicy(NVIDIA_NEMOTRON_LIGHTNING_MODEL);
+    expect(policy).toBeDefined();
+    const request = makeRequest(10);
+    const initialBatches = planNvidiaBatches(request, policy!.batchLimits, {
+      payloadProfile: policy!.payloadProfile,
+      reasoningTokenReserve: policy!.reasoningTokenReserve,
+    });
+    expect(initialBatches).toHaveLength(1);
+    expect(initialBatches[0].estimatedOutputTokens).toBeGreaterThan(
+      policy!.batchLimits.maxEstimatedOutputTokens
+    );
+
+    const calls: string[][] = [];
+    const runner = vi.fn(
+      async (batchRequest: GenerationRequest): Promise<GenerationResponse> => {
+        const ids = batchRequest.questions.map(
+          (question) => question.questionId
+        );
+        calls.push(ids);
+        if (ids.length === 10) {
+          throw new NvidiaProviderError('MALFORMED_PROVIDER_RESPONSE');
+        }
+        return generatedResponse(batchRequest);
+      }
+    );
+
+    const response = await executeNvidiaRecovery(
+      request,
+      initialBatches,
+      runner,
+      {
+        concurrency: 1,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        limits: policy!.batchLimits,
+        payloadProfile: policy!.payloadProfile,
+        reasoningTokenReserve: policy!.reasoningTokenReserve,
+      }
+    );
+
+    expect(calls.map((ids) => ids.length)).toEqual([10, 5, 5]);
+    expect(response.results.map((result) => result.status)).toEqual(
+      Array.from({ length: 10 }, () => 'GENERATED')
+    );
   });
 
   it('retries a timed-out batch once before splitting it', async () => {

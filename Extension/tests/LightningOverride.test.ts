@@ -189,7 +189,7 @@ describe('Lightning Override request handling', () => {
     expect(payload.max_tokens).toBe(32768);
     expect(payload.temperature).toBe(1);
     expect(payload.top_p).toBe(0.95);
-    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(payload.chat_template_kwargs).toEqual({ enable_thinking: true });
     expect(payload.response_format).toEqual({ type: 'json_object' });
     expect(payload.stream).toBe(false);
     expect(NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS).toBe(60_000);

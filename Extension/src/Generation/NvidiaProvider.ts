@@ -89,7 +89,7 @@ export const NVIDIA_MODEL_POLICIES: Readonly<
       maxEstimatedOutputTokens: 4_000,
       maxSerializedBytes: 48_000,
     }),
-    reasoningTokenReserve: 0,
+    reasoningTokenReserve: 4_096,
   }),
 });
 

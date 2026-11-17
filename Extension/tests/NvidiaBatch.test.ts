@@ -196,7 +196,7 @@ describe('NVIDIA batch planning', () => {
     ]);
   });
 
-  it('applies model-specific output reserves when planning batches', () => {
+  it('applies planning-only reasoning reserves without expanding API budgets', () => {
     const request = makeRequest(10);
     const superPolicy = getNvidiaModelPolicy(NVIDIA_MODEL);
     const lightningPolicy = getNvidiaModelPolicy(
@@ -209,6 +209,14 @@ describe('NVIDIA batch planning', () => {
       payloadProfile: superPolicy!.payloadProfile,
       reasoningTokenReserve: superPolicy!.reasoningTokenReserve,
     });
+    const lightningWithoutReserve = planNvidiaBatches(
+      request,
+      lightningPolicy!.batchLimits,
+      {
+        payloadProfile: lightningPolicy!.payloadProfile,
+        reasoningTokenReserve: 0,
+      }
+    );
     const lightningBatches = planNvidiaBatches(
       request,
       lightningPolicy!.batchLimits,
@@ -219,19 +227,19 @@ describe('NVIDIA batch planning', () => {
     );
 
     expect(superBatches).toHaveLength(1);
+    expect(lightningWithoutReserve).toHaveLength(1);
     expect(lightningBatches).toHaveLength(1);
+    expect(lightningPolicy!.batchLimits.maxEstimatedOutputTokens).toBe(4_000);
+    expect(lightningPolicy!.payloadProfile.maxTokens).toBe(32768);
     expect(
-      superBatches[0].estimatedOutputTokens -
-        lightningBatches[0].estimatedOutputTokens
-    ).toBe(superPolicy!.reasoningTokenReserve);
+      lightningBatches[0].estimatedOutputTokens -
+        lightningWithoutReserve[0].estimatedOutputTokens
+    ).toBe(lightningPolicy!.reasoningTokenReserve);
     expect(superBatches[0].estimatedOutputTokens).toBeLessThanOrEqual(
       superPolicy!.batchLimits.maxEstimatedOutputTokens
     );
     expect(superBatches[0].estimatedOutputTokens).toBeLessThan(
       superPolicy!.payloadProfile.maxTokens
-    );
-    expect(lightningBatches[0].estimatedOutputTokens).toBeLessThanOrEqual(
-      lightningPolicy!.batchLimits.maxEstimatedOutputTokens
     );
   });
 
@@ -718,7 +726,7 @@ describe('NVIDIA batch provider integration', () => {
       const payload = JSON.parse(String(init.body));
       expect(payload.model).toBe(NVIDIA_NEMOTRON_LIGHTNING_MODEL);
       expect(payload.chat_template_kwargs).toEqual({
-        enable_thinking: false,
+        enable_thinking: true,
       });
       expect(payload).not.toHaveProperty('reasoning_effort');
       expect(payload.response_format).toEqual({ type: 'json_object' });

@@ -398,7 +398,13 @@ export async function executeNvidiaRecovery(
         reasoningTokenReserve: normalized.reasoningTokenReserve,
       }
     );
-    if (isNvidiaBatchWithinLimits(batch, normalized.limits)) {
+    if (
+      isNvidiaBatchWithinLimits(
+        batch,
+        normalized.limits,
+        normalized.reasoningTokenReserve
+      )
+    ) {
       nextBatchIndex += 1;
       pending.push({ batch, splitDepth, notBefore });
       return;

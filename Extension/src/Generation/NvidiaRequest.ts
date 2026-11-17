@@ -94,7 +94,7 @@ export function createNvidiaPayload(
   profile: NvidiaPayloadProfile = DEFAULT_NVIDIA_MEASUREMENT_PROFILE
 ): Record<string, unknown> {
   const reasoningParameters = profile.lightning
-    ? { chat_template_kwargs: { enable_thinking: false } }
+    ? { chat_template_kwargs: { enable_thinking: true } }
     : { reasoning_effort: 'low' };
   return {
     model: profile.modelId,
