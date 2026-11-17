@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  GEMINI_35_FLASH_LITE_MODEL,
   GEMINI_GENERATE_URL,
   GEMINI_MODEL,
   GEMINI_MODEL_INFO_URL,
@@ -179,6 +180,104 @@ describe('direct Gemini provider', () => {
       responseMimeType: 'application/json',
       responseJsonSchema,
     });
+  });
+
+  it('explicitly uses LOW thinking for Gemini 3.5 Flash-Lite only', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const provider = new GeminiProvider(
+      'test-key',
+      {
+        generate: async ({ body }) => {
+          capturedBody = body as Record<string, unknown>;
+          return {
+            status: 200,
+            body: {
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          cycleId: request.cycleId,
+                          results: [
+                            {
+                              questionId: 'name',
+                              status: 'GENERATED',
+                              answer: { questionId: 'name', value: 'Ada' },
+                            },
+                          ],
+                        }),
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          };
+        },
+      },
+      GEMINI_35_FLASH_LITE_MODEL
+    );
+
+    await provider.generate(request);
+
+    expect(capturedBody?.generationConfig).toEqual({
+      responseMimeType: 'application/json',
+      responseJsonSchema,
+      thinkingConfig: { thinkingLevel: 'LOW' },
+    });
+    const generationConfig = capturedBody?.generationConfig as {
+      thinkingConfig: { thinkingLevel: string };
+    };
+    expect(generationConfig.thinkingConfig.thinkingLevel).toBe('LOW');
+    expect(JSON.stringify(generationConfig)).not.toContain('MEDIUM');
+    expect(JSON.stringify(generationConfig)).not.toContain('HIGH');
+  });
+
+  it('does not add thinkingConfig for Gemini 3.1 Flash-Lite', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const provider = new GeminiProvider(
+      'test-key',
+      {
+        generate: async ({ body }) => {
+          capturedBody = body as Record<string, unknown>;
+          return {
+            status: 200,
+            body: {
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          cycleId: request.cycleId,
+                          results: [
+                            {
+                              questionId: 'name',
+                              status: 'GENERATED',
+                              answer: { questionId: 'name', value: 'Ada' },
+                            },
+                          ],
+                        }),
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          };
+        },
+      },
+      GEMINI_MODEL
+    );
+
+    await provider.generate(request);
+
+    expect(capturedBody?.generationConfig).toEqual({
+      responseMimeType: 'application/json',
+      responseJsonSchema,
+    });
+    expect(capturedBody?.generationConfig).not.toHaveProperty('thinkingConfig');
   });
 
   it('uses the same production model for credential validation', async () => {

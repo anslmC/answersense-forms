@@ -9,6 +9,7 @@ import { systemInstruction } from './SystemInstructions';
 import { buildAnswerPartsInstructions } from './AnswerParts';
 
 export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const GEMINI_35_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite';
 export const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 export function geminiModelInfoUrl(modelId: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}`;
@@ -399,6 +400,9 @@ export class GeminiProvider implements GenerationInterface {
         generationConfig: {
           responseMimeType: 'application/json',
           responseJsonSchema,
+          ...(this.modelId === GEMINI_35_FLASH_LITE_MODEL
+            ? { thinkingConfig: { thinkingLevel: 'LOW' } }
+            : {}),
         },
       },
     });
