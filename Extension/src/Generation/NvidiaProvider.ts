@@ -5,12 +5,7 @@ import type {
   ProviderErrorCode,
   ProviderErrorContract,
 } from './Contract';
-import {
-  executeNvidiaBatches,
-  NvidiaBatchCancellationError,
-  NvidiaBatchDeadlineError,
-  type NvidiaBatchFailure,
-} from './NvidiaBatchExecution';
+import { NvidiaBatchCancellationError } from './NvidiaBatchExecution';
 import {
   DEFAULT_NVIDIA_BATCH_LIMITS,
   NvidiaBatchLimitError,
@@ -23,9 +18,11 @@ import {
   type NvidiaPayloadProfile,
 } from './NvidiaRequest';
 import {
-  assembleNvidiaBatchResponse,
-  type NvidiaBatchFailureDescriptor,
-} from './NvidiaResponseAssembly';
+  NvidiaRecoveryDeadlineError,
+  NvidiaRecoveryExhaustedError,
+  executeNvidiaRecovery,
+} from './NvidiaRecovery';
+import { parseNvidiaSalvageObjects } from './NvidiaSalvage';
 
 export const NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 export const NVIDIA_NEMOTRON_LIGHTNING_MODEL =
@@ -131,29 +128,6 @@ export class NvidiaProviderError
     this.name = 'NvidiaProviderError';
     this.safeMessageCode = safeMessageCode;
   }
-}
-
-function batchFailureDescriptor(error: unknown): NvidiaBatchFailureDescriptor {
-  return error instanceof NvidiaProviderError
-    ? { code: error.safeCode, message: error.message }
-    : {
-        code: 'PROVIDER_FAILURE',
-        message: SAFE_MESSAGES.PROVIDER_FAILURE,
-      };
-}
-
-function firstBatchFailureError(
-  outcomes: readonly NvidiaBatchFailure[]
-): NvidiaProviderError | null {
-  const safeFailure = outcomes.find(
-    (outcome) => outcome.error instanceof NvidiaProviderError
-  );
-  if (safeFailure?.error instanceof NvidiaProviderError) {
-    return safeFailure.error;
-  }
-  return outcomes.length > 0
-    ? new NvidiaProviderError('PROVIDER_FAILURE')
-    : null;
 }
 
 function assertUniqueQuestionIds(request: GenerationRequest): void {
@@ -908,13 +882,18 @@ async function awaitPendingResult(
   );
 }
 
-function parseCompletionEnvelope(
+interface CompletionExtraction {
+  readonly objects: readonly Record<string, unknown>[];
+  readonly outcome: NvidiaJsonExtractionOutcome;
+  readonly diagnosticContext: DiagnosticContext;
+}
+
+function extractCompletionCandidates(
   value: unknown,
   apiKey: string,
   httpStatus: number,
-  request: GenerationRequest,
   trace: RequestTrace
-): GenerationResponse {
+): CompletionExtraction {
   const traceContext = traceDiagnosticContext(trace);
   const failure = (
     safeCode: ProviderErrorCode,
@@ -1010,41 +989,119 @@ function parseCompletionEnvelope(
   }
 
   const candidates = collectJsonCandidates(content);
-  const selected = selectGenerationObject(candidates.objects);
-  if (!selected) {
-    throw failure('MALFORMED_PROVIDER_RESPONSE', 'INVALID_JSON', {
+  return {
+    objects: candidates.objects,
+    outcome: candidates.outcome,
+    diagnosticContext: {
+      ...traceContext,
       ...diagnosticContext,
       extractionOutcome: candidates.outcome,
-    });
+    },
+  };
+}
+
+function parseCompletionEnvelope(
+  value: unknown,
+  apiKey: string,
+  httpStatus: number,
+  request: GenerationRequest,
+  trace: RequestTrace
+): GenerationResponse {
+  const extraction = extractCompletionCandidates(
+    value,
+    apiKey,
+    httpStatus,
+    trace
+  );
+  const selected = selectGenerationObject(extraction.objects);
+  if (!selected) {
+    throw new NvidiaProviderError(
+      'MALFORMED_PROVIDER_RESPONSE',
+      undefined,
+      createDiagnostics(
+        'INVALID_JSON',
+        httpStatus,
+        extraction.diagnosticContext
+      )
+    );
   }
 
   const validation = validateGenerationResponseForRequest(selected, request);
   if (!validation.ok) {
-    throw failure(
+    throw new NvidiaProviderError(
       validation.missingResults
         ? 'INCOMPLETE_PROVIDER_RESPONSE'
         : 'MALFORMED_PROVIDER_RESPONSE',
-      validation.missingResults
-        ? 'MISSING_RESULTS'
-        : 'INVALID_GENERATION_RESPONSE',
-      {
-        ...diagnosticContext,
-        extractionOutcome: candidates.outcome,
-      }
+      undefined,
+      createDiagnostics(
+        validation.missingResults
+          ? 'MISSING_RESULTS'
+          : 'INVALID_GENERATION_RESPONSE',
+        httpStatus,
+        extraction.diagnosticContext
+      )
     );
   }
 
   return selected as unknown as GenerationResponse;
 }
 
-async function requestGenerationResponse(
+function parseCompletionEnvelopeLenient(
+  value: unknown,
+  apiKey: string,
+  httpStatus: number,
+  request: GenerationRequest,
+  trace: RequestTrace
+): GenerationResponse {
+  const extraction = extractCompletionCandidates(
+    value,
+    apiKey,
+    httpStatus,
+    trace
+  );
+  const salvage = parseNvidiaSalvageObjects(extraction.objects, request);
+  if (!salvage.hasUsableResult) {
+    const missingAll =
+      salvage.candidateCount > 0 &&
+      salvage.missingQuestionIds.length === request.questions.length;
+    throw new NvidiaProviderError(
+      salvage.candidateCount === 0
+        ? 'MALFORMED_PROVIDER_RESPONSE'
+        : missingAll
+          ? 'INCOMPLETE_PROVIDER_RESPONSE'
+          : 'MALFORMED_PROVIDER_RESPONSE',
+      undefined,
+      createDiagnostics(
+        salvage.candidateCount === 0
+          ? 'INVALID_JSON'
+          : missingAll
+            ? 'MISSING_RESULTS'
+            : 'INVALID_GENERATION_RESPONSE',
+        httpStatus,
+        extraction.diagnosticContext
+      )
+    );
+  }
+  return {
+    cycleId: request.cycleId,
+    results: [...salvage.results],
+  };
+}
+
+interface CompletionTransfer {
+  readonly envelope: unknown;
+  readonly httpStatus: number;
+  readonly trace: RequestTrace;
+}
+
+async function requestCompletionTransfer(
   apiKey: string,
   request: NvidiaGenerationRequest,
   modelId: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
   signal?: AbortSignal
-): Promise<GenerationResponse> {
+): Promise<CompletionTransfer> {
   const deadline = Date.now() + timeoutMs;
   const trace = createRequestTrace(modelId);
   let payload = createPayload(request, modelId);
@@ -1106,13 +1163,56 @@ async function requestGenerationResponse(
       traceDiagnosticContext(trace)
     );
   }
+  return { envelope, httpStatus: response.status, trace };
+}
 
-  return parseCompletionEnvelope(
-    envelope,
+async function requestGenerationResponse(
+  apiKey: string,
+  request: NvidiaGenerationRequest,
+  modelId: string,
+  fetchImpl: FetchImplementation,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<GenerationResponse> {
+  const transfer = await requestCompletionTransfer(
     apiKey,
-    response.status,
     request,
-    trace
+    modelId,
+    fetchImpl,
+    timeoutMs,
+    signal
+  );
+  return parseCompletionEnvelope(
+    transfer.envelope,
+    apiKey,
+    transfer.httpStatus,
+    request,
+    transfer.trace
+  );
+}
+
+async function requestGenerationSalvageAttempt(
+  apiKey: string,
+  request: NvidiaGenerationRequest,
+  modelId: string,
+  fetchImpl: FetchImplementation,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<GenerationResponse> {
+  const transfer = await requestCompletionTransfer(
+    apiKey,
+    request,
+    modelId,
+    fetchImpl,
+    timeoutMs,
+    signal
+  );
+  return parseCompletionEnvelopeLenient(
+    transfer.envelope,
+    apiKey,
+    transfer.httpStatus,
+    request,
+    transfer.trace
   );
 }
 
@@ -1175,11 +1275,11 @@ export class NvidiaProvider implements GenerationInterface {
     }
 
     try {
-      const outcomes = await executeNvidiaBatches(
+      const response = await executeNvidiaRecovery(
         request,
         batches,
         (batchRequest, batchSignal) =>
-          requestGenerationResponse(
+          requestGenerationSalvageAttempt(
             this.apiKey,
             batchRequest,
             this.modelId,
@@ -1187,28 +1287,34 @@ export class NvidiaProvider implements GenerationInterface {
             timeoutMs,
             batchSignal
           ),
-        { signal, overallTimeoutMs }
-      );
-      const failures = outcomes.filter(
-        (outcome): outcome is NvidiaBatchFailure => !outcome.ok
-      );
-      if (failures.length === outcomes.length) {
-        const failure = firstBatchFailureError(failures);
-        if (failure) {
-          throw failure;
+        {
+          signal,
+          overallTimeoutMs,
+          limits: DEFAULT_NVIDIA_BATCH_LIMITS,
+          payloadProfile: payloadProfileFor(this.modelId),
         }
-      }
-      return assembleNvidiaBatchResponse(
-        request,
-        outcomes,
-        batchFailureDescriptor
       );
+      const validation = validateGenerationResponseForRequest(
+        response as unknown as Record<string, unknown>,
+        request
+      );
+      if (!validation.ok) {
+        throw new NvidiaProviderError(
+          validation.missingResults
+            ? 'INCOMPLETE_PROVIDER_RESPONSE'
+            : 'MALFORMED_PROVIDER_RESPONSE'
+        );
+      }
+      return response;
     } catch (error) {
+      if (error instanceof NvidiaRecoveryDeadlineError) {
+        throw new NvidiaProviderError('TIMEOUT');
+      }
       if (error instanceof NvidiaBatchCancellationError) {
         throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
       }
-      if (error instanceof NvidiaBatchDeadlineError) {
-        throw new NvidiaProviderError('TIMEOUT');
+      if (error instanceof NvidiaRecoveryExhaustedError) {
+        throw new NvidiaProviderError(error.safeCode);
       }
       throw error;
     }

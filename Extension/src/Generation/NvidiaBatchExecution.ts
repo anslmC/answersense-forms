@@ -28,6 +28,8 @@ export interface NvidiaBatchFailureMetadata {
   readonly category: NvidiaBatchFailureCategory;
   readonly retryable: boolean | null;
   readonly message: string;
+  readonly httpStatus?: number | null;
+  readonly retryAfterMs?: number | null;
 }
 
 export interface NvidiaBatchSuccess {
@@ -72,13 +74,15 @@ export interface NvidiaBatchExecutionOptions {
   readonly overallTimeoutMs?: number;
 }
 
-const FAILURE_DETAILS: Record<
+export interface NvidiaFailureDetails {
+  readonly category: NvidiaBatchFailureCategory;
+  readonly retryable: boolean | null;
+  readonly message: string;
+}
+
+export const NVIDIA_FAILURE_DETAILS: Record<
   ProviderErrorCode,
-  {
-    readonly category: NvidiaBatchFailureCategory;
-    readonly retryable: boolean | null;
-    readonly message: string;
-  }
+  NvidiaFailureDetails
 > = {
   AUTHENTICATION_FAILED: {
     category: 'AUTHENTICATION',
@@ -132,11 +136,19 @@ const FAILURE_DETAILS: Record<
   },
 };
 
-function isSafeProviderCode(value: unknown): value is ProviderErrorCode {
+export function isNvidiaProviderErrorCode(
+  value: unknown
+): value is ProviderErrorCode {
   return (
     typeof value === 'string' &&
-    Object.prototype.hasOwnProperty.call(FAILURE_DETAILS, value)
+    Object.prototype.hasOwnProperty.call(NVIDIA_FAILURE_DETAILS, value)
   );
+}
+
+export function nvidiaFailureDetails(
+  code: ProviderErrorCode
+): NvidiaFailureDetails {
+  return NVIDIA_FAILURE_DETAILS[code];
 }
 
 function safeFailureMetadata(
@@ -147,10 +159,29 @@ function safeFailureMetadata(
     typeof error === 'object' &&
     error !== null &&
     'safeCode' in error &&
-    isSafeProviderCode(error.safeCode)
+    isNvidiaProviderErrorCode(error.safeCode)
       ? error.safeCode
       : 'PROVIDER_FAILURE';
-  const details = FAILURE_DETAILS[safeCode];
+  const details = nvidiaFailureDetails(safeCode);
+  const diagnostics =
+    typeof error === 'object' &&
+    error !== null &&
+    'diagnostics' in error &&
+    typeof error.diagnostics === 'object' &&
+    error.diagnostics !== null
+      ? (error.diagnostics as Record<string, unknown>)
+      : null;
+  const httpStatus =
+    typeof diagnostics?.httpStatus === 'number' &&
+    Number.isSafeInteger(diagnostics.httpStatus)
+      ? diagnostics.httpStatus
+      : null;
+  const retryAfterMs =
+    typeof diagnostics?.retryAfterMs === 'number' &&
+    Number.isFinite(diagnostics.retryAfterMs) &&
+    diagnostics.retryAfterMs >= 0
+      ? diagnostics.retryAfterMs
+      : null;
   return {
     batchIndex: batch.index,
     questionIds: batch.questions.map((question) => question.questionId),
@@ -158,6 +189,8 @@ function safeFailureMetadata(
     category: details.category,
     retryable: details.retryable,
     message: details.message,
+    ...(httpStatus !== null ? { httpStatus } : {}),
+    ...(retryAfterMs !== null ? { retryAfterMs } : {}),
   };
 }
 

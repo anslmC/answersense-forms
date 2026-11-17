@@ -464,7 +464,7 @@ describe('NVIDIA batch provider integration', () => {
       Array.from({ length: 10 }, (_, index) => `q-${index + 11}`)
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(response.results.map((result) => result.questionId)).toEqual(
       request.questions.map((question) => question.questionId)
     );
@@ -502,11 +502,11 @@ describe('NVIDIA batch provider integration', () => {
   });
 
   it.each([
-    [401, 'AUTHENTICATION_FAILED'],
-    [500, 'PROVIDER_UNAVAILABLE'],
+    [401, 'AUTHENTICATION_FAILED', 3],
+    [500, 'PROVIDER_UNAVAILABLE', 9],
   ] as const)(
     'propagates an all-batch %i failure as %s',
-    async (status, safeCode) => {
+    async (status, safeCode, expectedCalls) => {
       const request = makeRequest(25);
       const fetchMock = vi.fn(
         async () => new Response('private provider failure', { status })
@@ -524,7 +524,7 @@ describe('NVIDIA batch provider integration', () => {
       expect(thrown).toBeInstanceOf(NvidiaProviderError);
       expect(thrown).toMatchObject({ safeCode });
       expect((thrown as Error).message).not.toContain('private');
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(expectedCalls);
     }
   );
 

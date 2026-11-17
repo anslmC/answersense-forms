@@ -63,6 +63,30 @@ function normalizeLimit(value: number): number {
   return Math.max(1, Math.floor(value));
 }
 
+export function normalizeNvidiaBatchLimits(
+  limits: NvidiaBatchLimits
+): NvidiaBatchLimits {
+  return {
+    maxQuestionsPerBatch: normalizeLimit(limits.maxQuestionsPerBatch),
+    maxEstimatedInputTokens: normalizeLimit(limits.maxEstimatedInputTokens),
+    maxEstimatedOutputTokens: normalizeLimit(limits.maxEstimatedOutputTokens),
+    maxSerializedBytes: normalizeLimit(limits.maxSerializedBytes),
+  };
+}
+
+export function isNvidiaBatchWithinLimits(
+  batch: NvidiaQuestionBatch,
+  limits: NvidiaBatchLimits
+): boolean {
+  const normalized = normalizeNvidiaBatchLimits(limits);
+  return (
+    batch.questions.length <= normalized.maxQuestionsPerBatch &&
+    batch.estimatedInputTokens <= normalized.maxEstimatedInputTokens &&
+    batch.estimatedOutputTokens <= normalized.maxEstimatedOutputTokens &&
+    batch.serializedBytes <= normalized.maxSerializedBytes
+  );
+}
+
 function estimateQuestionOutputTokens(question: GenerationQuestion): number {
   const answerParts = Math.max(1, question.answerParts ?? 1);
   if (question.type === 'single-choice') {
@@ -207,6 +231,23 @@ function estimateBatch(
   };
 }
 
+export function createNvidiaQuestionBatch(
+  request: GenerationRequest,
+  questions: readonly GenerationQuestion[],
+  index: number,
+  options: NvidiaBatchPlanningOptions = {}
+): NvidiaQuestionBatch {
+  if (questions.length === 0) {
+    throw new Error('NVIDIA batches must contain at least one question.');
+  }
+  const profile = options.payloadProfile ?? DEFAULT_NVIDIA_MEASUREMENT_PROFILE;
+  return {
+    index,
+    questions: [...questions],
+    ...estimateBatch(request, questions, profile),
+  };
+}
+
 function assertBatchFits(
   estimate: {
     readonly estimatedInputTokens: number;
@@ -254,12 +295,7 @@ export function planNvidiaBatches(
     return [];
   }
 
-  const normalizedLimits: NvidiaBatchLimits = {
-    maxQuestionsPerBatch: normalizeLimit(limits.maxQuestionsPerBatch),
-    maxEstimatedInputTokens: normalizeLimit(limits.maxEstimatedInputTokens),
-    maxEstimatedOutputTokens: normalizeLimit(limits.maxEstimatedOutputTokens),
-    maxSerializedBytes: normalizeLimit(limits.maxSerializedBytes),
-  };
+  const normalizedLimits = normalizeNvidiaBatchLimits(limits);
   const profile = options.payloadProfile ?? DEFAULT_NVIDIA_MEASUREMENT_PROFILE;
   assertOversizedInputsAbsent(request, normalizedLimits, profile);
 
@@ -270,11 +306,11 @@ export function planNvidiaBatches(
     if (currentQuestions.length === 0) {
       return;
     }
-    batches.push({
-      index: batches.length,
-      questions: [...currentQuestions],
-      ...estimateBatch(request, currentQuestions, profile),
-    });
+    batches.push(
+      createNvidiaQuestionBatch(request, currentQuestions, batches.length, {
+        payloadProfile: profile,
+      })
+    );
     currentQuestions = [];
   };
 
