@@ -190,7 +190,7 @@ describe('overlay generation warning and cancellation', () => {
     ).toBe(true);
   });
 
-  it('shows the warning and Cancel button only after twenty seconds', async () => {
+  it('reveals the Cancel button only after 110 seconds without showing a warning', async () => {
     await mount();
     await startGeneration();
 
@@ -198,17 +198,19 @@ describe('overlay generation warning and cancellation', () => {
     expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
     expect(cancelButton()?.hidden).toBe(true);
 
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
+    expect(cancelButton()?.hidden).toBe(true);
+
     await vi.advanceTimersByTimeAsync(1);
-    expect(status()?.textContent).toMatch(
-      /^This is taking longer than usual · [\d,]+ ms$/u
-    );
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
     expect(cancelButton()?.hidden).toBe(false);
     expect(cancelButton()?.textContent?.trim()).toBe('Cancel');
     expect(cancelButton()?.classList.contains('secondary')).toBe(true);
     expect(progressText()?.textContent).toBe('Processing page…');
   });
 
-  it('never shows the warning when generation succeeds before twenty seconds', async () => {
+  it('never reveals Cancel when generation succeeds before 110 seconds', async () => {
     await mount();
     await startGeneration();
 
@@ -216,13 +218,13 @@ describe('overlay generation warning and cancellation', () => {
     await settleGenerationWith(generationResult);
     expect(status()?.textContent).toBe('Completed · 5,000 ms');
 
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
     expect(status()?.textContent).toBe('Completed · 5,000 ms');
     expect(cancelButton()?.hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('clears the warning timer when generation fails', async () => {
+  it('clears the Cancel reveal timer when generation fails', async () => {
     await mount();
     await startGeneration();
 
@@ -231,7 +233,7 @@ describe('overlay generation warning and cancellation', () => {
     await flush();
     expect(status()?.textContent).toBe('Failed · 5,000 ms');
 
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
     expect(status()?.textContent).toBe('Failed · 5,000 ms');
     expect(cancelButton()?.hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
@@ -240,7 +242,7 @@ describe('overlay generation warning and cancellation', () => {
   it('cancels through the existing service worker lifecycle and reuses the overlay', async () => {
     await mount();
     await startGeneration();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
     const host = document.querySelector('#answersense-overlay-host');
     expect(cancelButton()?.hidden).toBe(false);
 
@@ -252,7 +254,7 @@ describe('overlay generation warning and cancellation', () => {
       1
     );
     expect(document.querySelector('#answersense-overlay-host')).toBe(host);
-    expect(status()?.textContent).toBe('Cancelled · 20,000 ms');
+    expect(status()?.textContent).toBe('Cancelled · 110,000 ms');
     expect(primary()?.textContent).toBe('Generate & Auto-Fill');
     expect(cancelButton()?.hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(1);
@@ -299,11 +301,11 @@ describe('overlay generation warning and cancellation', () => {
   it('does not let the Cancelled confirmation overwrite a new generation', async () => {
     await mount();
     await startGeneration();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
 
     cancelButton()?.click();
     await flush();
-    expect(status()?.textContent).toBe('Cancelled · 20,000 ms');
+    expect(status()?.textContent).toBe('Cancelled · 110,000 ms');
 
     await startGeneration();
     expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
@@ -315,7 +317,7 @@ describe('overlay generation warning and cancellation', () => {
   it('ignores a canceled generation that completes afterwards', async () => {
     await mount();
     await startGeneration();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
     cancelButton()?.click();
     await flush();
 
@@ -334,7 +336,7 @@ describe('overlay generation warning and cancellation', () => {
   it('starts a fresh generation after cancellation', async () => {
     await mount();
     await startGeneration();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
     cancelButton()?.click();
     await flush();
     await settleGenerationWith(generationResult);
@@ -343,13 +345,11 @@ describe('overlay generation warning and cancellation', () => {
     expect(pendingGenerations).toHaveLength(2);
     expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
 
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(status()?.textContent).toMatch(
-      /^This is taking longer than usual · [\d,]+ ms$/u
-    );
+    await vi.advanceTimersByTimeAsync(110_000);
+    expect(status()?.textContent).toMatch(/^Generating · 110,000 ms$/u);
 
     await settleGenerationWith(generationResult);
-    expect(status()?.textContent).toBe('Completed · 20,000 ms');
+    expect(status()?.textContent).toBe('Completed · 110,000 ms');
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -360,10 +360,9 @@ describe('overlay generation warning and cancellation', () => {
       await startGeneration();
       await vi.advanceTimersByTimeAsync(10_000);
       expect(vi.getTimerCount()).toBe(2);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(status()?.textContent).toMatch(
-        /^This is taking longer than usual · [\d,]+ ms$/u
-      );
+      await vi.advanceTimersByTimeAsync(100_000);
+      expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
+      expect(cancelButton()?.hidden).toBe(false);
 
       cancelButton()?.click();
       await flush();

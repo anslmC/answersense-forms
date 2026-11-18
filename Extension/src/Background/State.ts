@@ -1,9 +1,11 @@
 import type { LifecycleSnapshot } from '../Lifecycle/PageLifecycle';
 import type {
+  GenerationProgress,
   PageSummary,
   UiGenerationResult,
   UiStateName,
 } from '../Workflow/State';
+import { isGenerationProgress } from '../Workflow/State';
 
 export interface IntegrationSnapshot {
   lifecycle: LifecycleSnapshot | null;
@@ -12,6 +14,7 @@ export interface IntegrationSnapshot {
   result: UiGenerationResult | null;
   error: string | null;
   generationOperationId?: string | null;
+  generationProgress?: GenerationProgress | null;
 }
 
 export interface CurrentContentState {
@@ -102,7 +105,11 @@ function isIntegrationSnapshot(value: unknown): value is IntegrationSnapshot {
     (value.error === null || typeof value.error === 'string') &&
     (value.generationOperationId === undefined ||
       value.generationOperationId === null ||
-      typeof value.generationOperationId === 'string')
+      typeof value.generationOperationId === 'string') &&
+    (value.generationProgress === undefined ||
+      value.generationProgress === null ||
+      (value.uiState === 'GENERATING' &&
+        isGenerationProgress(value.generationProgress)))
   );
 }
 
@@ -148,6 +155,7 @@ export function reconcileContentState(
     generationOperationId: isCurrent
       ? (current.generationOperationId ?? null)
       : null,
+    generationProgress: null,
   };
 }
 
@@ -291,6 +299,7 @@ export class IntegrationStateStore {
       uiState: 'GENERATING',
       error: null,
       generationOperationId,
+      generationProgress: null,
     });
     return { status: 'claimed', snapshot: next };
   }

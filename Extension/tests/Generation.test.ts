@@ -454,6 +454,82 @@ describe('Settled context and pending page state', () => {
 });
 
 describe('Generation cycles and reports', () => {
+  it('reports the shared candidate count before contacting the provider', async () => {
+    const filledPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) =>
+          question.id === 'name'
+            ? { ...question, existingInput: { value: 'Ada', hasValue: true } }
+            : question
+        ),
+      },
+    };
+    const events: string[] = [];
+    const onCandidatesSelected = vi.fn(() => {
+      events.push('candidates');
+    });
+    const generator: GenerationInterface = {
+      generate: vi.fn(async (request: GenerationRequest) => {
+        events.push(`provider:${onCandidatesSelected.mock.calls.length}`);
+        return {
+          cycleId: request.cycleId,
+          results: request.questions.map((question) => ({
+            questionId: question.questionId,
+            status: 'GENERATED' as const,
+            answer: {
+              questionId: question.questionId,
+              value:
+                question.type === 'multiple-choice' ? ['Testing'] : 'Answer',
+            },
+          })),
+        };
+      }),
+    };
+
+    await new GenerationCoordinator(() => 'cycle-progress').generate(
+      filledPage,
+      [],
+      generator,
+      undefined,
+      undefined,
+      undefined,
+      onCandidatesSelected
+    );
+
+    expect(onCandidatesSelected).toHaveBeenCalledWith(2);
+    expect(events).toEqual(['candidates', 'provider:1']);
+  });
+
+  it('reports zero candidates before returning a local report', async () => {
+    const filledPage = {
+      ...page,
+      form: {
+        ...form,
+        questions: form.questions.map((question) => ({
+          ...question,
+          existingInput: { value: 'Existing', hasValue: true },
+        })),
+      },
+    };
+    const onCandidatesSelected = vi.fn();
+    const generator: GenerationInterface = { generate: vi.fn() };
+
+    await new GenerationCoordinator(() => 'cycle-no-progress').generate(
+      filledPage,
+      [],
+      generator,
+      undefined,
+      undefined,
+      undefined,
+      onCandidatesSelected
+    );
+
+    expect(onCandidatesSelected).toHaveBeenCalledWith(0);
+    expect(generator.generate).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       ['name', 'language', 'topics'],

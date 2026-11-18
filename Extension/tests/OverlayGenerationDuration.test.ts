@@ -80,7 +80,11 @@ interface DeferredGeneration {
   reject: (reason: unknown) => void;
 }
 
-type RuntimeListener = (message: { type?: string; snapshot?: unknown }) => void;
+type RuntimeListener = (message: {
+  type?: string;
+  snapshot?: unknown;
+  candidateQuestionCount?: number;
+}) => void;
 
 let overlay: OverlayHandle | null = null;
 let pendingGenerations: DeferredGeneration[] = [];
@@ -136,6 +140,8 @@ const cancelButton = () =>
   shadowRoot().querySelector<HTMLButtonElement>('[data-generation-cancel]');
 const progressText = () =>
   shadowRoot().querySelector<HTMLElement>('[data-workflow-progress-text]');
+const generationNotice = () =>
+  shadowRoot().querySelector<HTMLElement>('[data-generation-notice]');
 
 function displayedDurationMs(): number | null {
   const match = /·\s*([\d,]+)\s*ms/u.exec(duration()?.textContent ?? '');
@@ -341,14 +347,14 @@ describe('overlay live generation duration', () => {
   it('shows the final duration after cancellation and then cleans it up', async () => {
     await mount();
     await startGeneration();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(110_000);
 
     expect(cancelButton()?.hidden).toBe(false);
     cancelButton()?.click();
     await flush();
 
-    expect(status()?.textContent).toBe('Cancelled · 20,000 ms');
-    expect(performanceReport()?.durationMs).toBe(20_000);
+    expect(status()?.textContent).toBe('Cancelled · 110,000 ms');
+    expect(performanceReport()?.durationMs).toBe(110_000);
     expect(performanceReport()?.outcome).toBe('CANCELLED');
 
     await vi.advanceTimersByTimeAsync(1_500);
@@ -396,6 +402,73 @@ describe('overlay live generation duration', () => {
     expect(status()?.textContent).toBe('Completed · 3,000 ms');
     expect(performanceReport()?.durationMs).toBe(3_000);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('shows the large-form notice only above ten candidates', async () => {
+    await mount();
+    await startGeneration();
+    expect(generationNotice()?.hidden).toBe(true);
+
+    runtimeListener?.({
+      type: 'p7-generation-progress',
+      candidateQuestionCount: 10,
+    });
+    await flush();
+    expect(generationNotice()?.hidden).toBe(true);
+
+    runtimeListener?.({
+      type: 'p7-generation-progress',
+      candidateQuestionCount: 11,
+    });
+    await flush();
+    expect(generationNotice()?.hidden).toBe(false);
+    expect(generationNotice()?.textContent).toBe(
+      'Large form · Processing multiple questions. This may take longer than usual.'
+    );
+    expect(status()?.textContent).toContain('Generating');
+    expect(progressText()?.textContent).toBe('Processing page…');
+
+    runtimeListener?.({
+      type: 'p7-generation-progress',
+      candidateQuestionCount: 1,
+    });
+    await flush();
+    expect(generationNotice()?.hidden).toBe(true);
+
+    runtimeListener?.({
+      type: 'p7-state-updated',
+      snapshot: {
+        ...createSnapshot(),
+        uiState: 'REVIEW',
+        result: generationResult,
+      },
+    });
+    await flush();
+    expect(generationNotice()?.hidden).toBe(true);
+  });
+
+  it('restores the notice from an in-flight discovery snapshot', async () => {
+    const snapshot = createSnapshot();
+    sendMessage.mockImplementation(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') {
+        return {
+          ...snapshot,
+          uiState: 'GENERATING',
+          generationOperationId: 'generation-restored',
+          generationProgress: { candidateQuestionCount: 11 },
+        };
+      }
+      return {};
+    });
+
+    await mount();
+
+    expect(status()?.textContent).toBe('Generating');
+    expect(generationNotice()?.hidden).toBe(false);
+    expect(generationNotice()?.textContent).toBe(
+      'Large form · Processing multiple questions. This may take longer than usual.'
+    );
   });
 
   it('cleans up the duration timer when the overlay is destroyed', async () => {

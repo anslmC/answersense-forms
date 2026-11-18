@@ -78,6 +78,19 @@ const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
 
+function publishGenerationProgress(candidateQuestionCount: number): void {
+  try {
+    void Promise.resolve(
+      chrome.runtime.sendMessage({
+        type: 'generation-progress',
+        candidateQuestionCount,
+      })
+    ).catch(() => undefined);
+  } catch {
+    return;
+  }
+}
+
 type FrameHandle = number | ReturnType<typeof setTimeout>;
 
 function requestFrame(callback: () => void): FrameHandle {
@@ -842,7 +855,8 @@ async function handleRequest(request: {
         ),
         pageLifecycle.currentCycle,
         executionIntent,
-        performance
+        performance,
+        publishGenerationProgress
       );
       if (!report) {
         throw new Error('Generation response was stale or invalidated.');

@@ -24,6 +24,23 @@ export interface WorkflowQuestion {
   existingInput: { hasValue: boolean } | null;
 }
 
+export interface GenerationProgress {
+  candidateQuestionCount: number;
+}
+
+export function isGenerationProgress(
+  value: unknown
+): value is GenerationProgress {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidateQuestionCount = (value as Record<string, unknown>)
+    .candidateQuestionCount;
+  return (
+    typeof candidateQuestionCount === 'number' &&
+    Number.isSafeInteger(candidateQuestionCount) &&
+    candidateQuestionCount >= 0
+  );
+}
+
 export function filledOverrideCandidates(
   page: PageSummary
 ): readonly WorkflowQuestion[] {
@@ -166,6 +183,7 @@ export interface WorkflowSnapshot {
   result: UiGenerationResult | null;
   error: string | null;
   performance?: GenerationPerformanceReport;
+  generationProgress?: GenerationProgress | null;
 }
 
 export type UiState =
@@ -175,7 +193,11 @@ export type UiState =
       page: PageSummary;
       performance?: GenerationPerformanceReport;
     }
-  | { name: 'GENERATING'; page: PageSummary }
+  | {
+      name: 'GENERATING';
+      page: PageSummary;
+      generationProgress?: GenerationProgress;
+    }
   | { name: 'REVIEW'; page: PageSummary; result: UiGenerationResult }
   | {
       name: 'ERROR';
@@ -256,7 +278,16 @@ export class WorkflowStateMachine {
     if (normalizedUiState === 'UNSUPPORTED' || !page) {
       this.current = unsupportedState();
     } else if (normalizedUiState === 'GENERATING') {
-      this.current = { name: 'GENERATING', page };
+      const generationProgress = isGenerationProgress(
+        snapshot.generationProgress
+      )
+        ? snapshot.generationProgress
+        : undefined;
+      this.current = {
+        name: 'GENERATING',
+        page,
+        ...(generationProgress ? { generationProgress } : {}),
+      };
     } else if (normalizedUiState === 'ERROR') {
       this.current = {
         name: 'ERROR',
@@ -302,6 +333,27 @@ export class WorkflowStateMachine {
     }
     this.operationToken += 1;
     this.current = { name: 'GENERATING', page };
+    return this.current;
+  }
+
+  setGenerationProgress(candidateQuestionCount: number): UiState {
+    if (
+      this.current.name !== 'GENERATING' ||
+      !Number.isSafeInteger(candidateQuestionCount) ||
+      candidateQuestionCount < 0
+    ) {
+      return this.current;
+    }
+    if (
+      this.current.generationProgress?.candidateQuestionCount ===
+      candidateQuestionCount
+    ) {
+      return this.current;
+    }
+    this.current = {
+      ...this.current,
+      generationProgress: { candidateQuestionCount },
+    };
     return this.current;
   }
 

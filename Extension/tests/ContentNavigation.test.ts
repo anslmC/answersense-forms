@@ -692,6 +692,16 @@ describe('Content navigation runtime adapter', () => {
       expect(
         runtimeMessages.some((message) => message.type === 'gemini-generate')
       ).toBe(true);
+      const progressIndex = runtimeMessages.findIndex(
+        (message) =>
+          message.type === 'generation-progress' &&
+          message.candidateQuestionCount === 1
+      );
+      const providerIndex = runtimeMessages.findIndex(
+        (message) => message.type === 'gemini-generate'
+      );
+      expect(progressIndex).toBeGreaterThanOrEqual(0);
+      expect(progressIndex).toBeLessThan(providerIndex);
     } finally {
       document.body.innerHTML = '';
       vi.doUnmock('../src/Forms/Detection');

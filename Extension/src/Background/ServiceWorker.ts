@@ -75,6 +75,7 @@ interface WorkerMessage {
   secret?: unknown;
   providerConfig?: unknown;
   selectedConfiguration?: unknown;
+  candidateQuestionCount?: unknown;
   intent?: GenerationIntent;
 }
 
@@ -638,6 +639,37 @@ export async function handleMessage(
     return validateActiveConfiguration();
   }
 
+  if (message.type === 'generation-progress') {
+    const candidateQuestionCount = message.candidateQuestionCount;
+    if (
+      typeof candidateQuestionCount !== 'number' ||
+      !Number.isSafeInteger(candidateQuestionCount) ||
+      candidateQuestionCount < 0
+    ) {
+      return { status: 'ignored' };
+    }
+    const tabId = tabIdFromSender(sender);
+    const current = await stateStore.get(tabId);
+    if (!current?.generationOperationId || current.uiState !== 'GENERATING') {
+      return { status: 'ignored' };
+    }
+    const snapshot = await stateStore.updateIfGenerationCurrent(
+      tabId,
+      current.generationOperationId,
+      { generationProgress: { candidateQuestionCount } }
+    );
+    if (!snapshot) {
+      return { status: 'ignored' };
+    }
+    void chrome.tabs
+      .sendMessage(tabId, {
+        type: 'p7-generation-progress',
+        candidateQuestionCount,
+      })
+      .catch(() => undefined);
+    return { status: 'progress-stored', snapshot };
+  }
+
   if (message.type === 'get-lifecycle-snapshot') {
     return stateStore.get(tabIdFromSender(sender));
   }
@@ -655,7 +687,9 @@ export async function handleMessage(
         : (current?.page ?? null),
       uiState: message.reset ? 'READY' : (current?.uiState ?? 'READY'),
       ...(message.reset ? { result: null, error: null } : {}),
-      ...(message.reset ? { generationOperationId: null } : {}),
+      ...(message.reset
+        ? { generationOperationId: null, generationProgress: null }
+        : {}),
     });
     const snapshot = await stateStore.get(tabId);
     if (snapshot) {
@@ -676,6 +710,7 @@ export async function handleMessage(
       result: null,
       error: null,
       generationOperationId: null,
+      generationProgress: null,
     });
     void notifyPopup({ type: 'p7-state-updated', snapshot });
     return { status: 'transition-stored', snapshot };
@@ -824,6 +859,7 @@ export async function handleMessage(
             result: null,
             error: null,
             generationOperationId: null,
+            generationProgress: null,
           }
         );
         if (!terminalSnapshot) {
@@ -840,6 +876,7 @@ export async function handleMessage(
           result: withoutPerformance(result),
           error: null,
           generationOperationId: null,
+          generationProgress: null,
         }
       );
       if (!terminalSnapshot) {
@@ -858,6 +895,7 @@ export async function handleMessage(
             failure instanceof Error ? failure.message : 'Generation failed.',
           result: null,
           generationOperationId: null,
+          generationProgress: null,
         }
       );
       notifyGenerationTerminalState(
@@ -893,6 +931,7 @@ export async function handleMessage(
         result: null,
         error: null,
         generationOperationId: null,
+        generationProgress: null,
       }
     );
     return { status: terminalSnapshot ? 'canceled' : 'not-generating' };

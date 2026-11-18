@@ -4,7 +4,7 @@ import type {
   WorkflowSnapshot,
 } from './State';
 import type { WorkflowQuestion } from './State';
-import { isUiGenerationResult } from './State';
+import { isGenerationProgress, isUiGenerationResult } from './State';
 import type { GenerationIntent } from '../Generation/Intent';
 import {
   attachPerformanceToError,
@@ -58,6 +58,9 @@ export function createBrowserWorkflow(): Workflow {
           error: snapshot.error ?? null,
           ...(snapshot.performance
             ? { performance: snapshot.performance }
+            : {}),
+          ...(isGenerationProgress(snapshot.generationProgress)
+            ? { generationProgress: snapshot.generationProgress }
             : {}),
         };
       }

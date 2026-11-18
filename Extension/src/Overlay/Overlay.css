@@ -351,6 +351,16 @@
   font-size: 12px;
 }
 
+.workflow-progress-notice {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid #1d1d1d;
+  background: #e5e7eb;
+  color: #1f2937;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .workflow-progress.is-processing .workflow-progress-track {
   background: #dfe3e8;
 }

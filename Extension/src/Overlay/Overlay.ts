@@ -253,6 +253,11 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
             </div>
           </div>
           <p class="workflow-progress-text" data-workflow-progress-text></p>
+          <p
+            class="workflow-progress-notice"
+            data-generation-notice
+            hidden
+          ></p>
         </section>
         <section class="results" data-results hidden></section>
         <p class="message" data-message hidden></p>

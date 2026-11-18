@@ -36,6 +36,10 @@ import {
   type PerformanceOutcome,
 } from '../Shared/Performance';
 
+const LARGE_FORM_CANDIDATE_THRESHOLD = 10;
+const LARGE_FORM_NOTICE_TEXT =
+  'Large form · Processing multiple questions. This may take longer than usual.';
+
 export interface WorkflowAppOptions {
   root?: ParentNode;
   onState?: (state: UiState) => void;
@@ -197,10 +201,10 @@ export function mountAnswerSenseApp(
   let generationElapsedMs: number | null = null;
   let generationDurationOutcome: GenerationDurationOutcome | null = null;
   const GENERATION_DURATION_UPDATE_MS = 100;
-  const GENERATION_WARNING_DELAY_MS = 20_000;
-  let generationWarningTimer: ReturnType<typeof setTimeout> | null = null;
-  let generationWarningSequence = 0;
-  let generationWarningVisible = false;
+  const GENERATION_CANCEL_REVEAL_DELAY_MS = 110_000;
+  let generationCancelRevealTimer: ReturnType<typeof setTimeout> | null = null;
+  let generationCancelRevealSequence = 0;
+  let generationCancelVisible = false;
   let cancelingGeneration = false;
   let cancelConfirmationTimer: ReturnType<typeof setTimeout> | null = null;
   let lockedConfigurationControls: Array<{
@@ -519,13 +523,13 @@ export function mountAnswerSenseApp(
     if (overrideMessage) overrideMessage.textContent = '';
   }
 
-  function clearGenerationWarning(): void {
-    if (generationWarningTimer !== null) {
-      clearTimeout(generationWarningTimer);
-      generationWarningTimer = null;
+  function clearGenerationCancelReveal(): void {
+    if (generationCancelRevealTimer !== null) {
+      clearTimeout(generationCancelRevealTimer);
+      generationCancelRevealTimer = null;
     }
-    generationWarningSequence += 1;
-    generationWarningVisible = false;
+    generationCancelRevealSequence += 1;
+    generationCancelVisible = false;
     const cancelGeneration = element<HTMLButtonElement>(
       '[data-generation-cancel]'
     );
@@ -536,16 +540,16 @@ export function mountAnswerSenseApp(
     }
   }
 
-  function scheduleGenerationWarning(): void {
-    if (generationWarningTimer !== null || generationWarningVisible) return;
-    const sequence = ++generationWarningSequence;
-    generationWarningTimer = setTimeout(() => {
-      generationWarningTimer = null;
-      if (sequence !== generationWarningSequence) return;
+  function scheduleGenerationCancelReveal(): void {
+    if (generationCancelRevealTimer !== null || generationCancelVisible) return;
+    const sequence = ++generationCancelRevealSequence;
+    generationCancelRevealTimer = setTimeout(() => {
+      generationCancelRevealTimer = null;
+      if (sequence !== generationCancelRevealSequence) return;
       if (controller.state.name !== 'GENERATING') return;
-      generationWarningVisible = true;
+      generationCancelVisible = true;
       renderGeneration(controller.state);
-    }, GENERATION_WARNING_DELAY_MS);
+    }, GENERATION_CANCEL_REVEAL_DELAY_MS);
   }
 
   function resetGenerationAfterCancel(): void {
@@ -597,7 +601,7 @@ export function mountAnswerSenseApp(
     localGenerationSnapshotPending = false;
     invalidatedGenerationOperationToken =
       controller.stateMachine.activeOperationToken;
-    clearGenerationWarning();
+    clearGenerationCancelReveal();
     const cancelGeneration = element<HTMLButtonElement>(
       '[data-generation-cancel]'
     );
@@ -1043,6 +1047,7 @@ export function mountAnswerSenseApp(
     const progressBar = element<HTMLElement>('[data-workflow-progress-bar]');
     const progressText = element<HTMLElement>('[data-workflow-progress-text]');
     const progressFill = element<HTMLElement>('[data-workflow-progress-fill]');
+    const generationNotice = element<HTMLElement>('[data-generation-notice]');
     const forceClearNote = element<HTMLElement>('[data-force-clear-note]');
     const overlayPanel =
       scope instanceof HTMLElement ? scope.parentElement : null;
@@ -1071,7 +1076,7 @@ export function mountAnswerSenseApp(
     renderConfigurationGenerationLock(state.name === 'GENERATING');
 
     if (state.name !== 'GENERATING') {
-      clearGenerationWarning();
+      clearGenerationCancelReveal();
     }
     if (state.name !== 'READY') {
       clearCancelConfirmation();
@@ -1118,6 +1123,10 @@ export function mountAnswerSenseApp(
       'is-error'
     );
     progressText.textContent = '';
+    if (generationNotice) {
+      generationNotice.hidden = true;
+      generationNotice.textContent = '';
+    }
     primary.disabled = !canGenerateCurrentSelection();
     if (state.name === 'UNSUPPORTED') {
       status.textContent = 'This page is not supported.';
@@ -1139,19 +1148,23 @@ export function mountAnswerSenseApp(
       progressFill.style.width = '';
       progressBar.removeAttribute('aria-valuetext');
       progressText.textContent = 'Processing page…';
+      if (generationNotice) {
+        const candidateQuestionCount =
+          state.generationProgress?.candidateQuestionCount ?? 0;
+        const showNotice =
+          candidateQuestionCount > LARGE_FORM_CANDIDATE_THRESHOLD;
+        generationNotice.hidden = !showNotice;
+        generationNotice.textContent = showNotice ? LARGE_FORM_NOTICE_TEXT : '';
+      }
       progressBar.setAttribute('aria-label', 'Generate and Auto-Fill progress');
       setCancelAnnouncement('');
-      if (generationWarningVisible) {
-        status.textContent = 'This is taking longer than usual';
-      } else {
-        status.textContent = 'Generating';
-        scheduleGenerationWarning();
-      }
+      status.textContent = 'Generating';
+      scheduleGenerationCancelReveal();
       const cancelGeneration = element<HTMLButtonElement>(
         '[data-generation-cancel]'
       );
       if (cancelGeneration) {
-        cancelGeneration.hidden = !generationWarningVisible;
+        cancelGeneration.hidden = !generationCancelVisible;
       }
       detail.textContent = 'Working with the current page.';
       primary.textContent = 'Generating...';
@@ -2740,6 +2753,21 @@ export function mountAnswerSenseApp(
     forceClear.disabled = false;
   });
   chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'p7-generation-progress') {
+      const candidateQuestionCount = message.candidateQuestionCount;
+      if (
+        typeof candidateQuestionCount !== 'number' ||
+        controller.state.name !== 'GENERATING'
+      ) {
+        return;
+      }
+      const state = controller.stateMachine.setGenerationProgress(
+        candidateQuestionCount
+      );
+      options.onState?.(state);
+      renderGeneration(state);
+      return;
+    }
     if (message?.type === 'p7-state-updated' && message.snapshot) {
       const snapshot = message.snapshot as WorkflowSnapshot & {
         generationOperationId?: string | null;
@@ -2795,7 +2823,7 @@ export function mountAnswerSenseApp(
     ready,
     dispose: () => {
       resetValidationTiming();
-      clearGenerationWarning();
+      clearGenerationCancelReveal();
       clearCancelConfirmation();
       clearGenerationDuration();
       activeGenerationRun = null;

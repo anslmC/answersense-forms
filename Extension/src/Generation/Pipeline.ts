@@ -127,7 +127,8 @@ export class GenerationCoordinator {
     generator: GenerationInterface,
     preparedCycle?: { cycleId: string },
     intent: GenerationIntent = GENERATE_UNANSWERED,
-    performance?: GenerationPerformanceRecorder
+    performance?: GenerationPerformanceRecorder,
+    onCandidatesSelected?: (candidateQuestionCount: number) => void
   ): Promise<GenerationReport | null> {
     const cycle = preparedCycle ?? this.beginCycle();
     if (this.currentCycleId !== cycle.cycleId) {
@@ -150,6 +151,7 @@ export class GenerationCoordinator {
       );
       performance.addCount('candidateQuestionCount', candidates.length);
     }
+    onCandidatesSelected?.(candidates.length);
     if (candidates.length === 0) {
       return createGenerationReport(
         cycle.cycleId,

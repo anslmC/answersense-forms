@@ -456,6 +456,86 @@ describe('Service Worker Generate terminal projection', () => {
     expect(authorized.resolved.configurationDigest).toBeTruthy();
   });
 
+  it('stores in-flight candidate progress and clears it at completion', async () => {
+    const { handleMessage, state } =
+      await prepareGenerationResponse(validResult);
+    const chromeApi = (
+      globalThis as typeof globalThis & {
+        chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+      }
+    ).chrome;
+    let resolveGeneration: (value: unknown) => void = () => undefined;
+    chromeApi.tabs.sendMessage.mockImplementation(
+      (_tabId: number, message: { type?: string }) => {
+        if (message.type !== 'generate-current-page') {
+          return Promise.resolve({ status: 'ready' });
+        }
+        return new Promise((resolve) => {
+          resolveGeneration = resolve;
+        });
+      }
+    );
+    const generation = handleMessage({ type: 'p7-generate' }, {
+      id: extensionId,
+    } as HandlerSender);
+    await vi.waitFor(() =>
+      expect(chromeApi.tabs.sendMessage).toHaveBeenCalled()
+    );
+
+    await expect(
+      handleMessage(
+        { type: 'generation-progress', candidateQuestionCount: 11 },
+        sender(activeTabId)
+      )
+    ).resolves.toMatchObject({
+      status: 'progress-stored',
+      snapshot: {
+        uiState: 'GENERATING',
+        generationProgress: { candidateQuestionCount: 11 },
+      },
+    });
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'GENERATING',
+            generationProgress: { candidateQuestionCount: 11 },
+          }),
+        }),
+      })
+    );
+    await vi.waitFor(() =>
+      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(activeTabId, {
+        type: 'p7-generation-progress',
+        candidateQuestionCount: 11,
+      })
+    );
+
+    resolveGeneration(validResult);
+    await expect(generation).resolves.toEqual(validResult);
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'REVIEW',
+            generationProgress: null,
+          }),
+        }),
+      })
+    );
+  });
+
+  it('ignores candidate progress when no generation is active', async () => {
+    const { handleMessage } = await prepareGenerationResponse(validResult);
+
+    await expect(
+      handleMessage(
+        { type: 'generation-progress', candidateQuestionCount: 11 },
+        sender(activeTabId)
+      )
+    ).resolves.toEqual({ status: 'ignored' });
+  });
+
   it('forwards content performance without persisting it in session state', async () => {
     const performanceReport = {
       correlationId: 'cycle-1',
