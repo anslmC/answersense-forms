@@ -11,7 +11,8 @@ import {
   skipReviewedAnswer,
 } from '../src/Review/Decisions';
 import {
-  CHOICE_VERIFICATION_FALLBACK_MS,
+  CHOICE_VERIFICATION_MAX_WAIT_MS,
+  CHOICE_VERIFICATION_VISIBLE_GRACE_MS,
   createSkipDiagnostics,
   fillReviewedAnswers,
   type ChoiceVerificationDetails,
@@ -1273,7 +1274,7 @@ describe('event-driven choice verification', () => {
       mode: 'IMMEDIATE',
       verified: true,
       attempts: 1,
-      fallbackMs: CHOICE_VERIFICATION_FALLBACK_MS,
+      fallbackMs: CHOICE_VERIFICATION_VISIBLE_GRACE_MS,
       documentHidden: false,
       documentVisibility: 'visible',
     });
@@ -1315,7 +1316,7 @@ describe('event-driven choice verification', () => {
     expect(records[0]).toMatchObject({ mode: 'EVENT', verified: true });
     expect(records[0].attempts).toBe(2);
 
-    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_FALLBACK_MS * 2);
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS * 2);
     expect(records).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
     expect(disconnect).toHaveBeenCalledTimes(1);
@@ -1347,7 +1348,7 @@ describe('event-driven choice verification', () => {
       return value;
     });
 
-    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_FALLBACK_MS - 1);
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS - 1);
     expect(settled).toBe(false);
     expect(records).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
@@ -1362,7 +1363,7 @@ describe('event-driven choice verification', () => {
     expect(records[0]).toMatchObject({
       mode: 'FALLBACK',
       verified: false,
-      fallbackMs: CHOICE_VERIFICATION_FALLBACK_MS,
+      fallbackMs: CHOICE_VERIFICATION_VISIBLE_GRACE_MS,
     });
     expect(records[0].attempts).toBe(2);
     expect(vi.getTimerCount()).toBe(0);
@@ -1441,7 +1442,9 @@ describe('event-driven choice verification', () => {
     );
 
     await vi.advanceTimersByTimeAsync(40);
-    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_FALLBACK_MS - 40);
+    await vi.advanceTimersByTimeAsync(
+      CHOICE_VERIFICATION_VISIBLE_GRACE_MS - 40
+    );
     const result = await fillPromise;
 
     expect(result.outcomes[0]).toMatchObject({
@@ -1490,5 +1493,170 @@ describe('event-driven choice verification', () => {
       documentHidden: true,
       documentVisibility: 'hidden',
     });
+  });
+
+  function setDocumentVisibility(document: Document, hidden: boolean): void {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: hidden ? 'hidden' : 'visible',
+    });
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      value: hidden,
+    });
+  }
+
+  it('does not expire while hidden and verifies when the document becomes visible', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    setDocumentVisibility(document, true);
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => {};
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS * 2);
+    expect(records).toHaveLength(0);
+
+    option.setAttribute('aria-checked', 'true');
+    setDocumentVisibility(document, false);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      mode: 'EVENT',
+      verified: true,
+      documentHidden: false,
+      documentVisibility: 'visible',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('pauses the visible deadline when the document hides after verification starts', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => {};
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS / 2);
+    expect(records).toHaveLength(0);
+
+    setDocumentVisibility(document, true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS * 2);
+    expect(records).toHaveLength(0);
+
+    option.setAttribute('aria-checked', 'true');
+    setDocumentVisibility(document, false);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ mode: 'EVENT', verified: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('accepts a delayed foreground selection beyond the previous 250 ms fallback', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => {
+      setTimeout(() => option.setAttribute('aria-checked', 'true'), 600);
+    };
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    await vi.advanceTimersByTimeAsync(599);
+    expect(records).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ mode: 'EVENT', verified: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('settles as a failure after the maximum wait when the document stays hidden', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    setDocumentVisibility(document, true);
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => {};
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    let settled = false;
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    ).then((value) => {
+      settled = true;
+      return value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_MAX_WAIT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({
+      status: 'FILL_FAILED',
+      code: 'INVALID_OPTION',
+    });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      mode: 'FALLBACK',
+      verified: false,
+      documentHidden: true,
+      documentVisibility: 'hidden',
+    });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

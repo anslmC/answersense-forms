@@ -92,7 +92,8 @@ export function createSkipDiagnostics(
     });
 }
 
-export const CHOICE_VERIFICATION_FALLBACK_MS = 250;
+export const CHOICE_VERIFICATION_VISIBLE_GRACE_MS = 750;
+export const CHOICE_VERIFICATION_MAX_WAIT_MS = 5000;
 const CHOICE_SELECTION_ATTRIBUTES = ['aria-checked', 'aria-selected'];
 
 function failureOutcome(
@@ -245,8 +246,10 @@ function getMutationObserverConstructor(
 
 /**
  * Watches only the option elements involved in one verification. The observer
- * is installed before the click and the fallback timer starts once waiting
- * actually begins, so a hidden tab never delays an already-selected option.
+ * is installed before the click and the grace timer only advances while the
+ * document is visible, because Google Forms defers committing `aria-checked`
+ * until the tab becomes visible again. A separate maximum wait bounds the
+ * whole verification so a document that never becomes visible still settles.
  */
 function createChoiceVerifier(
   isSelected: () => boolean,
@@ -255,7 +258,10 @@ function createChoiceVerifier(
   instrumentation?: FillInstrumentation
 ): ChoiceVerifier {
   let observer: MutationObserver | null = null;
-  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let visibleTimer: ReturnType<typeof setTimeout> | null = null;
+  let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
+  let visibilityListener: EventListener | null = null;
+  let visibilityListenerDocument: Document | null = null;
   const changeListeners: Array<{
     element: HTMLElement;
     listener: EventListener;
@@ -271,15 +277,36 @@ function createChoiceVerifier(
     visibility: 'visible',
   };
 
+  const refreshVisibility = (): DocumentVisibility => {
+    visibility = readDocumentVisibility(ownerDocument);
+    return visibility;
+  };
+
+  const clearVisibleTimer = (): void => {
+    if (visibleTimer !== null) {
+      clearTimeout(visibleTimer);
+      visibleTimer = null;
+    }
+  };
+
   const cleanup = (): void => {
     if (observer) {
       observer.disconnect();
       observer = null;
     }
-    if (fallbackTimer !== null) {
-      clearTimeout(fallbackTimer);
-      fallbackTimer = null;
+    clearVisibleTimer();
+    if (maxWaitTimer !== null) {
+      clearTimeout(maxWaitTimer);
+      maxWaitTimer = null;
     }
+    if (visibilityListenerDocument && visibilityListener) {
+      visibilityListenerDocument.removeEventListener(
+        'visibilitychange',
+        visibilityListener
+      );
+    }
+    visibilityListener = null;
+    visibilityListenerDocument = null;
     for (const { element, listener } of changeListeners.splice(0)) {
       element.removeEventListener('change', listener);
     }
@@ -298,7 +325,7 @@ function createChoiceVerifier(
       mode,
       attempts,
       elapsedMs: started ? elapsedSince(startedAt) : 0,
-      fallbackMs: CHOICE_VERIFICATION_FALLBACK_MS,
+      fallbackMs: CHOICE_VERIFICATION_VISIBLE_GRACE_MS,
       verified,
       documentHidden: visibility.hidden,
       documentVisibility: visibility.visibility,
@@ -371,14 +398,72 @@ function createChoiceVerifier(
     }
   };
 
-  const expireFallback = (): void => {
-    fallbackTimer = null;
-    if (settled) {
+  const startVisibleWindow = (): void => {
+    clearVisibleTimer();
+    if (settled || refreshVisibility().hidden) {
       return;
     }
+    visibleTimer = setTimeout(
+      expireVisibleWindow,
+      CHOICE_VERIFICATION_VISIBLE_GRACE_MS
+    );
+  };
+
+  const finishExpired = (): void => {
     checkForSelection('FALLBACK');
     if (!settled) {
       settle(false, 'FALLBACK');
+    }
+  };
+
+  function expireVisibleWindow(): void {
+    visibleTimer = null;
+    if (settled) {
+      return;
+    }
+    // The document may have hidden between the timer firing and this callback.
+    if (refreshVisibility().hidden) {
+      return;
+    }
+    finishExpired();
+  }
+
+  const expireMaxWait = (): void => {
+    maxWaitTimer = null;
+    if (settled) {
+      return;
+    }
+    refreshVisibility();
+    finishExpired();
+  };
+
+  const installVisibilityListener = (): void => {
+    if (visibilityListener || !ownerDocument) {
+      return;
+    }
+    const listener: EventListener = () => {
+      if (!started || settled) {
+        return;
+      }
+      if (refreshVisibility().hidden) {
+        // Do not consume the grace window while the document is hidden.
+        clearVisibleTimer();
+        return;
+      }
+      // The selection is committed around the moment the document becomes
+      // visible, so recheck before restarting the bounded visible window.
+      if (checkForSelection('EVENT')) {
+        return;
+      }
+      startVisibleWindow();
+    };
+    try {
+      ownerDocument.addEventListener('visibilitychange', listener);
+      visibilityListener = listener;
+      visibilityListenerDocument = ownerDocument;
+    } catch {
+      visibilityListener = null;
+      visibilityListenerDocument = null;
     }
   };
 
@@ -393,7 +478,7 @@ function createChoiceVerifier(
       if (!started) {
         started = true;
         startedAt = monotonicNow();
-        visibility = readDocumentVisibility(ownerDocument);
+        refreshVisibility();
       }
       attempts += 1;
       // A synchronous failure still has to release the observer.
@@ -410,10 +495,11 @@ function createChoiceVerifier(
       }
       installObserver();
       installChangeListeners();
-      fallbackTimer = setTimeout(
-        expireFallback,
-        CHOICE_VERIFICATION_FALLBACK_MS
-      );
+      installVisibilityListener();
+      maxWaitTimer = setTimeout(expireMaxWait, CHOICE_VERIFICATION_MAX_WAIT_MS);
+      if (!visibility.hidden) {
+        startVisibleWindow();
+      }
       return new Promise<ChoiceVerificationDetails>((resolve) => {
         resolveWait = resolve;
       });
