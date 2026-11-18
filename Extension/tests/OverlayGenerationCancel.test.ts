@@ -180,7 +180,7 @@ describe('overlay generation warning and cancellation', () => {
     await startGeneration();
 
     expect(primary()?.textContent).toBe('Generating...');
-    expect(status()?.textContent).toBe('Generating answers...');
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
     expect(progressText()?.textContent).toBe('Processing page…');
     expect(cancelButton()?.hidden).toBe(true);
     expect(
@@ -195,11 +195,13 @@ describe('overlay generation warning and cancellation', () => {
     await startGeneration();
 
     await vi.advanceTimersByTimeAsync(19_999);
-    expect(status()?.textContent).toBe('Generating answers...');
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
     expect(cancelButton()?.hidden).toBe(true);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(status()?.textContent).toBe('This is taking longer than usual');
+    expect(status()?.textContent).toMatch(
+      /^This is taking longer than usual · [\d,]+ ms$/u
+    );
     expect(cancelButton()?.hidden).toBe(false);
     expect(cancelButton()?.textContent?.trim()).toBe('Cancel');
     expect(cancelButton()?.classList.contains('secondary')).toBe(true);
@@ -212,10 +214,10 @@ describe('overlay generation warning and cancellation', () => {
 
     await vi.advanceTimersByTimeAsync(5_000);
     await settleGenerationWith(generationResult);
-    expect(status()?.textContent).toBe('Review answers');
+    expect(status()?.textContent).toBe('Completed · 5,000 ms');
 
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(status()?.textContent).toBe('Review answers');
+    expect(status()?.textContent).toBe('Completed · 5,000 ms');
     expect(cancelButton()?.hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -227,10 +229,10 @@ describe('overlay generation warning and cancellation', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     pendingGenerations.at(-1)?.reject(new Error('Generation failed.'));
     await flush();
-    expect(status()?.textContent).toBe("Couldn't generate answers.");
+    expect(status()?.textContent).toBe('Failed · 5,000 ms');
 
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(status()?.textContent).toBe("Couldn't generate answers.");
+    expect(status()?.textContent).toBe('Failed · 5,000 ms');
     expect(cancelButton()?.hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -250,7 +252,7 @@ describe('overlay generation warning and cancellation', () => {
       1
     );
     expect(document.querySelector('#answersense-overlay-host')).toBe(host);
-    expect(status()?.textContent).toBe('Canceled');
+    expect(status()?.textContent).toBe('Cancelled · 20,000 ms');
     expect(primary()?.textContent).toBe('Generate & Auto-Fill');
     expect(cancelButton()?.hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(1);
@@ -260,16 +262,16 @@ describe('overlay generation warning and cancellation', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('shows a brief Canceled confirmation and then restores the ready status', async () => {
+  it('shows a brief Cancelled confirmation and then restores the ready status', async () => {
     await mount();
     await startGeneration();
 
     cancelButton()?.click();
     await flush();
-    expect(status()?.textContent).toBe('Canceled');
+    expect(status()?.textContent).toBe('Cancelled · 0 ms');
 
     await vi.advanceTimersByTimeAsync(1_499);
-    expect(status()?.textContent).toBe('Canceled');
+    expect(status()?.textContent).toBe('Cancelled · 0 ms');
 
     await vi.advanceTimersByTimeAsync(1);
     expect(status()?.textContent).toBe('Ready to generate');
@@ -294,20 +296,20 @@ describe('overlay generation warning and cancellation', () => {
     expect(announcement()?.textContent).toBe('');
   });
 
-  it('does not let the Canceled confirmation overwrite a new generation', async () => {
+  it('does not let the Cancelled confirmation overwrite a new generation', async () => {
     await mount();
     await startGeneration();
     await vi.advanceTimersByTimeAsync(20_000);
 
     cancelButton()?.click();
     await flush();
-    expect(status()?.textContent).toBe('Canceled');
+    expect(status()?.textContent).toBe('Cancelled · 20,000 ms');
 
     await startGeneration();
-    expect(status()?.textContent).toBe('Generating answers...');
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
 
     await vi.advanceTimersByTimeAsync(1_500);
-    expect(status()?.textContent).toBe('Generating answers...');
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
   });
 
   it('ignores a canceled generation that completes afterwards', async () => {
@@ -339,13 +341,15 @@ describe('overlay generation warning and cancellation', () => {
 
     await startGeneration();
     expect(pendingGenerations).toHaveLength(2);
-    expect(status()?.textContent).toBe('Generating answers...');
+    expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
 
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(status()?.textContent).toBe('This is taking longer than usual');
+    expect(status()?.textContent).toMatch(
+      /^This is taking longer than usual · [\d,]+ ms$/u
+    );
 
     await settleGenerationWith(generationResult);
-    expect(status()?.textContent).toBe('Review answers');
+    expect(status()?.textContent).toBe('Completed · 20,000 ms');
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -355,9 +359,11 @@ describe('overlay generation warning and cancellation', () => {
     for (let cycle = 0; cycle < 2; cycle += 1) {
       await startGeneration();
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(vi.getTimerCount()).toBe(1);
+      expect(vi.getTimerCount()).toBe(2);
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(status()?.textContent).toBe('This is taking longer than usual');
+      expect(status()?.textContent).toMatch(
+        /^This is taking longer than usual · [\d,]+ ms$/u
+      );
 
       cancelButton()?.click();
       await flush();

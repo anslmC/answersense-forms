@@ -950,7 +950,7 @@ describe('live Overlay generation workflow', () => {
     primary()?.click();
     await vi.waitFor(() => {
       expect(primary()?.textContent).toBe('Generating...');
-      expect(status()?.textContent).toBe('Generating answers...');
+      expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
       expect(
@@ -982,7 +982,7 @@ describe('live Overlay generation workflow', () => {
     ).toBe(true);
     resolveGeneration(generationResult);
     await vi.waitFor(() => {
-      expect(status()?.textContent).toBe('Review answers');
+      expect(status()?.textContent).toMatch(/^Completed · [\d,]+ ms$/u);
       expect(primary()).toBeNull();
       expect(forceClear()?.hidden).toBe(true);
       expect(forceClearDisplay()).toBe('none');
@@ -1180,7 +1180,7 @@ describe('live Overlay generation workflow', () => {
 
     primary()?.click();
     await vi.waitFor(() => {
-      expect(status()?.textContent).toBe('Review answers');
+      expect(status()?.textContent).toMatch(/^Completed · [\d,]+ ms$/u);
       expect(primary()).toBeNull();
     });
     expect(generationCount).toBe(2);
@@ -1198,7 +1198,7 @@ describe('live Overlay generation workflow', () => {
 
     primary()?.click();
     await vi.waitFor(() => {
-      expect(status()?.textContent).toBe('Review answers');
+      expect(status()?.textContent).toMatch(/^Completed · [\d,]+ ms$/u);
       expect(primary()).toBeNull();
     });
     expect(generationCount).toBe(3);
@@ -1352,7 +1352,7 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => expect(primary()?.disabled).toBe(false));
     primary()?.click();
     await vi.waitFor(() => {
-      expect(status()?.textContent).toBe('Review answers');
+      expect(status()?.textContent).toMatch(/^Completed · [\d,]+ ms$/u);
       expect(overrideAction()?.hidden).toBe(false);
     });
     overrideAction()?.click();
@@ -1775,8 +1775,8 @@ describe('live Overlay generation workflow', () => {
       ?.querySelector<HTMLButtonElement>('[data-override-confirm]')
       ?.click();
     await vi.waitFor(() =>
-      expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe(
-        "Couldn't generate answers."
+      expect(shadowRoot?.querySelector('[data-status]')?.textContent).toMatch(
+        /^Failed · [\d,]+ ms$/u
       )
     );
     expect(shadowRoot?.querySelector('.result-summary')).toBeNull();
@@ -2084,7 +2084,7 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() => {
       expect(
         shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent
-      ).toBe("Couldn't generate answers.");
+      ).toMatch(/^Failed · [\d,]+ ms$/u);
       expect(
         shadowRoot?.querySelector('.result-note:not([hidden])')
       ).toBeNull();
@@ -2217,7 +2217,7 @@ describe('live Overlay generation workflow', () => {
     await vi.waitFor(() =>
       expect(
         shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent
-      ).toBe('Review answers')
+      ).toMatch(/^Completed · [\d,]+ ms$/u)
     );
     expect(overrideRefresh()?.hidden).toBe(false);
     expect(overrideRefresh()?.getAttribute('aria-label')).toBe(
@@ -2235,7 +2235,7 @@ describe('live Overlay generation workflow', () => {
     expect(candidateInputs()).toHaveLength(4);
     expect(
       shadowRoot?.querySelector<HTMLElement>('[data-status]')?.textContent
-    ).toBe('Review answers');
+    ).toMatch(/^Completed · [\d,]+ ms$/u);
     expect(
       shadowRoot?.querySelector<HTMLElement>('.result-summary')
     ).not.toBeNull();
@@ -2617,8 +2617,8 @@ describe('live Overlay generation workflow', () => {
     expect(documentationLink?.target).toBe('_blank');
     expect(documentationLink?.rel).toBe('noopener noreferrer');
     expect(message()?.textContent).not.toContain("Couldn't generate answers.");
-    expect(shadowRoot?.querySelector('[data-status]')?.textContent).toBe(
-      "Couldn't generate answers."
+    expect(shadowRoot?.querySelector('[data-status]')?.textContent).toMatch(
+      /^Failed · [\d,]+ ms$/u
     );
     expect(refresh()).not.toBeNull();
     expect(

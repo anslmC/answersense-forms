@@ -49,6 +49,11 @@ import {
   reconcileContentState,
   type CurrentContentState,
 } from './State';
+import {
+  GenerationPerformanceRecorder,
+  readPerformanceReport,
+  type GenerationPerformanceReport,
+} from '../Shared/Performance';
 
 log(`${EXTENSION_NAME} service worker initialized.`);
 
@@ -93,6 +98,7 @@ function providerBoundaryError(error: unknown): unknown {
     code?: unknown;
     message?: unknown;
     diagnostics?: unknown;
+    performance?: unknown;
   };
   if (!isSafeProviderErrorCode(candidate.code)) {
     return error;
@@ -104,7 +110,8 @@ function providerBoundaryError(error: unknown): unknown {
   return new SafeServiceWorkerError(
     candidate.code,
     message,
-    candidate.diagnostics as SafeProviderDiagnostics | undefined
+    candidate.diagnostics as SafeProviderDiagnostics | undefined,
+    readPerformanceReport(candidate) ?? undefined
   );
 }
 
@@ -175,14 +182,29 @@ async function notifyPopup(message: Record<string, unknown>): Promise<void> {
 function notifyGenerationTerminalState(
   snapshot: Awaited<
     ReturnType<IntegrationStateStore['updateIfGenerationCurrent']>
-  >
+  >,
+  performance?: GenerationPerformanceReport | null
 ): void {
   if (!snapshot) {
     return;
   }
-  void notifyPopup({ type: 'p7-state-updated', snapshot }).catch(
-    () => undefined
-  );
+  void notifyPopup({
+    type: 'p7-state-updated',
+    snapshot: performance ? { ...snapshot, performance } : snapshot,
+  }).catch(() => undefined);
+}
+
+function withoutPerformance<T>(value: T): T {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('performance' in value)
+  ) {
+    return value;
+  }
+  const copy = { ...(value as Record<string, unknown>) };
+  delete copy.performance;
+  return copy as T;
 }
 
 async function configurationState(selection?: {
@@ -398,20 +420,37 @@ export async function handleMessage(
     if (ownsGenerationController) {
       activeGenerationControllers.set(requestingTabId, generationController);
     }
+    const generationRequest = message.request as GenerationRequest;
+    const performance = new GenerationPerformanceRecorder(
+      typeof generationRequest?.cycleId === 'string'
+        ? generationRequest.cycleId
+        : 'background-generation',
+      'BACKGROUND'
+    );
+    performance.setProvider(
+      resolved.provider.providerId,
+      resolved.model.modelId
+    );
     try {
       const result = await resolved
         .adapter(resolved.secret, resolved.model.modelId)
-        .generate(
-          message.request as GenerationRequest,
-          generationController.signal
-        );
-      return result;
+        .generate(generationRequest, generationController.signal, performance);
+      performance.finish('SUCCESS');
+      const report = performance.getReport();
+      performance.log();
+      return { ...result, performance: report };
     } catch (error) {
+      performance.finish(
+        generationController.signal.aborted ? 'CANCELLED' : 'FAILURE'
+      );
+      const report = performance.getReport();
+      performance.log();
       const safe = sanitizeProviderError(error);
       throw new SafeServiceWorkerError(
         safe.code,
         safe.message,
-        safe.diagnostics
+        safe.diagnostics,
+        report
       );
     } finally {
       if (
@@ -769,6 +808,7 @@ export async function handleMessage(
         configurationDigest: resolved.configurationDigest,
         configurationRevision: resolved.authorizationRevision,
       });
+      const contentPerformance = readPerformanceReport(result);
       if (result?.error) {
         throw providerBoundaryError(result);
       }
@@ -789,7 +829,7 @@ export async function handleMessage(
         if (!terminalSnapshot) {
           throw new Error('Generation operation was superseded.');
         }
-        notifyGenerationTerminalState(terminalSnapshot);
+        notifyGenerationTerminalState(terminalSnapshot, contentPerformance);
         return result;
       }
       const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
@@ -797,7 +837,7 @@ export async function handleMessage(
         generationOperationId,
         {
           uiState: 'REVIEW',
-          result,
+          result: withoutPerformance(result),
           error: null,
           generationOperationId: null,
         }
@@ -805,7 +845,7 @@ export async function handleMessage(
       if (!terminalSnapshot) {
         throw new Error('Generation operation was superseded.');
       }
-      notifyGenerationTerminalState(terminalSnapshot);
+      notifyGenerationTerminalState(terminalSnapshot, contentPerformance);
       return result;
     } catch (error) {
       const failure = providerBoundaryError(error);
@@ -820,7 +860,10 @@ export async function handleMessage(
           generationOperationId: null,
         }
       );
-      notifyGenerationTerminalState(terminalSnapshot);
+      notifyGenerationTerminalState(
+        terminalSnapshot,
+        readPerformanceReport(failure)
+      );
       throw failure;
     } finally {
       if (activeGenerationControllers.get(tabId) === generationController) {

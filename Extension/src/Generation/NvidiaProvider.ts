@@ -23,6 +23,13 @@ import {
   executeNvidiaRecovery,
 } from './NvidiaRecovery';
 import { parseNvidiaSalvageObjects } from './NvidiaSalvage';
+import {
+  elapsedSince,
+  monotonicNow,
+  type GenerationPerformanceRecorder,
+  type PerformanceOutcome,
+  type TransportPerformanceRecord,
+} from '../Shared/Performance';
 
 export const NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 export const NVIDIA_NEMOTRON_LIGHTNING_MODEL =
@@ -190,10 +197,17 @@ function assertUniqueQuestionIds(request: GenerationRequest): void {
 
 type FetchImplementation = typeof fetch;
 
+interface HttpResponseTiming {
+  readonly networkRequestMs: number;
+  readonly responseBodyReadMs: number;
+  readonly totalRequestMs: number;
+}
+
 interface HttpResponseText {
   status: number;
   text: string;
   headers: Headers;
+  timing: HttpResponseTiming;
 }
 
 interface DiagnosticContext {
@@ -230,6 +244,32 @@ interface RequestTrace {
 interface JsonCandidates {
   readonly objects: readonly Record<string, unknown>[];
   readonly outcome: NvidiaJsonExtractionOutcome;
+}
+
+interface TransportTimingAccumulator {
+  payloadBuildMs: number;
+  serializationMs: number;
+  networkRequestMs: number;
+  responseBodyReadMs: number;
+  jsonParseMs: number;
+  responseCount: number;
+  jsonParseAttempted: boolean;
+  pollingUsed: boolean;
+  pollCount: number;
+  pollWaitMs: number;
+  pollRequestMs: number;
+  pollNetworkMs: number;
+  pollBodyReadMs: number;
+  httpStatus: number | null;
+  fallbackUsed: boolean;
+  retryAfterMs: number | null;
+  usage: NvidiaResponseUsage | null;
+}
+
+interface ProviderRequestPerformanceContext {
+  readonly performance?: GenerationPerformanceRecorder;
+  readonly batchIndex?: number;
+  readonly attempt?: number;
 }
 
 const FENCED_JSON_PATTERN = /```(?:json)?\s*([\s\S]*?)```/gi;
@@ -343,6 +383,34 @@ function readUsage(value: unknown): NvidiaResponseUsage | null {
     return null;
   }
   return { promptTokens, completionTokens, totalTokens };
+}
+
+function recordResponseResultCounts(
+  performance: GenerationPerformanceRecorder,
+  response: GenerationResponse
+): void {
+  let generatedCount = 0;
+  let abstainedCount = 0;
+  let failedCount = 0;
+  for (const result of response.results) {
+    if (result.status === 'GENERATED') {
+      generatedCount += 1;
+    } else if (result.status === 'ABSTAINED') {
+      abstainedCount += 1;
+    } else {
+      failedCount += 1;
+    }
+  }
+  performance.setResultProcessing({
+    returnedResultCount: response.results.length,
+    generatedCount,
+    abstainedCount,
+    failedCount,
+  });
+  performance.addCount('returnedResultCount', response.results.length);
+  performance.addCount('generatedResultCount', generatedCount);
+  performance.addCount('abstainedResultCount', abstainedCount);
+  performance.addCount('failedResultCount', failedCount);
 }
 
 function responseError(
@@ -770,19 +838,27 @@ async function requestText(
     controller.abort();
   }, timeoutMs);
 
+  const requestStartedAt = monotonicNow();
   try {
     const response = await fetchImpl(url, {
       ...init,
       signal: controller.signal,
     });
+    const headersReceivedAt = monotonicNow();
     if (stage !== 'POLLING') {
       timeoutStage = 'RESPONSE_BODY';
     }
     const text = await response.text();
+    const bodyReadAt = monotonicNow();
     return {
       status: response.status,
       text,
       headers: response.headers ?? new Headers(),
+      timing: {
+        networkRequestMs: elapsedSince(requestStartedAt, headersReceivedAt),
+        responseBodyReadMs: elapsedSince(headersReceivedAt, bodyReadAt),
+        totalRequestMs: elapsedSince(requestStartedAt, bodyReadAt),
+      },
     };
   } catch (error) {
     if (timedOut) {
@@ -801,7 +877,7 @@ async function requestText(
 
 async function postJson(
   apiKey: string,
-  body: Record<string, unknown>,
+  body: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
   trace: RequestTrace,
@@ -815,7 +891,7 @@ async function postJson(
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body,
     },
     fetchImpl,
     timeoutMs,
@@ -874,12 +950,16 @@ async function awaitPendingResult(
   fetchImpl: FetchImplementation,
   deadline: number,
   trace: RequestTrace,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  transport?: TransportTimingAccumulator
 ): Promise<HttpResponseText> {
   if (response.status !== 202) {
     return response;
   }
   trace.pollingUsed = true;
+  if (transport) {
+    transport.pollingUsed = true;
+  }
   const requestId = response.headers.get('NVCF-REQID');
   if (!requestId || !NVCF_REQUEST_ID_PATTERN.test(requestId)) {
     throw responseError(
@@ -893,11 +973,18 @@ async function awaitPendingResult(
   let intervalMs = pollIntervalMs(response.headers, NVIDIA_POLL_INTERVAL_MS);
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
+    const waitStartedAt = transport ? monotonicNow() : 0;
     await delay(Math.min(intervalMs, remaining), signal);
+    if (transport) {
+      transport.pollWaitMs += elapsedSince(waitStartedAt);
+    }
     if (Date.now() >= deadline) {
       break;
     }
     trace.pollCount += 1;
+    if (transport) {
+      transport.pollCount += 1;
+    }
     const polled = await getPendingResult(
       apiKey,
       requestId,
@@ -906,8 +993,17 @@ async function awaitPendingResult(
       trace,
       signal
     );
+    if (transport) {
+      transport.pollNetworkMs += polled.timing.networkRequestMs;
+      transport.pollBodyReadMs += polled.timing.responseBodyReadMs;
+      transport.pollRequestMs += polled.timing.totalRequestMs;
+    }
     if (polled.status !== 202) {
       trace.retryAfterMs = retryAfterMs(polled.headers);
+      if (transport) {
+        transport.retryAfterMs = trace.retryAfterMs;
+        transport.httpStatus = polled.status;
+      }
       return polled;
     }
     intervalMs = pollIntervalMs(polled.headers, intervalMs);
@@ -1093,7 +1189,8 @@ function parseCompletionEnvelopeLenient(
   apiKey: string,
   httpStatus: number,
   request: GenerationRequest,
-  trace: RequestTrace
+  trace: RequestTrace,
+  performance?: GenerationPerformanceRecorder
 ): GenerationResponse {
   const extraction = extractCompletionCandidates(
     value,
@@ -1102,6 +1199,26 @@ function parseCompletionEnvelopeLenient(
     trace
   );
   const salvage = parseNvidiaSalvageObjects(extraction.objects, request);
+  performance?.setResultProcessing({
+    salvagedResultCount: salvage.results.length,
+  });
+  performance?.addCount('salvageCandidateCount', salvage.candidateCount);
+  performance?.addCount(
+    'salvageAcceptedQuestionCount',
+    salvage.acceptedQuestionIds.length
+  );
+  performance?.addCount(
+    'salvageMissingQuestionCount',
+    salvage.missingQuestionIds.length
+  );
+  performance?.addCount(
+    'salvageInvalidQuestionCount',
+    salvage.invalidQuestionIds.length
+  );
+  performance?.addCount(
+    'salvageIgnoredResultCount',
+    salvage.ignoredResultCount
+  );
   if (!salvage.hasUsableResult) {
     const missingAll =
       salvage.candidateCount > 0 &&
@@ -1142,70 +1259,163 @@ async function requestCompletionTransfer(
   modelId: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context: ProviderRequestPerformanceContext = {}
 ): Promise<CompletionTransfer> {
   const deadline = Date.now() + timeoutMs;
   const trace = createRequestTrace(modelId);
-  let payload = createPayload(request, modelId);
-  let response = await postJson(
-    apiKey,
-    payload,
-    fetchImpl,
-    Math.max(1, deadline - Date.now()),
-    trace,
-    signal
-  );
-  if (
-    payload.response_format !== undefined &&
-    isResponseFormatRejection(response)
-  ) {
-    trace.fallbackUsed = true;
-    trace.attempt = 2;
-    payload = createPayload(request, modelId, {
-      includeResponseFormat: false,
-    });
-    response = await postJson(
+  const performance = context.performance;
+  const transportStartedAt = performance ? monotonicNow() : 0;
+  const transport: TransportTimingAccumulator = {
+    payloadBuildMs: 0,
+    serializationMs: 0,
+    networkRequestMs: 0,
+    responseBodyReadMs: 0,
+    jsonParseMs: 0,
+    responseCount: 0,
+    jsonParseAttempted: false,
+    pollingUsed: false,
+    pollCount: 0,
+    pollWaitMs: 0,
+    pollRequestMs: 0,
+    pollNetworkMs: 0,
+    pollBodyReadMs: 0,
+    httpStatus: null,
+    fallbackUsed: false,
+    retryAfterMs: null,
+    usage: null,
+  };
+  let succeeded = false;
+  let failureCategory: string | null = null;
+  try {
+    const payloadStartedAt = monotonicNow();
+    let payload = createPayload(request, modelId);
+    transport.payloadBuildMs += elapsedSince(payloadStartedAt);
+    const serializationStartedAt = monotonicNow();
+    const serializedPayload = JSON.stringify(payload);
+    transport.serializationMs += elapsedSince(serializationStartedAt);
+    let response = await postJson(
       apiKey,
-      payload,
+      serializedPayload,
       fetchImpl,
       Math.max(1, deadline - Date.now()),
       trace,
       signal
     );
-  }
-  response = await awaitPendingResult(
-    response,
-    apiKey,
-    fetchImpl,
-    deadline,
-    trace,
-    signal
-  );
-  if (response.status !== 200) {
-    trace.retryAfterMs = retryAfterMs(response.headers);
-    throw new NvidiaProviderError(
-      classifyHttpStatus(response.status),
-      response.status === 503 ? 'SERVER_BUSY' : undefined,
-      createDiagnostics(
-        'HTTP_STATUS',
+    transport.networkRequestMs += response.timing.networkRequestMs;
+    transport.responseBodyReadMs += response.timing.responseBodyReadMs;
+    transport.responseCount += 1;
+    transport.httpStatus = response.status;
+    if (
+      payload.response_format !== undefined &&
+      isResponseFormatRejection(response)
+    ) {
+      trace.fallbackUsed = true;
+      trace.attempt = 2;
+      transport.fallbackUsed = true;
+      const fallbackStartedAt = monotonicNow();
+      payload = createPayload(request, modelId, {
+        includeResponseFormat: false,
+      });
+      transport.payloadBuildMs += elapsedSince(fallbackStartedAt);
+      const fallbackSerializationStartedAt = monotonicNow();
+      const fallbackSerialized = JSON.stringify(payload);
+      transport.serializationMs += elapsedSince(fallbackSerializationStartedAt);
+      response = await postJson(
+        apiKey,
+        fallbackSerialized,
+        fetchImpl,
+        Math.max(1, deadline - Date.now()),
+        trace,
+        signal
+      );
+      transport.networkRequestMs += response.timing.networkRequestMs;
+      transport.responseBodyReadMs += response.timing.responseBodyReadMs;
+      transport.responseCount += 1;
+      transport.httpStatus = response.status;
+    }
+    response = await awaitPendingResult(
+      response,
+      apiKey,
+      fetchImpl,
+      deadline,
+      trace,
+      signal,
+      transport
+    );
+    transport.httpStatus = response.status;
+    if (response.status !== 200) {
+      trace.retryAfterMs = retryAfterMs(response.headers);
+      transport.retryAfterMs = trace.retryAfterMs;
+      throw new NvidiaProviderError(
+        classifyHttpStatus(response.status),
+        response.status === 503 ? 'SERVER_BUSY' : undefined,
+        createDiagnostics(
+          'HTTP_STATUS',
+          response.status,
+          traceDiagnosticContext(trace)
+        )
+      );
+    }
+
+    let envelope: unknown;
+    const parseStartedAt = monotonicNow();
+    transport.jsonParseAttempted = true;
+    try {
+      envelope = JSON.parse(response.text);
+    } catch {
+      transport.jsonParseMs += elapsedSince(parseStartedAt);
+      throw responseError(
+        'MALFORMED_PROVIDER_RESPONSE',
+        'INVALID_HTTP_RESPONSE_ENVELOPE',
         response.status,
         traceDiagnosticContext(trace)
-      )
-    );
+      );
+    }
+    transport.jsonParseMs += elapsedSince(parseStartedAt);
+    transport.usage = isRecord(envelope) ? readUsage(envelope.usage) : null;
+    succeeded = true;
+    return { envelope, httpStatus: response.status, trace };
+  } catch (error) {
+    failureCategory =
+      error instanceof NvidiaProviderError
+        ? error.safeCode
+        : 'PROVIDER_FAILURE';
+    throw error;
+  } finally {
+    if (performance) {
+      const totalTransportMs = elapsedSince(transportStartedAt);
+      performance.recordTransport({
+        batchIndex: context.batchIndex ?? null,
+        attempt: context.attempt ?? trace.attempt,
+        modelId,
+        requestPreparationMs:
+          transport.payloadBuildMs + transport.serializationMs,
+        payloadBuildMs: transport.payloadBuildMs,
+        serializationMs: transport.serializationMs,
+        networkRequestMs:
+          transport.responseCount > 0 ? transport.networkRequestMs : null,
+        httpStatus: transport.httpStatus,
+        responseBodyReadMs:
+          transport.responseCount > 0 ? transport.responseBodyReadMs : null,
+        jsonParseMs: transport.jsonParseAttempted
+          ? transport.jsonParseMs
+          : null,
+        pollingUsed: transport.pollingUsed,
+        pollCount: transport.pollCount,
+        pollWaitMs: transport.pollingUsed ? transport.pollWaitMs : null,
+        pollRequestMs: transport.pollingUsed ? transport.pollRequestMs : null,
+        pollNetworkMs: transport.pollingUsed ? transport.pollNetworkMs : null,
+        pollBodyReadMs: transport.pollingUsed ? transport.pollBodyReadMs : null,
+        totalTransportMs,
+        fallbackUsed: transport.fallbackUsed,
+        retryAfterMs: transport.retryAfterMs,
+        usage: transport.usage,
+        outcome: succeeded ? 'SUCCESS' : 'FAILURE',
+        failureCategory,
+      } satisfies TransportPerformanceRecord);
+    }
   }
-
-  let envelope: unknown;
-  try {
-    envelope = JSON.parse(response.text);
-  } catch {
-    throw responseError(
-      'MALFORMED_PROVIDER_RESPONSE',
-      'INVALID_HTTP_RESPONSE_ENVELOPE',
-      response.status,
-      traceDiagnosticContext(trace)
-    );
-  }
-  return { envelope, httpStatus: response.status, trace };
 }
 
 async function requestGenerationResponse(
@@ -1214,7 +1424,8 @@ async function requestGenerationResponse(
   modelId: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context: ProviderRequestPerformanceContext = {}
 ): Promise<GenerationResponse> {
   const transfer = await requestCompletionTransfer(
     apiKey,
@@ -1222,15 +1433,26 @@ async function requestGenerationResponse(
     modelId,
     fetchImpl,
     timeoutMs,
-    signal
+    signal,
+    context
   );
-  return parseCompletionEnvelope(
+  const parseStartedAt = context.performance ? monotonicNow() : 0;
+  const response = parseCompletionEnvelope(
     transfer.envelope,
     apiKey,
     transfer.httpStatus,
     request,
     transfer.trace
   );
+  if (context.performance) {
+    const responseValidationMs = elapsedSince(parseStartedAt);
+    context.performance.addPhase(
+      'providerResponseValidationMs',
+      responseValidationMs
+    );
+    context.performance.setResultProcessing({ responseValidationMs });
+  }
+  return response;
 }
 
 async function requestGenerationSalvageAttempt(
@@ -1239,7 +1461,8 @@ async function requestGenerationSalvageAttempt(
   modelId: string,
   fetchImpl: FetchImplementation,
   timeoutMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context: ProviderRequestPerformanceContext = {}
 ): Promise<GenerationResponse> {
   const transfer = await requestCompletionTransfer(
     apiKey,
@@ -1247,15 +1470,24 @@ async function requestGenerationSalvageAttempt(
     modelId,
     fetchImpl,
     timeoutMs,
-    signal
+    signal,
+    context
   );
-  return parseCompletionEnvelopeLenient(
+  const parseStartedAt = context.performance ? monotonicNow() : 0;
+  const response = parseCompletionEnvelopeLenient(
     transfer.envelope,
     apiKey,
     transfer.httpStatus,
     request,
-    transfer.trace
+    transfer.trace,
+    context.performance
   );
+  if (context.performance) {
+    const salvageMs = elapsedSince(parseStartedAt);
+    context.performance.addPhase('providerSalvageMs', salvageMs);
+    context.performance.setResultProcessing({ salvageMs });
+  }
+  return response;
 }
 
 export class NvidiaProvider implements GenerationInterface {
@@ -1269,98 +1501,216 @@ export class NvidiaProvider implements GenerationInterface {
 
   async generate(
     request: GenerationRequest,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    performance?: GenerationPerformanceRecorder
   ): Promise<GenerationResponse> {
-    const policy = getNvidiaModelPolicy(this.modelId);
-    if (!policy) {
-      throw new NvidiaProviderError('INVALID_REQUEST');
-    }
-    if (request.questions.length === 0) {
-      return { cycleId: request.cycleId, results: [] };
-    }
-    assertUniqueQuestionIds(request);
-
-    const timeoutMs = this.timeoutMs ?? policy.requestTimeoutMs;
-    const overallTimeoutMs = this.overallTimeoutMs ?? policy.overallTimeoutMs;
-    let batches: NvidiaQuestionBatch[];
+    const providerStartedAt = performance ? monotonicNow() : 0;
+    let outcome: PerformanceOutcome = 'UNKNOWN';
+    performance?.setModelId(this.modelId);
+    performance?.addCount('expectedQuestionCount', request.questions.length);
+    performance?.setResultProcessing({
+      expectedQuestionCount: request.questions.length,
+    });
     try {
-      batches = planNvidiaBatches(request, policy.batchLimits, {
-        payloadProfile: policy.payloadProfile,
-        reasoningTokenReserve: policy.reasoningTokenReserve,
-      });
-    } catch (error) {
-      if (error instanceof NvidiaBatchLimitError) {
+      const policy = getNvidiaModelPolicy(this.modelId);
+      if (!policy) {
         throw new NvidiaProviderError('INVALID_REQUEST');
       }
-      throw error;
-    }
+      if (request.questions.length === 0) {
+        performance?.setMeasurementStatus('batches', 'NOT_APPLICABLE');
+        performance?.setMeasurementStatus('transports', 'NOT_APPLICABLE');
+        performance?.setMeasurementStatus('recovery', 'NOT_APPLICABLE');
+        performance?.setMeasurementStatus('resultProcessing', 'NOT_APPLICABLE');
+        outcome = 'SUCCESS';
+        return { cycleId: request.cycleId, results: [] };
+      }
+      assertUniqueQuestionIds(request);
 
-    if (batches.length === 1) {
+      const timeoutMs = this.timeoutMs ?? policy.requestTimeoutMs;
+      const overallTimeoutMs = this.overallTimeoutMs ?? policy.overallTimeoutMs;
+      let batches: NvidiaQuestionBatch[];
+      const planningStartedAt = performance ? monotonicNow() : 0;
       try {
-        return await requestGenerationResponse(
-          this.apiKey,
-          request,
-          this.modelId,
-          this.fetchImpl,
-          timeoutMs,
-          signal
-        );
+        batches = planNvidiaBatches(request, policy.batchLimits, {
+          payloadProfile: policy.payloadProfile,
+          reasoningTokenReserve: policy.reasoningTokenReserve,
+        });
+        if (performance) {
+          performance.addPhase(
+            'batchPlanningMs',
+            elapsedSince(planningStartedAt)
+          );
+          performance.addCount('plannedBatchCount', batches.length);
+        }
       } catch (error) {
-        if (
-          signal?.aborted &&
-          error instanceof NvidiaProviderError &&
-          error.safeCode === 'TIMEOUT'
-        ) {
-          throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
+        if (error instanceof NvidiaBatchLimitError) {
+          throw new NvidiaProviderError('INVALID_REQUEST');
         }
         throw error;
       }
-    }
 
-    try {
-      const response = await executeNvidiaRecovery(
-        request,
-        batches,
-        (batchRequest, batchSignal) =>
-          requestGenerationSalvageAttempt(
+      if (batches.length === 1) {
+        performance?.setMeasurementStatus('recovery', 'NOT_APPLICABLE');
+        const batch = batches[0];
+        const batchStartedAt = performance ? monotonicNow() : 0;
+        const requestStartedAtMs = performance
+          ? elapsedSince(providerStartedAt)
+          : 0;
+        try {
+          const response = await requestGenerationResponse(
             this.apiKey,
-            batchRequest,
+            request,
             this.modelId,
             this.fetchImpl,
             timeoutMs,
-            batchSignal
-          ),
-        {
-          signal,
-          overallTimeoutMs,
-          limits: policy.batchLimits,
-          payloadProfile: policy.payloadProfile,
-          reasoningTokenReserve: policy.reasoningTokenReserve,
+            signal,
+            performance ? { performance, batchIndex: 0, attempt: 1 } : {}
+          );
+          if (performance) {
+            performance.recordBatch({
+              batchIndex: 0,
+              batchCount: 1,
+              questionCount: batch.questions.length,
+              estimatedInputTokens: batch.estimatedInputTokens,
+              estimatedOutputTokens: batch.estimatedOutputTokens,
+              waveIndex: 0,
+              attempt: 1,
+              splitDepth: 0,
+              queueWaitMs: 0,
+              requestStartedAtMs,
+              requestDurationMs: elapsedSince(batchStartedAt),
+              totalBatchDurationMs: elapsedSince(batchStartedAt),
+              outcome: 'SUCCESS',
+              failureCategory: null,
+              activeConcurrency: 1,
+              queuedBatches: 0,
+              modelId: this.modelId,
+              usage: null,
+            });
+            recordResponseResultCounts(performance, response);
+          }
+          outcome = 'SUCCESS';
+          return response;
+        } catch (error) {
+          if (performance) {
+            const unsafe = error as {
+              safeCode?: unknown;
+              name?: unknown;
+            };
+            performance.recordBatch({
+              batchIndex: 0,
+              batchCount: 1,
+              questionCount: batch.questions.length,
+              estimatedInputTokens: batch.estimatedInputTokens,
+              estimatedOutputTokens: batch.estimatedOutputTokens,
+              waveIndex: 0,
+              attempt: 1,
+              splitDepth: 0,
+              queueWaitMs: 0,
+              requestStartedAtMs,
+              requestDurationMs: elapsedSince(batchStartedAt),
+              totalBatchDurationMs: elapsedSince(batchStartedAt),
+              outcome: signal?.aborted ? 'CANCELLED' : 'FAILURE',
+              failureCategory:
+                typeof unsafe.safeCode === 'string'
+                  ? unsafe.safeCode
+                  : 'PROVIDER_FAILURE',
+              activeConcurrency: 1,
+              queuedBatches: 0,
+              modelId: this.modelId,
+              usage: null,
+            });
+          }
+          if (
+            signal?.aborted &&
+            error instanceof NvidiaProviderError &&
+            error.safeCode === 'TIMEOUT'
+          ) {
+            throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
+          }
+          throw error;
         }
-      );
-      const validation = validateGenerationResponseForRequest(
-        response as unknown as Record<string, unknown>,
-        request
-      );
-      if (!validation.ok) {
-        throw new NvidiaProviderError(
-          validation.missingResults
-            ? 'INCOMPLETE_PROVIDER_RESPONSE'
-            : 'MALFORMED_PROVIDER_RESPONSE'
+      }
+
+      try {
+        const response = await executeNvidiaRecovery(
+          request,
+          batches,
+          (batchRequest, batchSignal, context) =>
+            requestGenerationSalvageAttempt(
+              this.apiKey,
+              batchRequest,
+              this.modelId,
+              this.fetchImpl,
+              timeoutMs,
+              batchSignal,
+              performance
+                ? {
+                    performance,
+                    batchIndex: context?.batchIndex,
+                    attempt: context?.attempt,
+                  }
+                : {}
+            ),
+          {
+            signal,
+            overallTimeoutMs,
+            limits: policy.batchLimits,
+            payloadProfile: policy.payloadProfile,
+            reasoningTokenReserve: policy.reasoningTokenReserve,
+            ...(performance ? { performance } : {}),
+          }
         );
+        const validationStartedAt = performance ? monotonicNow() : 0;
+        const validation = validateGenerationResponseForRequest(
+          response as unknown as Record<string, unknown>,
+          request
+        );
+        if (!validation.ok) {
+          throw new NvidiaProviderError(
+            validation.missingResults
+              ? 'INCOMPLETE_PROVIDER_RESPONSE'
+              : 'MALFORMED_PROVIDER_RESPONSE'
+          );
+        }
+        if (performance) {
+          const strictValidationMs = elapsedSince(validationStartedAt);
+          performance.addPhase(
+            'providerStrictValidationMs',
+            strictValidationMs
+          );
+          performance.setResultProcessing({ strictValidationMs });
+          recordResponseResultCounts(performance, response);
+        }
+        outcome = 'SUCCESS';
+        return response;
+      } catch (error) {
+        if (error instanceof NvidiaRecoveryDeadlineError) {
+          throw new NvidiaProviderError('TIMEOUT');
+        }
+        if (error instanceof NvidiaBatchCancellationError) {
+          throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
+        }
+        if (error instanceof NvidiaRecoveryExhaustedError) {
+          throw new NvidiaProviderError(error.safeCode);
+        }
+        throw error;
       }
-      return response;
     } catch (error) {
-      if (error instanceof NvidiaRecoveryDeadlineError) {
-        throw new NvidiaProviderError('TIMEOUT');
-      }
-      if (error instanceof NvidiaBatchCancellationError) {
-        throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
-      }
-      if (error instanceof NvidiaRecoveryExhaustedError) {
-        throw new NvidiaProviderError(error.safeCode);
-      }
+      outcome = signal?.aborted
+        ? 'CANCELLED'
+        : error instanceof NvidiaProviderError && error.safeCode === 'TIMEOUT'
+          ? 'DEADLINE'
+          : 'FAILURE';
       throw error;
+    } finally {
+      if (performance) {
+        performance.addPhase(
+          'providerGenerationMs',
+          elapsedSince(providerStartedAt)
+        );
+        performance.finish(outcome);
+      }
     }
   }
 }

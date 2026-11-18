@@ -10,6 +10,11 @@ import { createProcessingCycle, isCurrentCycle } from './Cycle';
 import { GENERATE_UNANSWERED, type GenerationIntent } from './Intent';
 import { createGenerationReport, type GenerationReport } from './Report';
 import { validateGenerationResponse } from './Validation';
+import {
+  elapsedSince,
+  monotonicNow,
+  type GenerationPerformanceRecorder,
+} from '../Shared/Performance';
 
 function isOperableQuestion(question: Question): boolean {
   return (
@@ -121,7 +126,8 @@ export class GenerationCoordinator {
     settledPages: readonly SettledPageState[],
     generator: GenerationInterface,
     preparedCycle?: { cycleId: string },
-    intent: GenerationIntent = GENERATE_UNANSWERED
+    intent: GenerationIntent = GENERATE_UNANSWERED,
+    performance?: GenerationPerformanceRecorder
   ): Promise<GenerationReport | null> {
     const cycle = preparedCycle ?? this.beginCycle();
     if (this.currentCycleId !== cycle.cycleId) {
@@ -135,31 +141,77 @@ export class GenerationCoordinator {
             selectedQuestionIds: Object.freeze([...intent.selectedQuestionIds]),
           }
         : intent;
+    const candidateStartedAt = performance ? monotonicNow() : 0;
     const candidates = selectGenerationCandidates(page, frozenIntent);
+    if (performance) {
+      performance.addPhase(
+        'candidateSelectionMs',
+        elapsedSince(candidateStartedAt)
+      );
+      performance.addCount('candidateQuestionCount', candidates.length);
+    }
     if (candidates.length === 0) {
       return createGenerationReport(
         cycle.cycleId,
         createLocalGenerationResults(page)
       );
     }
-    const response = await generator.generate(
-      createRequest(page, cycle.cycleId, candidates, settledPages)
+    const requestStartedAt = performance ? monotonicNow() : 0;
+    const request = createRequest(
+      page,
+      cycle.cycleId,
+      candidates,
+      settledPages
     );
+    if (performance) {
+      performance.addPhase('requestBuildMs', elapsedSince(requestStartedAt));
+      performance.addCount('providerQuestionCount', request.questions.length);
+    }
+    const generationStartedAt = performance ? monotonicNow() : 0;
+    const response = performance
+      ? await generator.generate(request, undefined, performance)
+      : await generator.generate(request);
+    if (performance) {
+      performance.addPhase(
+        'providerRequestMs',
+        elapsedSince(generationStartedAt)
+      );
+    }
 
     if (
       generationToken !== this.generationToken ||
       this.currentCycleId !== cycle.cycleId ||
       !isCurrentCycle(response.cycleId, cycle)
     ) {
+      performance?.addCount('staleGenerationResponseCount');
       return null;
     }
 
+    const validationStartedAt = performance ? monotonicNow() : 0;
     const results = validateGenerationResponse(
       response,
       page.form,
       cycle.cycleId,
       candidates
     );
+    if (performance) {
+      performance.addPhase(
+        'resultValidationMs',
+        elapsedSince(validationStartedAt)
+      );
+      performance.addCount('validatedResultCount', results.length);
+      let validationFailedCount = 0;
+      for (const result of results) {
+        performance.addCount(`resultStatus:${result.status}`);
+        if (result.status === 'VALIDATION_FAILED') {
+          validationFailedCount += 1;
+        }
+      }
+      performance.setResultProcessing({
+        validationFailedCount,
+        returnedResultCount: results.length,
+      });
+    }
     // The page workflow creates pending state from this report after generation; it commits only after a confirmed transition.
     return createGenerationReport(cycle.cycleId, results);
   }

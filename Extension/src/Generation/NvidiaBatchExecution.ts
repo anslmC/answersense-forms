@@ -7,6 +7,11 @@ import {
   createNvidiaBatchRequest,
   type NvidiaQuestionBatch,
 } from './NvidiaBatchPlanning';
+import {
+  elapsedSince,
+  monotonicNow,
+  type GenerationPerformanceRecorder,
+} from '../Shared/Performance';
 
 export const NVIDIA_BATCH_CONCURRENCY = 2;
 
@@ -68,10 +73,18 @@ export type NvidiaBatchRunner = (
   signal?: AbortSignal
 ) => Promise<GenerationResponse>;
 
+export interface NvidiaBatchPerformanceMetadata {
+  readonly waveIndex: number;
+  readonly attempt: number;
+  readonly splitDepth: number;
+}
+
 export interface NvidiaBatchExecutionOptions {
   readonly concurrency?: number;
   readonly signal?: AbortSignal;
   readonly overallTimeoutMs?: number;
+  readonly performance?: GenerationPerformanceRecorder;
+  readonly batchMetadata?: ReadonlyMap<number, NvidiaBatchPerformanceMetadata>;
 }
 
 export interface NvidiaFailureDetails {
@@ -227,7 +240,10 @@ export async function executeNvidiaBatches(
   const outcomes = new Array<NvidiaBatchOutcome | undefined>(batches.length);
   const controller = new AbortController();
   const overallTimeoutMs = resolveOverallTimeout(options.overallTimeoutMs);
+  const executionStartedAt = options.performance ? monotonicNow() : 0;
   let nextIndex = 0;
+  let activeCount = 0;
+  let startedCount = 0;
   let cancelled = false;
   let deadlineExpired = false;
 
@@ -258,30 +274,124 @@ export async function executeNvidiaBatches(
       }
 
       const batch = batches[index];
+      const batchStartedAt = options.performance ? monotonicNow() : 0;
+      activeCount += 1;
+      startedCount += 1;
+      const activeConcurrency = activeCount;
+      const queuedBatches = Math.max(0, batches.length - nextIndex);
+      const queueWaitMs = options.performance
+        ? elapsedSince(executionStartedAt, batchStartedAt)
+        : 0;
+      const metadata = options.batchMetadata?.get(batch.index);
+      options.performance?.observeConcurrency(activeConcurrency, queuedBatches);
       try {
         const response = await runBatch(
           createNvidiaBatchRequest(request, batch),
           controller.signal
         );
         if (cancelled || deadlineExpired) {
+          options.performance?.recordBatch({
+            batchIndex: batch.index,
+            batchCount: batches.length,
+            questionCount: batch.questions.length,
+            estimatedInputTokens: batch.estimatedInputTokens,
+            estimatedOutputTokens: batch.estimatedOutputTokens,
+            waveIndex: metadata?.waveIndex ?? 0,
+            attempt: metadata?.attempt ?? null,
+            splitDepth: metadata?.splitDepth ?? 0,
+            queueWaitMs,
+            requestStartedAtMs: queueWaitMs,
+            requestDurationMs: elapsedSince(batchStartedAt),
+            totalBatchDurationMs: elapsedSince(batchStartedAt),
+            outcome: deadlineExpired ? 'DEADLINE' : 'CANCELLED',
+            failureCategory: null,
+            activeConcurrency,
+            queuedBatches,
+            modelId: null,
+            usage: null,
+          });
           return;
         }
         outcomes[index] = { ok: true, batch, response };
+        options.performance?.recordBatch({
+          batchIndex: batch.index,
+          batchCount: batches.length,
+          questionCount: batch.questions.length,
+          estimatedInputTokens: batch.estimatedInputTokens,
+          estimatedOutputTokens: batch.estimatedOutputTokens,
+          waveIndex: metadata?.waveIndex ?? 0,
+          attempt: metadata?.attempt ?? null,
+          splitDepth: metadata?.splitDepth ?? 0,
+          queueWaitMs,
+          requestStartedAtMs: queueWaitMs,
+          requestDurationMs: elapsedSince(batchStartedAt),
+          totalBatchDurationMs: queueWaitMs + elapsedSince(batchStartedAt),
+          outcome: 'SUCCESS',
+          failureCategory: null,
+          activeConcurrency,
+          queuedBatches,
+          modelId: null,
+          usage: null,
+        });
       } catch (error) {
         if (cancelled || deadlineExpired || controller.signal.aborted) {
+          options.performance?.recordBatch({
+            batchIndex: batch.index,
+            batchCount: batches.length,
+            questionCount: batch.questions.length,
+            estimatedInputTokens: batch.estimatedInputTokens,
+            estimatedOutputTokens: batch.estimatedOutputTokens,
+            waveIndex: metadata?.waveIndex ?? 0,
+            attempt: metadata?.attempt ?? null,
+            splitDepth: metadata?.splitDepth ?? 0,
+            queueWaitMs,
+            requestStartedAtMs: queueWaitMs,
+            requestDurationMs: elapsedSince(batchStartedAt),
+            totalBatchDurationMs: queueWaitMs + elapsedSince(batchStartedAt),
+            outcome: deadlineExpired ? 'DEADLINE' : 'CANCELLED',
+            failureCategory: null,
+            activeConcurrency,
+            queuedBatches,
+            modelId: null,
+            usage: null,
+          });
           return;
         }
+        const failure = safeFailureMetadata(batch, error);
         outcomes[index] = {
           ok: false,
           batch,
           error,
-          metadata: safeFailureMetadata(batch, error),
+          metadata: failure,
         };
+        options.performance?.recordBatch({
+          batchIndex: batch.index,
+          batchCount: batches.length,
+          questionCount: batch.questions.length,
+          estimatedInputTokens: batch.estimatedInputTokens,
+          estimatedOutputTokens: batch.estimatedOutputTokens,
+          waveIndex: metadata?.waveIndex ?? 0,
+          attempt: metadata?.attempt ?? null,
+          splitDepth: metadata?.splitDepth ?? 0,
+          queueWaitMs,
+          requestStartedAtMs: queueWaitMs,
+          requestDurationMs: elapsedSince(batchStartedAt),
+          totalBatchDurationMs: queueWaitMs + elapsedSince(batchStartedAt),
+          outcome: 'FAILURE',
+          failureCategory: failure.category,
+          activeConcurrency,
+          queuedBatches,
+          modelId: null,
+          usage: null,
+        });
+      } finally {
+        activeCount -= 1;
       }
     }
   };
 
   const workerCount = resolveConcurrency(options.concurrency, batches.length);
+  options.performance?.setCount('configuredBatchConcurrency', workerCount);
   try {
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
   } finally {
@@ -289,6 +399,15 @@ export async function executeNvidiaBatches(
       clearTimeout(deadlineTimer);
     }
     options.signal?.removeEventListener('abort', abortFromCaller);
+    options.performance?.addCount('batchStartedCount', startedCount);
+    options.performance?.addCount(
+      'batchNotStartedCount',
+      batches.length - startedCount
+    );
+    options.performance?.addPhase(
+      'batchWaveExecutionMs',
+      elapsedSince(executionStartedAt)
+    );
   }
 
   const completedOutcomes = outcomes.filter(

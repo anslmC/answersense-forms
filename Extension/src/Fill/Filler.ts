@@ -6,6 +6,7 @@ import type {
 } from '../Models/Logical';
 import type { GenerationReport } from '../Generation/Report';
 import type { ReviewDecision } from '../Review/Decisions';
+import { elapsedSince, monotonicNow } from '../Shared/Performance';
 import {
   createQuestionTargetIndex,
   getOptionLabel,
@@ -41,6 +42,23 @@ export interface FillReport {
   readonly outcomes: readonly FillOutcome[];
 }
 
+export type ChoiceVerificationMode =
+  'IMMEDIATE' | 'EVENT' | 'FALLBACK' | 'CANCELLED';
+
+export interface ChoiceVerificationDetails {
+  readonly mode: ChoiceVerificationMode;
+  readonly attempts: number;
+  readonly elapsedMs: number;
+  readonly fallbackMs: number;
+  readonly verified: boolean;
+  readonly documentHidden: boolean;
+  readonly documentVisibility: 'visible' | 'hidden';
+}
+
+export interface FillInstrumentation {
+  recordVerification?(details: ChoiceVerificationDetails): void;
+}
+
 export interface SkipDiagnostic {
   readonly questionId: string;
   readonly generationStatus: QuestionResultStatus | 'unknown';
@@ -74,8 +92,8 @@ export function createSkipDiagnostics(
     });
 }
 
-const CHOICE_VERIFICATION_ATTEMPTS = 3;
-const CHOICE_VERIFICATION_DELAY_MS = 16;
+export const CHOICE_VERIFICATION_FALLBACK_MS = 250;
+const CHOICE_SELECTION_ATTRIBUTES = ['aria-checked', 'aria-selected'];
 
 function failureOutcome(
   questionId: string | null,
@@ -190,23 +208,235 @@ function deactivateOption(option: HTMLElement): void {
   option.click();
 }
 
-async function verifyChoiceSelection(
-  isSelected: () => boolean
-): Promise<boolean> {
-  for (let attempt = 0; attempt < CHOICE_VERIFICATION_ATTEMPTS; attempt += 1) {
-    if (isSelected()) return true;
-    if (attempt < CHOICE_VERIFICATION_ATTEMPTS - 1) {
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, CHOICE_VERIFICATION_DELAY_MS);
-      });
-    }
+interface ChoiceVerifier {
+  observe(): void;
+  verify(): Promise<ChoiceVerificationDetails>;
+  dispose(): void;
+}
+
+interface DocumentVisibility {
+  readonly hidden: boolean;
+  readonly visibility: 'visible' | 'hidden';
+}
+
+function readDocumentVisibility(document: Document | null): DocumentVisibility {
+  try {
+    const state = document?.visibilityState;
+    const hidden = state === 'hidden' || document?.hidden === true;
+    return { hidden, visibility: hidden ? 'hidden' : 'visible' };
+  } catch {
+    return { hidden: false, visibility: 'visible' };
   }
-  return false;
+}
+
+function getMutationObserverConstructor(
+  document: Document | null
+): typeof MutationObserver | null {
+  try {
+    const view = document?.defaultView;
+    if (view && typeof view.MutationObserver === 'function') {
+      return view.MutationObserver;
+    }
+  } catch {
+    // Fall through to the global implementation.
+  }
+  return typeof MutationObserver === 'function' ? MutationObserver : null;
+}
+
+/**
+ * Watches only the option elements involved in one verification. The observer
+ * is installed before the click and the fallback timer starts once waiting
+ * actually begins, so a hidden tab never delays an already-selected option.
+ */
+function createChoiceVerifier(
+  isSelected: () => boolean,
+  observedElements: readonly HTMLElement[],
+  ownerDocument: Document | null,
+  instrumentation?: FillInstrumentation
+): ChoiceVerifier {
+  let observer: MutationObserver | null = null;
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  const changeListeners: Array<{
+    element: HTMLElement;
+    listener: EventListener;
+  }> = [];
+  let attempts = 0;
+  let started = false;
+  let settled = false;
+  let result: ChoiceVerificationDetails | null = null;
+  let resolveWait: ((details: ChoiceVerificationDetails) => void) | null = null;
+  let startedAt = 0;
+  let visibility: DocumentVisibility = {
+    hidden: false,
+    visibility: 'visible',
+  };
+
+  const cleanup = (): void => {
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+    if (fallbackTimer !== null) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+    for (const { element, listener } of changeListeners.splice(0)) {
+      element.removeEventListener('change', listener);
+    }
+  };
+
+  const settle = (
+    verified: boolean,
+    mode: ChoiceVerificationMode
+  ): ChoiceVerificationDetails => {
+    if (result) {
+      return result;
+    }
+    settled = true;
+    cleanup();
+    const details: ChoiceVerificationDetails = {
+      mode,
+      attempts,
+      elapsedMs: started ? elapsedSince(startedAt) : 0,
+      fallbackMs: CHOICE_VERIFICATION_FALLBACK_MS,
+      verified,
+      documentHidden: visibility.hidden,
+      documentVisibility: visibility.visibility,
+    };
+    result = details;
+    try {
+      instrumentation?.recordVerification?.(details);
+    } catch {
+      // Instrumentation must never affect filling.
+    }
+    const resolve = resolveWait;
+    resolveWait = null;
+    resolve?.(details);
+    return details;
+  };
+
+  const checkForSelection = (mode: ChoiceVerificationMode): boolean => {
+    attempts += 1;
+    let selected = false;
+    try {
+      selected = isSelected();
+    } catch {
+      selected = false;
+    }
+    if (selected) {
+      settle(true, mode);
+    }
+    return selected;
+  };
+
+  const installObserver = (): void => {
+    if (observer) {
+      return;
+    }
+    const MutationObserverConstructor =
+      getMutationObserverConstructor(ownerDocument);
+    if (!MutationObserverConstructor) {
+      return;
+    }
+    try {
+      observer = new MutationObserverConstructor(() => {
+        if (!settled && started) {
+          checkForSelection('EVENT');
+        }
+      });
+      for (const element of observedElements) {
+        observer.observe(element, {
+          attributes: true,
+          attributeFilter: CHOICE_SELECTION_ATTRIBUTES,
+        });
+      }
+    } catch {
+      observer?.disconnect();
+      observer = null;
+    }
+  };
+
+  const installChangeListeners = (): void => {
+    if (changeListeners.length > 0) {
+      return;
+    }
+    for (const element of observedElements) {
+      const listener: EventListener = () => {
+        if (!settled) {
+          checkForSelection('EVENT');
+        }
+      };
+      element.addEventListener('change', listener);
+      changeListeners.push({ element, listener });
+    }
+  };
+
+  const expireFallback = (): void => {
+    fallbackTimer = null;
+    if (settled) {
+      return;
+    }
+    checkForSelection('FALLBACK');
+    if (!settled) {
+      settle(false, 'FALLBACK');
+    }
+  };
+
+  return {
+    observe(): void {
+      if (started || settled) {
+        return;
+      }
+      installObserver();
+    },
+    async verify(): Promise<ChoiceVerificationDetails> {
+      if (!started) {
+        started = true;
+        startedAt = monotonicNow();
+        visibility = readDocumentVisibility(ownerDocument);
+      }
+      attempts += 1;
+      // A synchronous failure still has to release the observer.
+      let selected: boolean;
+      try {
+        selected = isSelected();
+      } catch (error) {
+        settled = true;
+        cleanup();
+        throw error;
+      }
+      if (selected) {
+        return settle(true, 'IMMEDIATE');
+      }
+      installObserver();
+      installChangeListeners();
+      fallbackTimer = setTimeout(
+        expireFallback,
+        CHOICE_VERIFICATION_FALLBACK_MS
+      );
+      return new Promise<ChoiceVerificationDetails>((resolve) => {
+        resolveWait = resolve;
+      });
+    },
+    dispose(): void {
+      if (settled) {
+        cleanup();
+        return;
+      }
+      if (!started) {
+        settled = true;
+        cleanup();
+        return;
+      }
+      settle(false, 'CANCELLED');
+    },
+  };
 }
 
 async function fillSingleChoice(
   target: ResolvedChoiceTarget,
-  answer: Answer
+  answer: Answer,
+  instrumentation?: FillInstrumentation
 ): Promise<FillOutcome> {
   if (typeof answer.value !== 'string') {
     return failureOutcome(
@@ -241,30 +471,43 @@ async function fillSingleChoice(
       code: null,
     };
   }
-  activateOption(option);
-  if (!(await verifyChoiceSelection(() => isOptionSelected(option)))) {
-    return failureOutcome(
-      target.questionId,
-      {
-        code: 'INVALID_OPTION',
-        reason: 'The requested choice was not selected in the current DOM.',
-      },
-      answer
-    );
+  const verifier = createChoiceVerifier(
+    () => isOptionSelected(option),
+    [option],
+    option.ownerDocument,
+    instrumentation
+  );
+  verifier.observe();
+  try {
+    activateOption(option);
+    const verification = await verifier.verify();
+    if (!verification.verified) {
+      return failureOutcome(
+        target.questionId,
+        {
+          code: 'INVALID_OPTION',
+          reason: 'The requested choice was not selected in the current DOM.',
+        },
+        answer
+      );
+    }
+    return {
+      questionId: target.questionId,
+      status: 'FILLED',
+      answer,
+      reason: null,
+      code: null,
+    };
+  } finally {
+    verifier.dispose();
   }
-  return {
-    questionId: target.questionId,
-    status: 'FILLED',
-    answer,
-    reason: null,
-    code: null,
-  };
 }
 
 async function fillCheckboxes(
   target: ResolvedChoiceTarget,
   answer: Answer,
-  overwriteExisting = false
+  overwriteExisting = false,
+  instrumentation?: FillInstrumentation
 ): Promise<FillOutcome> {
   if (!Array.isArray(answer.value)) {
     return failureOutcome(
@@ -299,6 +542,22 @@ async function fillCheckboxes(
     );
   }
 
+  const labelsToVerify = missing.length > 0 ? available : requested;
+  const verificationOptions = labelsToVerify
+    .map((label) => optionsByLabel.get(label))
+    .filter((option): option is HTMLElement => option !== undefined);
+  const verifier = createChoiceVerifier(
+    () =>
+      labelsToVerify.every((label) => {
+        const option = optionsByLabel.get(label);
+        return option !== undefined && isOptionSelected(option);
+      }),
+    verificationOptions,
+    target.questionElement.ownerDocument,
+    instrumentation
+  );
+  verifier.observe();
+
   const newlySelected: HTMLElement[] = [];
   const newlyDeselected: HTMLElement[] = [];
   try {
@@ -321,6 +580,7 @@ async function fillCheckboxes(
       }
     }
   } catch {
+    verifier.dispose();
     try {
       for (const option of newlySelected) {
         if (isOptionSelected(option)) {
@@ -363,6 +623,7 @@ async function fillCheckboxes(
       missing.length === 0
     : requested.every((label) => selectedBefore.has(label));
   if (alreadyComplete) {
+    verifier.dispose();
     return {
       questionId: target.questionId,
       status: 'PRESERVED_EXISTING',
@@ -372,56 +633,54 @@ async function fillCheckboxes(
     };
   }
 
-  const labelsToVerify = missing.length > 0 ? available : requested;
-  const verified = await verifyChoiceSelection(() =>
-    labelsToVerify.every((label) => {
-      const option = optionsByLabel.get(label);
-      return option !== undefined && isOptionSelected(option);
-    })
-  );
-  if (!verified) {
-    try {
-      for (const option of newlySelected) {
-        if (isOptionSelected(option)) {
-          deactivateOption(option);
+  try {
+    const verification = await verifier.verify();
+    if (!verification.verified) {
+      try {
+        for (const option of newlySelected) {
+          if (isOptionSelected(option)) {
+            deactivateOption(option);
+          }
         }
+        if (newlySelected.some((option) => isOptionSelected(option))) {
+          throw new Error(
+            'Checkbox rollback could not restore the original state.'
+          );
+        }
+      } catch {
+        return {
+          questionId: target.questionId,
+          status: 'PARTIAL_FILL',
+          answer,
+          reason:
+            'Checkbox verification failed and rollback could not restore the original state.',
+          code: 'INVALID_OPTION',
+        };
       }
-      if (newlySelected.some((option) => isOptionSelected(option))) {
-        throw new Error(
-          'Checkbox rollback could not restore the original state.'
-        );
-      }
-    } catch {
-      return {
-        questionId: target.questionId,
-        status: 'PARTIAL_FILL',
-        answer,
-        reason:
-          'Checkbox verification failed and rollback could not restore the original state.',
-        code: 'INVALID_OPTION',
-      };
+      return failureOutcome(
+        target.questionId,
+        {
+          code: 'INVALID_OPTION',
+          reason:
+            'The requested checkbox selections were not retained by the current DOM.',
+        },
+        answer
+      );
     }
-    return failureOutcome(
-      target.questionId,
-      {
-        code: 'INVALID_OPTION',
-        reason:
-          'The requested checkbox selections were not retained by the current DOM.',
-      },
-      answer
-    );
-  }
 
-  return {
-    questionId: target.questionId,
-    status: missing.length > 0 ? 'PARTIAL_FILL' : 'FILLED',
-    answer: missing.length > 0 ? answer : currentChoiceAnswer(target),
-    reason:
-      missing.length > 0
-        ? 'Some requested checkbox options were unavailable.'
-        : null,
-    code: missing.length > 0 ? 'INVALID_OPTION' : null,
-  };
+    return {
+      questionId: target.questionId,
+      status: missing.length > 0 ? 'PARTIAL_FILL' : 'FILLED',
+      answer: missing.length > 0 ? answer : currentChoiceAnswer(target),
+      reason:
+        missing.length > 0
+          ? 'Some requested checkbox options were unavailable.'
+          : null,
+      code: missing.length > 0 ? 'INVALID_OPTION' : null,
+    };
+  } finally {
+    verifier.dispose();
+  }
 }
 
 async function fillQuestion(
@@ -429,7 +688,8 @@ async function fillQuestion(
   question: Question,
   answer: Answer,
   overwriteExisting: boolean,
-  index?: QuestionTargetIndex
+  index?: QuestionTargetIndex,
+  instrumentation?: FillInstrumentation
 ): Promise<FillOutcome> {
   const resolved = resolveCurrentQuestionTarget(document, question, index);
   if (!resolved.ok) {
@@ -450,10 +710,15 @@ async function fillQuestion(
     return fillText(resolved.target, answer);
   }
   if (resolved.target.kind === 'single-choice') {
-    return fillSingleChoice(resolved.target, answer);
+    return fillSingleChoice(resolved.target, answer, instrumentation);
   }
   if (resolved.target.kind === 'multiple-choice') {
-    return fillCheckboxes(resolved.target, answer, overwriteExisting);
+    return fillCheckboxes(
+      resolved.target,
+      answer,
+      overwriteExisting,
+      instrumentation
+    );
   }
   return failureOutcome(
     question.id,
@@ -470,7 +735,8 @@ export async function fillReviewedAnswers(
   form: Form,
   report: GenerationReport,
   decisions: readonly ReviewDecision[],
-  overwriteExisting = false
+  overwriteExisting = false,
+  instrumentation?: FillInstrumentation
 ): Promise<FillReport> {
   const decisionsById = new Map(
     decisions.map((decision) => [decision.questionId, decision])
@@ -533,7 +799,8 @@ export async function fillReviewedAnswers(
         question,
         decision.answer,
         overwriteExisting,
-        index
+        index,
+        instrumentation
       )
     );
   }

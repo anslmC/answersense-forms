@@ -1,5 +1,6 @@
 import type { GenerationReport } from '../Generation/Report';
 import type { FillReport } from '../Fill/Filler';
+import type { GenerationPerformanceReport } from '../Shared/Performance';
 import {
   createOverrideFilledIntent,
   type GenerationIntent,
@@ -85,11 +86,13 @@ export function createSpecificOverrideIntent(
 export interface GeneratedUiResult {
   report: GenerationReport;
   fillReport: FillReport;
+  performance?: GenerationPerformanceReport;
 }
 
 export interface ReusedUiResult {
   status: 'reused';
   pageId: string;
+  performance?: GenerationPerformanceReport;
 }
 
 export type UiGenerationResult = GeneratedUiResult | ReusedUiResult;
@@ -162,14 +165,24 @@ export interface WorkflowSnapshot {
   page: PageSummary | null;
   result: UiGenerationResult | null;
   error: string | null;
+  performance?: GenerationPerformanceReport;
 }
 
 export type UiState =
   | { name: 'UNSUPPORTED'; message: string }
-  | { name: 'READY'; page: PageSummary }
+  | {
+      name: 'READY';
+      page: PageSummary;
+      performance?: GenerationPerformanceReport;
+    }
   | { name: 'GENERATING'; page: PageSummary }
   | { name: 'REVIEW'; page: PageSummary; result: UiGenerationResult }
-  | { name: 'ERROR'; page: PageSummary | null; message: string };
+  | {
+      name: 'ERROR';
+      page: PageSummary | null;
+      message: string;
+      performance?: GenerationPerformanceReport;
+    };
 
 function pageWithFilledOutcomes(
   page: PageSummary,

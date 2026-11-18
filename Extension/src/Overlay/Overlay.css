@@ -543,6 +543,11 @@
   line-height: 1.2;
 }
 
+.generation-duration {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .status-message-row {
   display: flex;
   flex-wrap: wrap;

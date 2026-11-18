@@ -6,6 +6,10 @@ import type {
 import type { WorkflowQuestion } from './State';
 import { isUiGenerationResult } from './State';
 import type { GenerationIntent } from '../Generation/Intent';
+import {
+  attachPerformanceToError,
+  readPerformanceReport,
+} from '../Shared/Performance';
 
 export interface Workflow {
   discover(): Promise<PageSummary | WorkflowSnapshot | null>;
@@ -52,6 +56,9 @@ export function createBrowserWorkflow(): Workflow {
             : null,
           result: snapshot.result ?? null,
           error: snapshot.error ?? null,
+          ...(snapshot.performance
+            ? { performance: snapshot.performance }
+            : {}),
         };
       }
       return {
@@ -65,7 +72,10 @@ export function createBrowserWorkflow(): Workflow {
         ...(intent ? { intent } : {}),
       });
       if (response?.error) {
-        throw new Error(response.error);
+        throw attachPerformanceToError(
+          new Error(response.error),
+          readPerformanceReport(response)
+        );
       }
       if (!isUiGenerationResult(response)) {
         throw new Error('Generation returned an invalid result.');

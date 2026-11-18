@@ -29,6 +29,12 @@ import {
   createOverrideFilledIntent,
   type GenerationIntent,
 } from '../Generation/Intent';
+import {
+  GenerationPerformanceRecorder,
+  readPerformanceReport,
+  type GenerationPerformanceReport,
+  type PerformanceOutcome,
+} from '../Shared/Performance';
 
 export interface WorkflowAppOptions {
   root?: ParentNode;
@@ -42,6 +48,84 @@ export interface WorkflowAppHandle {
   refresh: () => Promise<void>;
   ready: Promise<void>;
   dispose: () => void;
+}
+
+function beginUiGenerationPerformance(
+  action: 'standard' | 'override'
+): GenerationPerformanceRecorder {
+  let correlationId = 'ui-generation';
+  try {
+    correlationId = `ui-${crypto.randomUUID()}`;
+  } catch {
+    // Instrumentation must never affect generation.
+  }
+  const performance = new GenerationPerformanceRecorder(correlationId, 'UI');
+  performance.addCount(
+    `ui${action === 'standard' ? 'Standard' : 'Override'}GenerationCount`
+  );
+  return performance;
+}
+
+function finishUiGenerationPerformance(
+  performance: GenerationPerformanceRecorder,
+  state: UiState,
+  options: {
+    outcome?: PerformanceOutcome;
+    durationMs?: number;
+    childReport?: GenerationPerformanceReport | null;
+  } = {}
+): number {
+  let durationMs = options.durationMs ?? performance.elapsedMs;
+  try {
+    const childReport =
+      options.childReport ??
+      readPerformanceReport(state) ??
+      (state.name === 'REVIEW' ? readPerformanceReport(state.result) : null);
+    performance.mergeChildReport(childReport);
+    if (state.name === 'REVIEW' && !('status' in state.result)) {
+      performance.correlate(state.result.report.cycleId);
+      performance.addCount(
+        'uiGeneratedResultCount',
+        state.result.report.results.length
+      );
+      for (const outcome of state.result.fillReport.outcomes) {
+        performance.addCount(`uiFillStatus:${outcome.status}`);
+      }
+      performance.setCount(
+        'uiFilledCount',
+        state.result.fillReport.outcomes.filter(
+          (outcome) =>
+            outcome.status === 'FILLED' ||
+            outcome.status === 'PARTIAL_FILL' ||
+            outcome.status === 'PRESERVED_EXISTING'
+        ).length
+      );
+    } else if (state.name === 'ERROR') {
+      performance.addCount('uiGenerationErrorCount');
+    }
+    if (options.durationMs === undefined) {
+      durationMs = performance.getReport().durationMs;
+    }
+    performance.recordBrowser({
+      phase: 'ui-generation',
+      durationMs,
+      questionCount:
+        state.name === 'REVIEW' && !('status' in state.result)
+          ? state.result.report.results.length
+          : null,
+      filledCount: null,
+      failedCount: null,
+      attemptCount: null,
+    });
+    performance.finish(
+      options.outcome ?? (state.name === 'ERROR' ? 'FAILURE' : 'SUCCESS'),
+      durationMs
+    );
+  } catch {
+    // Instrumentation must never affect generation.
+  }
+  performance.log();
+  return durationMs;
 }
 
 class ServiceWorkerResponseError extends Error {
@@ -58,6 +142,15 @@ interface ConfigurationSelection {
   providerId: string;
   modelId: string;
   credentialId: string;
+}
+
+type GenerationDurationOutcome = 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+interface ActiveGenerationRun {
+  readonly performance: GenerationPerformanceRecorder;
+  cancelled: boolean;
+  durationStarted: boolean;
+  performanceFinished: boolean;
 }
 
 export function mountAnswerSenseApp(
@@ -99,6 +192,11 @@ export function mountAnswerSenseApp(
   let configurationSelectionRevision = 0;
   let localGenerationSnapshotPending = false;
   let invalidatedGenerationOperationToken: number | null = null;
+  let activeGenerationRun: ActiveGenerationRun | null = null;
+  let generationDurationTimer: ReturnType<typeof setInterval> | null = null;
+  let generationElapsedMs: number | null = null;
+  let generationDurationOutcome: GenerationDurationOutcome | null = null;
+  const GENERATION_DURATION_UPDATE_MS = 100;
   const GENERATION_WARNING_DELAY_MS = 20_000;
   let generationWarningTimer: ReturnType<typeof setTimeout> | null = null;
   let generationWarningSequence = 0;
@@ -258,6 +356,106 @@ export function mountAnswerSenseApp(
     );
   }
 
+  function formatGenerationDuration(durationMs: number): string {
+    return `${Math.max(0, Math.round(durationMs)).toLocaleString('en-US')} ms`;
+  }
+
+  function clearGenerationDurationTimer(): void {
+    if (generationDurationTimer !== null) {
+      clearInterval(generationDurationTimer);
+      generationDurationTimer = null;
+    }
+  }
+
+  function clearGenerationDuration(): void {
+    clearGenerationDurationTimer();
+    generationElapsedMs = null;
+    generationDurationOutcome = null;
+  }
+
+  function updateGenerationDurationDisplay(): void {
+    const duration = element<HTMLElement>('[data-generation-duration]');
+    if (duration && generationElapsedMs !== null) {
+      duration.textContent = ` · ${formatGenerationDuration(
+        generationElapsedMs
+      )}`;
+    }
+  }
+
+  function appendGenerationDurationValue(
+    status: HTMLElement,
+    durationMs: number
+  ): void {
+    const duration = createElement('span');
+    duration.className = 'generation-duration';
+    duration.dataset.generationDuration = '';
+    duration.textContent = ` · ${formatGenerationDuration(durationMs)}`;
+    status.append(duration);
+  }
+
+  function appendGenerationDuration(status: HTMLElement, state: UiState): void {
+    if (state.name === 'GENERATING' && activeGenerationRun?.durationStarted) {
+      appendGenerationDurationValue(
+        status,
+        activeGenerationRun.performance.elapsedMs
+      );
+      return;
+    }
+    if (
+      generationElapsedMs !== null &&
+      ((state.name === 'REVIEW' && generationDurationOutcome === 'COMPLETED') ||
+        (state.name === 'ERROR' && generationDurationOutcome === 'FAILED'))
+    ) {
+      appendGenerationDurationValue(status, generationElapsedMs);
+    }
+  }
+
+  function beginGenerationDuration(): void {
+    clearGenerationDurationTimer();
+    generationElapsedMs = activeGenerationRun?.performance.elapsedMs ?? 0;
+    generationDurationOutcome = null;
+    generationDurationTimer = setInterval(() => {
+      if (!activeGenerationRun?.durationStarted) {
+        return;
+      }
+      generationElapsedMs = activeGenerationRun.performance.elapsedMs;
+      updateGenerationDurationDisplay();
+    }, GENERATION_DURATION_UPDATE_MS);
+  }
+
+  function finishGenerationDuration(
+    outcome: GenerationDurationOutcome,
+    durationMs: number
+  ): void {
+    clearGenerationDurationTimer();
+    generationElapsedMs = Math.max(0, Math.round(durationMs));
+    generationDurationOutcome = outcome;
+  }
+
+  function completeGenerationRun(
+    run: ActiveGenerationRun,
+    state: UiState,
+    childReport?: GenerationPerformanceReport | null
+  ): void {
+    if (!run.performanceFinished) {
+      run.performanceFinished = true;
+      const durationMs = finishUiGenerationPerformance(
+        run.performance,
+        state,
+        childReport ? { childReport } : {}
+      );
+      if (run.durationStarted) {
+        finishGenerationDuration(
+          state.name === 'ERROR' ? 'FAILED' : 'COMPLETED',
+          durationMs
+        );
+      }
+    }
+    if (activeGenerationRun === run) {
+      activeGenerationRun = null;
+    }
+  }
+
   function overridePageForState(state: UiState): PageSummary | null {
     if (state.name === 'UNSUPPORTED') return null;
     return refreshedOverridePage?.sourcePage === state.page
@@ -378,7 +576,13 @@ export function mountAnswerSenseApp(
     if (controller.state.name !== 'READY') return;
     const status = element<HTMLElement>('[data-status]');
     if (!status) return;
-    status.textContent = 'Canceled';
+    status.textContent = 'Cancelled';
+    if (
+      generationElapsedMs !== null &&
+      generationDurationOutcome === 'CANCELLED'
+    ) {
+      appendGenerationDurationValue(status, generationElapsedMs);
+    }
     setCancelAnnouncement('Generation canceled.');
     cancelConfirmationTimer = setTimeout(() => {
       cancelConfirmationTimer = null;
@@ -398,6 +602,19 @@ export function mountAnswerSenseApp(
       '[data-generation-cancel]'
     );
     if (cancelGeneration) cancelGeneration.disabled = true;
+    const run = activeGenerationRun;
+    if (run) {
+      run.cancelled = true;
+      if (run.durationStarted && !run.performanceFinished) {
+        run.performanceFinished = true;
+        const durationMs = run.performance.elapsedMs;
+        finishGenerationDuration('CANCELLED', durationMs);
+        finishUiGenerationPerformance(run.performance, controller.state, {
+          outcome: 'CANCELLED',
+          durationMs,
+        });
+      }
+    }
     resetGenerationAfterCancel();
     try {
       await send({ type: 'p7-cancel-generation' }).catch(() => undefined);
@@ -927,7 +1144,7 @@ export function mountAnswerSenseApp(
       if (generationWarningVisible) {
         status.textContent = 'This is taking longer than usual';
       } else {
-        status.textContent = 'Generating answers...';
+        status.textContent = 'Generating';
         scheduleGenerationWarning();
       }
       const cancelGeneration = element<HTMLButtonElement>(
@@ -949,7 +1166,7 @@ export function mountAnswerSenseApp(
         'This key or project doesn’t have access to the selected model. Check your API key and project permissions.';
       const serviceUnavailable503Message =
         "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
-      status.textContent = "Couldn't generate answers.";
+      status.textContent = 'Failed';
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
       if (state.message === modelAccessErrorMessage) {
         message.replaceChildren(
@@ -997,6 +1214,7 @@ export function mountAnswerSenseApp(
           false
         );
         if (forceClearNote) forceClearNote.hidden = false;
+        appendGenerationDuration(status, state);
         return;
       }
       progress.hidden = false;
@@ -1004,8 +1222,7 @@ export function mountAnswerSenseApp(
       progressBar.setAttribute('aria-valuetext', 'Completed');
       progressText.textContent = 'Completed';
       progressFill.style.width = '100%';
-      status.textContent =
-        state.name === 'REVIEW' ? 'Review answers' : 'Answers filled';
+      status.textContent = 'Completed';
       detail.textContent =
         state.name === 'REVIEW'
           ? 'Review the values in Google Forms before continuing.'
@@ -1179,6 +1396,7 @@ export function mountAnswerSenseApp(
       }
       results.hidden = false;
     }
+    appendGenerationDuration(status, state);
   }
 
   function renderValidationAvailability(): void {
@@ -1947,7 +2165,19 @@ export function mountAnswerSenseApp(
     if (overrideMessage)
       overrideMessage.textContent = 'Override selection ready.';
     publishOverrideIntent(intent);
-    const generation = controller.generate(renderAll, intent);
+    const performance = beginUiGenerationPerformance('override');
+    const run: ActiveGenerationRun = {
+      performance,
+      cancelled: false,
+      durationStarted: false,
+      performanceFinished: false,
+    };
+    activeGenerationRun = run;
+    const generation = controller.generate((state) => {
+      run.durationStarted = true;
+      beginGenerationDuration();
+      renderAll(state);
+    }, intent);
     localGenerationSnapshotPending = controller.state.name === 'GENERATING';
     void generation.then((state) => {
       if (
@@ -1960,6 +2190,7 @@ export function mountAnswerSenseApp(
       } else {
         overridePresentation = null;
       }
+      completeGenerationRun(run, state);
       renderAll(state);
     });
   });
@@ -2481,9 +2712,24 @@ export function mountAnswerSenseApp(
   primary.addEventListener('click', () => {
     if (!canGenerateCurrentSelection()) return;
     overridePresentation = null;
-    const generation = controller.generate(renderAll);
+    const performance = beginUiGenerationPerformance('standard');
+    const run: ActiveGenerationRun = {
+      performance,
+      cancelled: false,
+      durationStarted: false,
+      performanceFinished: false,
+    };
+    activeGenerationRun = run;
+    const generation = controller.generate((state) => {
+      run.durationStarted = true;
+      beginGenerationDuration();
+      renderAll(state);
+    });
     localGenerationSnapshotPending = controller.state.name === 'GENERATING';
-    void generation.then((state) => renderAll(state));
+    void generation.then((state) => {
+      completeGenerationRun(run, state);
+      renderAll(state);
+    });
   });
   forceClear.addEventListener('click', async () => {
     forceClear.disabled = true;
@@ -2513,6 +2759,17 @@ export function mountAnswerSenseApp(
         localGenerationSnapshotPending = false;
       }
       const state = controller.restore(message.snapshot as WorkflowSnapshot);
+      if (
+        terminalGenerationSnapshot &&
+        state.name !== 'GENERATING' &&
+        activeGenerationRun
+      ) {
+        completeGenerationRun(
+          activeGenerationRun,
+          state,
+          snapshot.performance ?? readPerformanceReport(message.snapshot)
+        );
+      }
       overridePresentation = null;
       options.onState?.(state);
       renderAll(state);
@@ -2538,7 +2795,10 @@ export function mountAnswerSenseApp(
     ready,
     dispose: () => {
       resetValidationTiming();
+      clearGenerationWarning();
       clearCancelConfirmation();
+      clearGenerationDuration();
+      activeGenerationRun = null;
     },
   };
 }

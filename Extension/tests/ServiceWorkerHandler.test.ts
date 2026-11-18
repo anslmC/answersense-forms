@@ -11,6 +11,7 @@ import { GEMINI_MODEL } from '../src/Generation/GeminiProvider';
 import { GEMINI_PROVIDER_ID } from '../src/Generation/ProviderRegistry';
 import { resolveActiveProviderConfiguration } from '../src/Background/ServiceWorkerConfiguration';
 import type { LifecycleSnapshot } from '../src/Lifecycle/PageLifecycle';
+import { readPerformanceReport } from '../src/Shared/Performance';
 
 const handlerState = vi.hoisted(() => ({
   adapterCalls: 0,
@@ -293,7 +294,17 @@ describe('Service Worker generation handler security boundary', () => {
         },
         sender(activeTabId)
       )
-    ).resolves.toEqual({ cycleId: 'handler-cycle', results: [] });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        cycleId: 'handler-cycle',
+        results: [],
+        performance: expect.objectContaining({
+          context: 'BACKGROUND',
+          providerId: 'nvidia',
+          modelId: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+        }),
+      })
+    );
     expect(handlerState.adapterCalls).toBe(1);
     expect(handlerState.providerCalls).toBe(1);
   });
@@ -443,6 +454,50 @@ describe('Service Worker Generate terminal projection', () => {
       })
     );
     expect(authorized.resolved.configurationDigest).toBeTruthy();
+  });
+
+  it('forwards content performance without persisting it in session state', async () => {
+    const performanceReport = {
+      correlationId: 'cycle-1',
+      context: 'CONTENT',
+      phases: { fillDurationMs: 12 },
+    };
+    const contentResult = { ...validResult, performance: performanceReport };
+    const { handleMessage, state } =
+      await prepareGenerationResponse(contentResult);
+
+    await expect(
+      handleMessage({ type: 'p7-generate' }, {
+        id: extensionId,
+      } as HandlerSender)
+    ).resolves.toEqual(contentResult);
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'REVIEW',
+            result: validResult,
+          }),
+        }),
+      })
+    );
+    expect(JSON.stringify(state.sessionValues)).not.toContain('"performance"');
+    await vi.waitFor(() =>
+      expect(
+        (
+          globalThis as typeof globalThis & {
+            chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
+          }
+        ).chrome.runtime.sendMessage
+      ).toHaveBeenCalledWith({
+        type: 'p7-state-updated',
+        snapshot: expect.objectContaining({
+          uiState: 'REVIEW',
+          result: validResult,
+          performance: performanceReport,
+        }),
+      })
+    );
   });
 
   it('rejects Override during Content pre-flight before claiming generation', async () => {
@@ -604,6 +659,41 @@ describe('Service Worker Generate terminal projection', () => {
             uiState: 'ERROR',
             result: null,
           }),
+        }),
+      })
+    );
+  });
+
+  it('forwards performance from a content error without persisting it', async () => {
+    const performanceReport = {
+      correlationId: 'cycle-1',
+      context: 'CONTENT',
+      phases: { fillDurationMs: 12 },
+    };
+    const { handleMessage, state } = await prepareGenerationResponse({
+      error: 'Generation response was stale.',
+      code: 'GENERATION_SUPERSEDED',
+      performance: performanceReport,
+    });
+
+    const failure = await handleMessage({ type: 'p7-generate' }, {
+      id: extensionId,
+    } as HandlerSender).catch((error: unknown) => error);
+
+    expect(readPerformanceReport(failure)).toEqual(performanceReport);
+    expect(JSON.stringify(state.sessionValues)).not.toContain('"performance"');
+    await vi.waitFor(() =>
+      expect(
+        (
+          globalThis as typeof globalThis & {
+            chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
+          }
+        ).chrome.runtime.sendMessage
+      ).toHaveBeenCalledWith({
+        type: 'p7-state-updated',
+        snapshot: expect.objectContaining({
+          uiState: 'ERROR',
+          performance: performanceReport,
         }),
       })
     );

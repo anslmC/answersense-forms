@@ -4,6 +4,10 @@ import {
   type SafeProviderDiagnostics,
   type SafeProviderErrorCode,
 } from './ProviderErrorSanitizer';
+import {
+  readPerformanceReport,
+  type GenerationPerformanceReport,
+} from '../Shared/Performance';
 
 export class SafeServiceWorkerError extends Error {
   constructor(
@@ -18,7 +22,8 @@ export class SafeServiceWorkerError extends Error {
       | 'OVERRIDE_SELECTION_INVALID'
       | 'UNAUTHORIZED_SENDER',
     message: string,
-    public readonly diagnostics?: SafeProviderDiagnostics
+    public readonly diagnostics?: SafeProviderDiagnostics,
+    public readonly performance?: GenerationPerformanceReport
   ) {
     super(message);
     this.name = 'SafeServiceWorkerError';
@@ -29,6 +34,7 @@ export interface ServiceWorkerErrorResponse {
   error: string;
   code: SafeServiceWorkerError['code'];
   diagnostics?: SafeProviderDiagnostics;
+  performance?: GenerationPerformanceReport;
 }
 
 type ServiceWorkerOnlyErrorCode = Exclude<
@@ -147,7 +153,7 @@ function providerResponse(
   };
 }
 
-function safeServiceWorkerErrorResponse(
+function safeServiceWorkerErrorResponseBody(
   error: SafeServiceWorkerError
 ): ServiceWorkerErrorResponse {
   const { code, message, diagnostics } = error;
@@ -204,15 +210,23 @@ export function serviceWorkerErrorResponse(
   error: unknown
 ): ServiceWorkerErrorResponse {
   try {
+    let response: ServiceWorkerErrorResponse;
     if (error instanceof SafeServiceWorkerError) {
-      return safeServiceWorkerErrorResponse(error);
+      response = safeServiceWorkerErrorResponseBody(error);
+    } else {
+      const contentFailure = contentGenerationFailure(error);
+      if (contentFailure) {
+        response = contentFailure;
+      } else {
+        const safe = sanitizeProviderError(error);
+        response = providerResponse(safe, safe.diagnostics);
+      }
     }
-    const contentFailure = contentGenerationFailure(error);
-    if (contentFailure) {
-      return contentFailure;
-    }
-    const safe = sanitizeProviderError(error);
-    return providerResponse(safe, safe.diagnostics);
+    const performance =
+      error instanceof SafeServiceWorkerError
+        ? (error.performance ?? readPerformanceReport(error))
+        : readPerformanceReport(error);
+    return performance ? { ...response, performance } : response;
   } catch {
     return GENERIC_PROVIDER_FAILURE;
   }

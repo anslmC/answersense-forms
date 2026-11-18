@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Form, Question } from '../src/Models/Logical';
 import { normalizeDiscoveredActivePage } from '../src/Forms/Normalization';
 import { GenerationCoordinator } from '../src/Generation/Pipeline';
@@ -10,7 +10,12 @@ import {
   editReviewedAnswer,
   skipReviewedAnswer,
 } from '../src/Review/Decisions';
-import { createSkipDiagnostics, fillReviewedAnswers } from '../src/Fill/Filler';
+import {
+  CHOICE_VERIFICATION_FALLBACK_MS,
+  createSkipDiagnostics,
+  fillReviewedAnswers,
+  type ChoiceVerificationDetails,
+} from '../src/Fill/Filler';
 import { resolveCurrentQuestionTarget } from '../src/Fill/Resolver';
 
 function question(
@@ -1220,5 +1225,270 @@ describe('P4 sequential filling and preservation', () => {
         ) as HTMLInputElement
       ).value
     ).toBe('');
+  });
+});
+
+describe('event-driven choice verification', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function collectInstrumentation() {
+    const records: ChoiceVerificationDetails[] = [];
+    return {
+      records,
+      instrumentation: {
+        recordVerification: (details: ChoiceVerificationDetails) => {
+          records.push(details);
+        },
+      },
+    };
+  }
+
+  it('resolves synchronously selected choices immediately without a fallback timer', async () => {
+    vi.useFakeTimers();
+    const disconnect = vi.spyOn(MutationObserver.prototype, 'disconnect');
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => option.setAttribute('aria-checked', 'true');
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const result = await fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(option.getAttribute('aria-checked')).toBe('true');
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      mode: 'IMMEDIATE',
+      verified: true,
+      attempts: 1,
+      fallbackMs: CHOICE_VERIFICATION_FALLBACK_MS,
+      documentHidden: false,
+      documentVisibility: 'visible',
+    });
+    expect(Number.isFinite(records[0].elapsedMs)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves through the observer when selection appears after 75 ms', async () => {
+    vi.useFakeTimers();
+    const disconnect = vi.spyOn(MutationObserver.prototype, 'disconnect');
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    const removeListener = vi.spyOn(option, 'removeEventListener');
+    option.click = () => {
+      setTimeout(() => option.setAttribute('aria-checked', 'true'), 75);
+    };
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    await vi.advanceTimersByTimeAsync(74);
+    expect(records).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ mode: 'EVENT', verified: true });
+    expect(records[0].attempts).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_FALLBACK_MS * 2);
+    expect(records).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledWith('change', expect.any(Function));
+  });
+
+  it('expires after the bounded fallback deadline and keeps FILL_FAILED', async () => {
+    vi.useFakeTimers();
+    const disconnect = vi.spyOn(MutationObserver.prototype, 'disconnect');
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    const removeListener = vi.spyOn(option, 'removeEventListener');
+    option.click = () => {};
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    let settled = false;
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    ).then((value) => {
+      settled = true;
+      return value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_FALLBACK_MS - 1);
+    expect(settled).toBe(false);
+    expect(records).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({
+      status: 'FILL_FAILED',
+      code: 'INVALID_OPTION',
+    });
+    expect(option.getAttribute('aria-checked')).toBe('false');
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      mode: 'FALLBACK',
+      verified: false,
+      fallbackMs: CHOICE_VERIFICATION_FALLBACK_MS,
+    });
+    expect(records[0].attempts).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledWith('change', expect.any(Function));
+  });
+
+  it('waits for every asynchronously selected checkbox and resolves once', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    const one = document.querySelector<HTMLElement>(
+      '[data-question-id="checks"] [aria-label="One"]'
+    )!;
+    const three = document.querySelector<HTMLElement>(
+      '[data-question-id="checks"] [aria-label="Three"]'
+    )!;
+    one.click = () => {
+      setTimeout(() => one.setAttribute('aria-checked', 'true'), 30);
+    };
+    three.click = () => {
+      setTimeout(() => three.setAttribute('aria-checked', 'true'), 90);
+    };
+    const report = reportFor([
+      { questionId: 'checks', value: ['One', 'Three'] },
+    ]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('checks', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    await vi.advanceTimersByTimeAsync(30);
+    expect(records).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(60);
+    const result = await fillPromise;
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ mode: 'EVENT', verified: true });
+    expect(records[0].attempts).toBe(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves checkbox rollback when verification expires', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    const one = document.querySelector<HTMLElement>(
+      '[data-question-id="checks"] [aria-label="One"]'
+    )!;
+    const three = document.querySelector<HTMLElement>(
+      '[data-question-id="checks"] [aria-label="Three"]'
+    )!;
+    one.click = () => {
+      one.setAttribute('aria-checked', 'true');
+      setTimeout(() => one.setAttribute('aria-checked', 'false'), 40);
+    };
+    three.click = () => {};
+    const report = reportFor([
+      { questionId: 'checks', value: ['One', 'Three'] },
+    ]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('checks', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    await vi.advanceTimersByTimeAsync(40);
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_FALLBACK_MS - 40);
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({
+      status: 'FILL_FAILED',
+      code: 'INVALID_OPTION',
+    });
+    expect(one.getAttribute('aria-checked')).toBe('false');
+    expect(three.getAttribute('aria-checked')).toBe('false');
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ mode: 'FALLBACK', verified: false });
+    expect(records[0].attempts).toBeGreaterThanOrEqual(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('records hidden-document metadata without changing fill behavior', async () => {
+    const document = createDocument();
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      value: true,
+    });
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    const result = await fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    );
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(option.getAttribute('aria-checked')).toBe('true');
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      mode: 'IMMEDIATE',
+      verified: true,
+      documentHidden: true,
+      documentVisibility: 'hidden',
+    });
   });
 });

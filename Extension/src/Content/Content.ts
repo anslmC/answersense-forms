@@ -42,6 +42,13 @@ import {
   inspectOverrideTargets,
 } from '../Fill/Override';
 import type { DiscoveredPage } from '../Forms/Discovery';
+import {
+  attachPerformanceToError,
+  elapsedSince,
+  GenerationPerformanceRecorder,
+  monotonicNow,
+  readPerformanceReport,
+} from '../Shared/Performance';
 
 log(`${EXTENSION_NAME} content script initialized.`);
 
@@ -585,16 +592,25 @@ void hydration.then(async () => {
 
 function createGeminiGenerator(
   configurationDigest: string,
-  configurationRevision: number
+  configurationRevision: number,
+  performance?: GenerationPerformanceRecorder
 ) {
   return {
     async generate(request: GenerationRequest): Promise<GenerationResponse> {
+      const messageStartedAt = performance ? monotonicNow() : 0;
       const response = await chrome.runtime.sendMessage({
         type: 'gemini-generate',
         request,
         configurationDigest,
         configurationRevision,
       });
+      if (performance) {
+        performance.addPhase(
+          'generationMessageRoundtripMs',
+          elapsedSince(messageStartedAt)
+        );
+        performance.mergeChildReport(readPerformanceReport(response));
+      }
       if (response?.error) {
         const failure = response as {
           error: unknown;
@@ -734,14 +750,18 @@ async function handleRequest(request: {
   }
 
   if (request.type === 'generate-current-page') {
+    const handlerStartedAt = monotonicNow();
     await hydration;
+    const hydrationCompletedAt = monotonicNow();
     if (
       !request.configurationDigest ||
       request.configurationRevision === undefined
     ) {
       throw new Error('Generation configuration is missing.');
     }
+    const synchronizationStartedAt = monotonicNow();
     const synchronization = await synchronizeCurrentPage();
+    const synchronizationCompletedAt = monotonicNow();
     if (synchronization === 'pending') {
       throw new Error(
         'Generation is unavailable while page transition is pending.'
@@ -751,6 +771,24 @@ async function handleRequest(request: {
       throw new Error('Generation requires a synchronized current page.');
     }
     const pageLifecycle = ensureLifecycle();
+    const performance = new GenerationPerformanceRecorder(
+      pageLifecycle.currentCycle.cycleId,
+      'CONTENT',
+      handlerStartedAt
+    );
+    performance.addPhase('preflightMs', elapsedSince(handlerStartedAt));
+    performance.addPhase(
+      'hydrationMs',
+      elapsedSince(handlerStartedAt, hydrationCompletedAt)
+    );
+    performance.addPhase(
+      'synchronizationMs',
+      elapsedSince(synchronizationStartedAt, synchronizationCompletedAt)
+    );
+    performance.addCount(
+      'pageQuestionCount',
+      pageLifecycle.currentPage.form.questions.length
+    );
     const intent: GenerationIntent = request.intent
       ? parseGenerationIntent(request.intent)
       : { type: 'GENERATE_UNANSWERED' };
@@ -777,57 +815,170 @@ async function handleRequest(request: {
           reason: target.reason,
           code: target.code,
         }));
+      performance.addCount('overrideFailureCount', overrideFailures.length);
     }
     if (
       intent.type === 'GENERATE_UNANSWERED' &&
       !shouldGeneratePage(pageLifecycle.currentRevisitStatus)
     ) {
+      performance.addCount('reusedPageCount');
+      performance.finish('SUCCESS');
+      const report = performance.getReport();
+      performance.log();
       return {
         status: 'reused',
         pageId: pageLifecycle.currentPage.form.activePageId,
+        performance: report,
       };
     }
-    const report = await generation.generate(
-      pageLifecycle.currentPage,
-      pageLifecycle.settledPageStates,
-      createGeminiGenerator(
-        request.configurationDigest,
-        request.configurationRevision
-      ),
-      pageLifecycle.currentCycle,
-      executionIntent
-    );
-    if (!report) {
-      throw new Error('Generation response was stale or invalidated.');
-    }
-    const filledReport = await fillReviewedAnswers(
-      document,
-      pageLifecycle.currentPage.form,
-      report,
-      createAcceptedReviewDecisions(report),
-      executionIntent.type === 'OVERRIDE_FILLED'
-    );
-    pageLifecycle.captureCurrentAnswers(document);
-    const fillReport = {
-      cycleId: filledReport.cycleId,
-      outcomes: Object.freeze([...filledReport.outcomes, ...overrideFailures]),
-    };
-    const handoff = createFinalizedPageHandoff(
-      document,
-      pageLifecycle.currentPage.form,
-      fillReport
-    );
-    pageLifecycle.acceptFinalizedHandoff(handoff);
-    if (typeof globalThis !== 'undefined') {
-      const skipDiagnostics = createSkipDiagnostics(report, fillReport);
-      (
-        globalThis as typeof globalThis & {
-          __answersenseSkipDiagnostics?: readonly object[];
+    try {
+      const report = await generation.generate(
+        pageLifecycle.currentPage,
+        pageLifecycle.settledPageStates,
+        createGeminiGenerator(
+          request.configurationDigest,
+          request.configurationRevision,
+          performance
+        ),
+        pageLifecycle.currentCycle,
+        executionIntent,
+        performance
+      );
+      if (!report) {
+        throw new Error('Generation response was stale or invalidated.');
+      }
+      const fillStartedAt = monotonicNow();
+      const fillDocumentHidden =
+        document.visibilityState === 'hidden' || document.hidden;
+      performance.addCount(
+        fillDocumentHidden
+          ? 'fillDocumentHiddenCount'
+          : 'fillDocumentVisibleCount'
+      );
+      const filledReport = await fillReviewedAnswers(
+        document,
+        pageLifecycle.currentPage.form,
+        report,
+        createAcceptedReviewDecisions(report),
+        executionIntent.type === 'OVERRIDE_FILLED',
+        {
+          recordVerification: (details) => {
+            performance.addCount('choiceVerificationCount');
+            performance.addCount(
+              'choiceVerificationAttemptCount',
+              details.attempts
+            );
+            performance.addPhase(
+              'choiceVerificationElapsedMs',
+              details.elapsedMs
+            );
+            performance.addPhase(
+              'choiceVerificationFallbackMs',
+              details.fallbackMs
+            );
+            performance.addCount(
+              details.verified
+                ? 'choiceVerificationSuccessCount'
+                : 'choiceVerificationFailureCount'
+            );
+            if (details.mode === 'IMMEDIATE' && details.verified) {
+              performance.addCount('choiceVerificationImmediateSuccessCount');
+            }
+            if (details.mode === 'EVENT' && details.verified) {
+              performance.addCount('choiceVerificationEventSuccessCount');
+            }
+            if (details.mode === 'FALLBACK') {
+              performance.addCount('choiceVerificationFallbackExpirationCount');
+            }
+            if (details.mode === 'CANCELLED') {
+              performance.addCount('choiceVerificationCancelledCount');
+            }
+            if (details.documentHidden) {
+              performance.addCount('choiceVerificationStartedHiddenCount');
+            }
+          },
         }
-      ).__answersenseSkipDiagnostics = skipDiagnostics;
+      );
+      const fillDurationMs = elapsedSince(fillStartedAt);
+      performance.addPhase('fillDurationMs', fillDurationMs);
+      for (const outcome of filledReport.outcomes) {
+        performance.addCount(`fillStatus:${outcome.status}`);
+      }
+      const filledCount = filledReport.outcomes.filter(
+        (outcome) =>
+          outcome.status === 'FILLED' ||
+          outcome.status === 'PARTIAL_FILL' ||
+          outcome.status === 'PRESERVED_EXISTING'
+      ).length;
+      const failedCount = filledReport.outcomes.filter(
+        (outcome) => outcome.status === 'FILL_FAILED'
+      ).length;
+      performance.recordBrowser({
+        phase: 'fill',
+        durationMs: fillDurationMs,
+        questionCount: filledReport.outcomes.length,
+        filledCount,
+        failedCount,
+        attemptCount: null,
+      });
+      const captureStartedAt = monotonicNow();
+      pageLifecycle.captureCurrentAnswers(document);
+      performance.addPhase('postFillCaptureMs', elapsedSince(captureStartedAt));
+      const fillReport = {
+        cycleId: filledReport.cycleId,
+        outcomes: Object.freeze([
+          ...filledReport.outcomes,
+          ...overrideFailures,
+        ]),
+      };
+      const handoffStartedAt = monotonicNow();
+      const handoff = createFinalizedPageHandoff(
+        document,
+        pageLifecycle.currentPage.form,
+        fillReport
+      );
+      pageLifecycle.acceptFinalizedHandoff(handoff);
+      performance.addPhase('handoffMs', elapsedSince(handoffStartedAt));
+      if (typeof globalThis !== 'undefined') {
+        const skipDiagnostics = createSkipDiagnostics(report, fillReport);
+        (
+          globalThis as typeof globalThis & {
+            __answersenseSkipDiagnostics?: readonly object[];
+          }
+        ).__answersenseSkipDiagnostics = skipDiagnostics;
+      }
+      const publishStartedAt = monotonicNow();
+      await publishLifecycleSnapshot();
+      const publishDurationMs = elapsedSince(publishStartedAt);
+      performance.addPhase('lifecyclePublicationMs', publishDurationMs);
+      performance.recordBrowser({
+        phase: 'lifecycle-publication',
+        durationMs: publishDurationMs,
+        questionCount: null,
+        filledCount,
+        failedCount,
+        attemptCount: null,
+      });
+      performance.recordBrowser({
+        phase: 'generation-through-fill',
+        durationMs: elapsedSince(handlerStartedAt),
+        questionCount: pageLifecycle.currentPage.form.questions.length,
+        filledCount,
+        failedCount,
+        attemptCount: null,
+      });
+      performance.finish('SUCCESS');
+      return { report, fillReport, performance: performance.getReport() };
+    } catch (error) {
+      performance.finish(
+        error instanceof Error && error.message.includes('stale or invalidated')
+          ? 'STALE'
+          : 'FAILURE'
+      );
+      throw attachPerformanceToError(error, performance.getReport());
+    } finally {
+      performance.log();
     }
-    await publishLifecycleSnapshot();
-    return { report, fillReport };
   }
 
   if (request.type === 'cancel-generation') {
@@ -907,10 +1058,12 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   void handleRequest(request ?? {})
     .then((response) => sendResponse(response))
     .catch((error: unknown) => {
+      const performance = readPerformanceReport(error);
       sendResponse({
         error:
           error instanceof Error ? error.message : 'Content operation failed.',
         ...providerFailureFields(error),
+        ...(performance ? { performance } : {}),
       });
     });
   return true;

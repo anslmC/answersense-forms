@@ -1,4 +1,5 @@
 import type { AnswerValue, SupportedQuestionType } from '../Models/Logical';
+import type { GenerationPerformanceRecorder } from '../Shared/Performance';
 
 export type ProviderErrorCode =
   | 'AUTHENTICATION_FAILED'
@@ -83,6 +84,7 @@ export interface GenerationResponse {
 export interface GenerationInterface {
   generate(
     request: GenerationRequest,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    performance?: GenerationPerformanceRecorder
   ): Promise<GenerationResponse>;
 }

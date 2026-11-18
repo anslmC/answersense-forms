@@ -2,6 +2,7 @@ import type { UiState, WorkflowSnapshot } from './State';
 import { WorkflowStateMachine } from './State';
 import type { Workflow } from './Workflow';
 import type { GenerationIntent } from '../Generation/Intent';
+import { readPerformanceReport } from '../Shared/Performance';
 
 export class WorkflowController {
   readonly stateMachine = new WorkflowStateMachine();
@@ -36,11 +37,19 @@ export class WorkflowController {
     const token = this.stateMachine.activeOperationToken;
     try {
       const result = await this.workflow.generate(intent);
-      return this.stateMachine.completeGeneration(token, result);
+      const state = this.stateMachine.completeGeneration(token, result);
+      const performance = readPerformanceReport(result);
+      return performance && state.name === 'READY'
+        ? { ...state, performance }
+        : state;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not generate answers.';
-      return this.stateMachine.failGeneration(token, message);
+      const state = this.stateMachine.failGeneration(token, message);
+      const performance = readPerformanceReport(error);
+      return performance && state.name === 'ERROR'
+        ? { ...state, performance }
+        : state;
     }
   }
 

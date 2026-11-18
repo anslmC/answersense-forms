@@ -29,6 +29,11 @@ import {
 } from './NvidiaRequest';
 import type { NvidiaBatchFailureDescriptor } from './NvidiaResponseAssembly';
 import { nvidiaResultFailureDetails } from './NvidiaSalvage';
+import {
+  elapsedSince,
+  monotonicNow,
+  type GenerationPerformanceRecorder,
+} from '../Shared/Performance';
 
 export const NVIDIA_RECOVERY_MAX_ATTEMPTS = 3;
 export const NVIDIA_RECOVERY_MAX_SPLIT_DEPTH = 3;
@@ -56,9 +61,17 @@ export class NvidiaRecoveryExhaustedError extends Error {
   }
 }
 
+export interface NvidiaRecoveryAttemptContext {
+  readonly batchIndex: number;
+  readonly waveIndex: number;
+  readonly attempt: number;
+  readonly splitDepth: number;
+}
+
 export type NvidiaRecoveryRunner = (
   request: NvidiaGenerationRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context?: NvidiaRecoveryAttemptContext
 ) => Promise<GenerationResponse>;
 
 export interface NvidiaRecoveryOptions {
@@ -73,6 +86,7 @@ export interface NvidiaRecoveryOptions {
   readonly limits?: NvidiaBatchLimits;
   readonly payloadProfile?: NvidiaPayloadProfile;
   readonly reasoningTokenReserve?: number;
+  readonly performance?: GenerationPerformanceRecorder;
 }
 
 interface NormalizedRecoveryOptions {
@@ -87,6 +101,7 @@ interface NormalizedRecoveryOptions {
   readonly limits: NvidiaBatchLimits;
   readonly payloadProfile: NvidiaPayloadProfile;
   readonly reasoningTokenReserve: number;
+  readonly performance?: GenerationPerformanceRecorder;
 }
 
 interface RecoveryTask {
@@ -168,6 +183,7 @@ function normalizeOptions(
       options.reasoningTokenReserve,
       0
     ),
+    ...(options.performance ? { performance: options.performance } : {}),
   };
 }
 
@@ -280,6 +296,20 @@ export async function executeNvidiaRecovery(
     (maximum, batch) => Math.max(maximum, batch.index + 1),
     0
   );
+  const performance = normalized.performance;
+  const recoveryStartedAt = performance ? monotonicNow() : 0;
+  let waveIndex = 0;
+  let initialExecutionMs = 0;
+  let initialExecutionCompleted = false;
+  let retryCount = 0;
+  let splitCount = 0;
+  let maxSplitDepth = 0;
+  let concurrencyReductionCount = 0;
+  let retryEligibilityWaitMs = 0;
+  let backoffWaitMs = 0;
+  const retryReasons: Record<string, number> = {};
+  const everFailedQuestionIds = new Set<string>();
+  const recoveredQuestionIds = new Set<string>();
 
   const acceptedResults = () =>
     [...results.values()].filter(
@@ -294,6 +324,78 @@ export async function executeNvidiaRecovery(
   const failureDescriptor = (
     descriptor: NvidiaBatchFailureDescriptor
   ): NvidiaBatchFailureDescriptor => ({ ...descriptor });
+
+  const recordConcurrencyReduction = (reason: string): void => {
+    if (currentConcurrency <= 1) {
+      return;
+    }
+    currentConcurrency = 1;
+    concurrencyReductionCount += 1;
+    performance?.recordRecoveryEvent({
+      type: 'CONCURRENCY_REDUCED',
+      waveIndex,
+      questionCount: 0,
+      attempt: null,
+      splitDepth: 0,
+      reason,
+      delayMs: null,
+      backoffMs: null,
+      concurrency: currentConcurrency,
+    });
+  };
+
+  const recordRetry = (
+    type: 'RETRY' | 'SPLIT',
+    questionCount: number,
+    splitDepth: number,
+    delayMs: number,
+    backoffMs: number | null,
+    reason: string
+  ): void => {
+    retryCount += 1;
+    retryReasons[reason] = (retryReasons[reason] ?? 0) + 1;
+    retryEligibilityWaitMs += delayMs;
+    if (backoffMs !== null) {
+      backoffWaitMs += backoffMs;
+    }
+    if (type === 'SPLIT') {
+      splitCount += 1;
+      maxSplitDepth = Math.max(maxSplitDepth, splitDepth);
+    }
+    performance?.recordRecoveryEvent({
+      type,
+      waveIndex,
+      questionCount,
+      attempt: null,
+      splitDepth,
+      reason,
+      delayMs,
+      backoffMs,
+      concurrency: currentConcurrency,
+    });
+  };
+
+  const recordSplit = (
+    questionCount: number,
+    splitDepth: number,
+    reason: string
+  ): void => {
+    retryCount += 1;
+    retryReasons[reason] = (retryReasons[reason] ?? 0) + 1;
+    splitCount += 1;
+    maxSplitDepth = Math.max(maxSplitDepth, splitDepth);
+    performance?.recordRecoveryEvent({
+      type: 'SPLIT',
+      waveIndex,
+      questionCount,
+      attempt: null,
+      splitDepth,
+      reason,
+      delayMs: null,
+      backoffMs: null,
+      concurrency: currentConcurrency,
+    });
+  };
 
   const finalizeQuestion = (questionId: string): void => {
     if (results.has(questionId)) {
@@ -418,6 +520,7 @@ export async function executeNvidiaRecovery(
       return;
     }
     const midpoint = Math.ceil(retryable.length / 2);
+    recordSplit(retryable.length, splitDepth + 1, 'BATCH_LIMIT');
     enqueueQuestions(retryable.slice(0, midpoint), splitDepth + 1, notBefore);
     enqueueQuestions(retryable.slice(midpoint), splitDepth + 1, notBefore);
   };
@@ -426,7 +529,9 @@ export async function executeNvidiaRecovery(
     questions: readonly GenerationQuestion[],
     splitDepth: number,
     mode: RetryMode,
-    delayMs: number
+    delayMs: number,
+    backoffMs: number | null = null,
+    reason = 'RETRY'
   ): void => {
     const unresolved = questions.filter(
       (question) => !results.has(question.questionId)
@@ -440,6 +545,14 @@ export async function executeNvidiaRecovery(
       unresolved.length > 1 &&
       splitDepth < normalized.maxSplitDepth
     ) {
+      recordRetry(
+        'SPLIT',
+        unresolved.length,
+        splitDepth + 1,
+        delayMs,
+        backoffMs,
+        reason
+      );
       const midpoint = Math.ceil(unresolved.length / 2);
       enqueueQuestions(
         unresolved.slice(0, midpoint),
@@ -449,6 +562,14 @@ export async function executeNvidiaRecovery(
       enqueueQuestions(unresolved.slice(midpoint), splitDepth + 1, notBefore);
       return;
     }
+    recordRetry(
+      'RETRY',
+      unresolved.length,
+      splitDepth,
+      delayMs,
+      backoffMs,
+      reason
+    );
     enqueueQuestions(unresolved, splitDepth, notBefore);
   };
 
@@ -470,8 +591,12 @@ export async function executeNvidiaRecovery(
       if (result.status === 'GENERATED' || result.status === 'ABSTAINED') {
         results.set(result.questionId, result);
         lastFailureById.delete(result.questionId);
+        if (everFailedQuestionIds.has(result.questionId)) {
+          recoveredQuestionIds.add(result.questionId);
+        }
         continue;
       }
+      everFailedQuestionIds.add(result.questionId);
       const details = nvidiaResultFailureDetails(result);
       const descriptor = {
         code: details.code,
@@ -494,7 +619,17 @@ export async function executeNvidiaRecovery(
         );
       }
     }
-    scheduleRetry(unresolved, task.splitDepth, 'RETRY', 0);
+    for (const question of unresolved) {
+      everFailedQuestionIds.add(question.questionId);
+    }
+    scheduleRetry(
+      unresolved,
+      task.splitDepth,
+      'RETRY',
+      0,
+      null,
+      'MISSING_RESULT'
+    );
   };
 
   const handleFailure = (
@@ -510,6 +645,7 @@ export async function executeNvidiaRecovery(
       (question) => !results.has(question.questionId)
     );
     for (const question of unresolved) {
+      everFailedQuestionIds.add(question.questionId);
       lastFailureById.set(question.questionId, descriptor);
     }
     const retryDelay = computeNvidiaRecoveryBackoff(
@@ -533,12 +669,14 @@ export async function executeNvidiaRecovery(
         }
         return;
       case 'RATE_LIMIT': {
-        currentConcurrency = 1;
+        recordConcurrencyReduction('RATE_LIMIT');
         scheduleRetry(
           unresolved,
           task.splitDepth,
           'RETRY',
-          retryAfter ?? retryDelay
+          retryAfter ?? retryDelay,
+          retryDelay,
+          'RATE_LIMIT'
         );
         return;
       }
@@ -559,7 +697,9 @@ export async function executeNvidiaRecovery(
           unresolved,
           task.splitDepth,
           split ? 'SPLIT' : 'RETRY',
-          split ? 0 : retryDelay
+          split ? 0 : retryDelay,
+          retryDelay,
+          'TIMEOUT'
         );
         return;
       }
@@ -567,18 +707,27 @@ export async function executeNvidiaRecovery(
       case 'PROVIDER_UNAVAILABLE': {
         transientFailureCount += 1;
         if (transientFailureCount >= 2) {
-          currentConcurrency = 1;
+          recordConcurrencyReduction('TRANSIENT_FAILURE');
         }
         scheduleRetry(
           unresolved,
           task.splitDepth,
           'RETRY',
-          retryAfter ?? retryDelay
+          retryAfter ?? retryDelay,
+          retryDelay,
+          outcome.metadata.category
         );
         return;
       }
       case 'MALFORMED_RESPONSE':
-        scheduleRetry(unresolved, task.splitDepth, 'SPLIT', 0);
+        scheduleRetry(
+          unresolved,
+          task.splitDepth,
+          'SPLIT',
+          0,
+          null,
+          'MALFORMED_RESPONSE'
+        );
         return;
       default:
         for (const question of unresolved) {
@@ -624,6 +773,25 @@ export async function executeNvidiaRecovery(
       }
 
       const waveTasks = readyIndexes.map((index) => pending[index]);
+      waveIndex += 1;
+      const waveStartedAt = performance ? monotonicNow() : 0;
+      performance?.addCount('recoveryWaveCount');
+      const batchMetadata = new Map(
+        waveTasks.map((task) => [
+          task.batch.index,
+          {
+            waveIndex,
+            attempt:
+              Math.max(
+                0,
+                ...task.batch.questions.map(
+                  (question) => attempts.get(question.questionId) ?? 0
+                )
+              ) + 1,
+            splitDepth: task.splitDepth,
+          },
+        ])
+      );
       const readySet = new Set(readyIndexes);
       for (let index = pending.length - 1; index >= 0; index -= 1) {
         if (readySet.has(index)) {
@@ -639,10 +807,29 @@ export async function executeNvidiaRecovery(
         signal?: AbortSignal
       ): Promise<GenerationResponse> => {
         const task = taskByKey.get(questionKey(batchRequest.questions));
+        let attempt = 1;
         if (task) {
           markAttempt(task.batch.questions);
+          attempt =
+            Math.max(
+              1,
+              ...task.batch.questions.map(
+                (question) => attempts.get(question.questionId) ?? 1
+              )
+            ) ?? 1;
         }
-        return runAttempt(batchRequest as NvidiaGenerationRequest, signal);
+        return runAttempt(
+          batchRequest as NvidiaGenerationRequest,
+          signal,
+          task
+            ? {
+                batchIndex: task.batch.index,
+                waveIndex,
+                attempt,
+                splitDepth: task.splitDepth,
+              }
+            : undefined
+        );
       };
 
       let outcomes: readonly NvidiaBatchOutcome[];
@@ -651,6 +838,8 @@ export async function executeNvidiaRecovery(
           concurrency: currentConcurrency,
           signal: controller.signal,
           overallTimeoutMs: remainingMs(),
+          ...(performance ? { performance } : {}),
+          batchMetadata,
         });
       } catch (error) {
         if (error instanceof NvidiaBatchDeadlineError) {
@@ -666,6 +855,13 @@ export async function executeNvidiaRecovery(
           }
         }
         throw error;
+      } finally {
+        const waveDurationMs = performance ? elapsedSince(waveStartedAt) : 0;
+        performance?.addPhase('recoveryWaveExecutionMs', waveDurationMs);
+        if (!initialExecutionCompleted) {
+          initialExecutionMs = waveDurationMs;
+          initialExecutionCompleted = true;
+        }
       }
 
       const taskByBatchIndex = new Map(
@@ -688,6 +884,31 @@ export async function executeNvidiaRecovery(
       clearTimeout(deadlineTimer);
     }
     normalized.signal?.removeEventListener('abort', abortFromCaller);
+    if (performance) {
+      const totalRecoveryDurationMs = elapsedSince(recoveryStartedAt);
+      performance.setRecoverySummary({
+        initialExecutionMs,
+        recoveryDurationMs: Math.max(
+          0,
+          totalRecoveryDurationMs - initialExecutionMs
+        ),
+        totalRecoveryDurationMs,
+        retryCount,
+        retryReasons: { ...retryReasons },
+        splitCount,
+        maxSplitDepth,
+        recoveredCount: recoveredQuestionIds.size,
+        unresolvedCount: request.questions.filter(
+          (question) => !results.has(question.questionId)
+        ).length,
+        concurrencyReductionCount,
+        retryEligibilityWaitMs,
+        backoffWaitMs,
+        deadlineReached: deadlineExpired,
+        cancelled: cancelled || normalized.signal?.aborted === true,
+      });
+      performance.addPhase('recoveryTotalDurationMs', totalRecoveryDurationMs);
+    }
   }
 
   if (deadlineExpired) {
