@@ -11,7 +11,7 @@ import { createBrowserWorkflow } from './Workflow';
 import { GEMINI_MODEL } from '../Generation/GeminiProvider';
 import { discoverActiveGoogleFormsPage } from '../Forms/Discovery';
 import type { QuestionResult } from '../Models/Logical';
-import type { FillOutcome } from '../Fill/Filler';
+import type { FillFailureCode, FillOutcome } from '../Fill/Filler';
 import {
   createAllOverrideIntent,
   createSpecificOverrideIntent,
@@ -872,6 +872,237 @@ export function mountAnswerSenseApp(
       : conciseReason;
   }
 
+  const FAILED_REASON_LABELS: Readonly<Record<FillFailureCode, string>> = {
+    ELEMENT_NOT_FOUND: 'The question could not be located on the page.',
+    TYPE_MISMATCH: 'The question type did not match the expected input.',
+    TARGET_NOT_FOUND: 'No fillable field could be found.',
+    INVALID_OPTION: 'The requested answer option was unavailable.',
+    INVALID_ANSWER: 'The answer could not be applied.',
+    OVERRIDE_VALIDATION_FAILED: 'The replacement answer failed validation.',
+  };
+
+  function failedReason(outcome: FillOutcome): string {
+    const label = outcome.code ? FAILED_REASON_LABELS[outcome.code] : null;
+    return label ?? 'The answer could not be applied for an unknown reason.';
+  }
+
+  function appendFailedQuestionDetails(
+    summaryRow: HTMLElement,
+    failedLabel: HTMLElement,
+    outcomes: readonly FillOutcome[],
+    questions: readonly WorkflowQuestion[]
+  ): void {
+    const failedOutcomes = outcomes.filter(
+      (outcome) =>
+        outcome.status === 'FILL_FAILED' || outcome.status === 'PARTIAL_FILL'
+    );
+    if (failedOutcomes.length === 0) return;
+
+    const remainingQuestions = new Map<string | null, WorkflowQuestion[]>();
+    for (const question of questions) {
+      const candidates = remainingQuestions.get(question.id);
+      if (candidates) {
+        candidates.push(question);
+      } else {
+        remainingQuestions.set(question.id, [question]);
+      }
+    }
+    const questionByOutcome = new Map<FillOutcome, WorkflowQuestion>();
+    for (const outcome of outcomes) {
+      const question = remainingQuestions.get(outcome.questionId)?.shift();
+      if (question) {
+        questionByOutcome.set(outcome, question);
+      }
+    }
+
+    const details = createElement('span');
+    details.className = 'failed-details';
+    const trigger = createElement('button') as HTMLButtonElement;
+    trigger.type = 'button';
+    trigger.className = 'failed-details-trigger';
+    trigger.setAttribute(
+      'aria-label',
+      `Show details for ${failedOutcomes.length} failed question${failedOutcomes.length === 1 ? '' : 's'}`
+    );
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', 'failed-question-details');
+
+    const icon = createValidationFailureInfoIcon();
+    icon.classList.add('failed-details-icon');
+    icon.removeAttribute('id');
+    icon
+      .querySelectorAll('[id]')
+      .forEach((element) => element.removeAttribute('id'));
+    trigger.append(icon);
+
+    const panel = createElement('span');
+    panel.id = 'failed-question-details';
+    panel.className = 'failed-details-panel';
+    panel.setAttribute('role', 'region');
+    panel.setAttribute('aria-label', 'Failed questions and reasons');
+    panel.setAttribute('aria-hidden', 'true');
+    panel.tabIndex = 0;
+    const list = createElement('span');
+    list.className = 'failed-details-list';
+
+    for (const outcome of failedOutcomes) {
+      const questionId = outcome.questionId;
+      const question = questionByOutcome.get(outcome);
+      const item = createElement('span');
+      item.className = 'failed-details-item';
+
+      const identity = createElement('strong');
+      identity.textContent =
+        typeof questionId === 'string' && questionId.trim() !== ''
+          ? `Question ID ${questionId}`
+          : 'Question ID unavailable';
+      item.append(identity);
+
+      const title = outcome.questionText?.trim() || question?.text?.trim();
+      if (title) {
+        const titleText = createElement('span');
+        titleText.className = 'failed-details-title';
+        titleText.textContent = title;
+        item.append(titleText);
+      }
+
+      const reason = createElement('span');
+      reason.className = 'failed-details-reason';
+      reason.textContent = failedReason(outcome);
+      item.append(reason);
+      list.append(item);
+    }
+
+    panel.append(list);
+    details.append(trigger);
+
+    let failedHovered = false;
+    let failedFocused = false;
+    let failedPinned = false;
+    let lastPointerType: string | null = null;
+    let hoverCloseTimeout: number | null = null;
+    let hoveringPanel = false;
+    const withinFailedTooltip = (node: Node | null): boolean =>
+      node instanceof Node && (details.contains(node) || panel.contains(node));
+    const cancelHoverClose = (): void => {
+      if (hoverCloseTimeout !== null) {
+        window.clearTimeout(hoverCloseTimeout);
+        hoverCloseTimeout = null;
+      }
+    };
+    const scheduleHoverClose = (): void => {
+      cancelHoverClose();
+      hoverCloseTimeout = window.setTimeout(() => {
+        hoverCloseTimeout = null;
+        hoveringPanel = false;
+        if (!trigger.matches(':focus-visible')) failedFocused = false;
+        updateVisibility();
+      }, 160);
+    };
+    const updateVisibility = (): void => {
+      const visible =
+        failedHovered || hoveringPanel || failedFocused || failedPinned;
+      details.dataset.visible = String(visible);
+      panel.dataset.visible = String(visible);
+      trigger.setAttribute('aria-expanded', String(visible));
+      panel.setAttribute('aria-hidden', String(!visible));
+      if (!visible) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const panelWidth = Math.min(panel.offsetWidth || 320, viewportWidth - 24);
+      const panelHeight = Math.min(
+        panel.offsetHeight || 220,
+        viewportHeight - 24
+      );
+      const left = Math.min(
+        Math.max(12, triggerRect.left),
+        Math.max(12, viewportWidth - panelWidth - 12)
+      );
+      const below = triggerRect.bottom + 6;
+      const top =
+        below + panelHeight <= viewportHeight - 12
+          ? below
+          : Math.max(12, triggerRect.top - panelHeight - 6);
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+
+    details.addEventListener('pointerenter', (event) => {
+      cancelHoverClose();
+      lastPointerType = event.pointerType;
+      failedHovered = true;
+      updateVisibility();
+    });
+    details.addEventListener('pointerleave', (event) => {
+      const pointerType = event.pointerType || lastPointerType;
+      lastPointerType = null;
+      failedHovered = false;
+      if (pointerType !== 'touch') {
+        failedPinned = false;
+        if (!trigger.matches(':focus-visible')) failedFocused = false;
+      }
+      if (hoveringPanel) {
+        updateVisibility();
+      } else {
+        scheduleHoverClose();
+      }
+    });
+    panel.addEventListener('pointerenter', (event) => {
+      cancelHoverClose();
+      lastPointerType = event.pointerType;
+      hoveringPanel = true;
+      updateVisibility();
+    });
+    panel.addEventListener('pointerleave', (event) => {
+      lastPointerType = null;
+      hoveringPanel = false;
+      if (withinFailedTooltip(event.relatedTarget as Node | null)) {
+        failedHovered = true;
+        updateVisibility();
+      } else {
+        scheduleHoverClose();
+      }
+    });
+    details.addEventListener('focusin', () => {
+      failedFocused = true;
+      updateVisibility();
+    });
+    details.addEventListener('focusout', (event) => {
+      if (withinFailedTooltip(event.relatedTarget as Node | null)) {
+        return;
+      }
+      failedFocused = false;
+      updateVisibility();
+    });
+    panel.addEventListener('focusin', () => {
+      failedFocused = true;
+      updateVisibility();
+    });
+    panel.addEventListener('focusout', (event) => {
+      if (withinFailedTooltip(event.relatedTarget as Node | null)) {
+        return;
+      }
+      failedFocused = false;
+      updateVisibility();
+    });
+    trigger.addEventListener('pointerdown', (event) => {
+      lastPointerType = event.pointerType;
+    });
+    trigger.addEventListener('click', () => {
+      if (lastPointerType === 'touch') {
+        failedPinned = !failedPinned;
+      } else {
+        failedPinned = false;
+      }
+      updateVisibility();
+    });
+
+    failedLabel.after(details);
+    summaryRow.append(panel);
+  }
+
   function appendSkippedQuestionDetails(
     summaryRow: HTMLElement,
     outcomes: readonly FillOutcome[],
@@ -882,6 +1113,23 @@ export function mountAnswerSenseApp(
       (outcome) => outcome.status === 'SKIPPED'
     );
     if (skippedOutcomes.length === 0) return;
+
+    const remainingQuestions = new Map<string | null, WorkflowQuestion[]>();
+    for (const question of questions) {
+      const candidates = remainingQuestions.get(question.id);
+      if (candidates) {
+        candidates.push(question);
+      } else {
+        remainingQuestions.set(question.id, [question]);
+      }
+    }
+    const questionByOutcome = new Map<FillOutcome, WorkflowQuestion>();
+    for (const outcome of outcomes) {
+      const question = remainingQuestions.get(outcome.questionId)?.shift();
+      if (question) {
+        questionByOutcome.set(outcome, question);
+      }
+    }
 
     const details = createElement('span');
     details.className = 'skipped-details';
@@ -915,21 +1163,19 @@ export function mountAnswerSenseApp(
 
     for (const outcome of skippedOutcomes) {
       const questionId = outcome.questionId;
-      const question = questions.find(
-        (candidate) => candidate.id === questionId
-      );
+      const question = questionByOutcome.get(outcome);
       const generationResult = generationResults.get(questionId);
       const item = createElement('li');
       item.className = 'skipped-details-item';
 
       const identity = createElement('strong');
       identity.textContent =
-        typeof questionId === 'string'
+        typeof questionId === 'string' && questionId.trim() !== ''
           ? `Question ID ${questionId}`
           : 'Question ID unavailable';
       item.append(identity);
 
-      const title = question?.text?.trim();
+      const title = outcome.questionText?.trim() || question?.text?.trim();
       if (title) {
         const titleText = createElement('span');
         titleText.className = 'skipped-details-title';
@@ -1350,8 +1596,13 @@ export function mountAnswerSenseApp(
       const summary = createElement('p');
       summary.className = 'result-summary';
       summary.append(
-        `${filledCount} filled · ${alreadyFilledCount} already filled · ${failedCount} failed · `
+        `${filledCount} filled · ${alreadyFilledCount} already filled · `
       );
+      const failedLabel = createElement('span');
+      failedLabel.className = 'result-summary-failed';
+      failedLabel.textContent = `${failedCount} failed`;
+      summary.append(failedLabel);
+      summary.append(' · ');
       const skippedLabel = createElement('span');
       skippedLabel.className = 'result-summary-skipped';
       skippedLabel.textContent = `${skippedCount} skipped`;
@@ -1381,6 +1632,12 @@ export function mountAnswerSenseApp(
         summaryRow,
         summaryOutcomes,
         generationResults,
+        state.page.questions ?? []
+      );
+      appendFailedQuestionDetails(
+        summaryRow,
+        failedLabel,
+        summaryOutcomes,
         state.page.questions ?? []
       );
       if (overridedCount > 0 && skippedCount > 0) {

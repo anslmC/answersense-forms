@@ -2115,6 +2115,472 @@ describe('live Overlay generation workflow', () => {
     ).toHaveLength(1);
   });
 
+  it('shows an independent Failed tooltip with per-question failure reasons', async () => {
+    const questionDefinitions = [
+      { id: 'ok-1', text: 'Successful question' },
+      { id: 'failed-element', text: 'Element failure question' },
+      { id: 'failed-type', text: 'Type mismatch question' },
+      { id: 'failed-target', text: 'Target failure question' },
+      { id: 'failed-option', text: 'Invalid option question' },
+      { id: 'failed-answer', text: 'Invalid answer question' },
+      { id: 'failed-override', text: 'Override validation question' },
+      { id: 'partial-known', text: 'Partial invalid answer question' },
+      { id: 'partial-unknown', text: 'Partial unknown question' },
+      { id: 'skipped-1', text: 'Skipped question' },
+    ];
+    const snapshot = {
+      supported: true,
+      uiState: 'READY' as const,
+      page: {
+        pageId: 'page-failed',
+        questionCount: questionDefinitions.length,
+      },
+      lifecycle: {
+        activePage: {
+          form: {
+            questions: questionDefinitions.map(({ id, text }) => ({
+              id,
+              text,
+              type: 'short-text',
+              supported: true,
+              existingInput: { hasValue: false },
+            })),
+          },
+        },
+      },
+      result: null,
+      error: null,
+    };
+    const outcomes = [
+      { questionId: 'ok-1', status: 'FILLED' as const },
+      {
+        questionId: 'failed-element',
+        status: 'FILL_FAILED' as const,
+        reason: 'The current DOM question was not found.',
+        code: 'ELEMENT_NOT_FOUND' as const,
+      },
+      {
+        questionId: 'failed-type',
+        status: 'FILL_FAILED' as const,
+        reason: 'The current DOM question type did not match.',
+        code: 'TYPE_MISMATCH' as const,
+      },
+      {
+        questionId: 'failed-target',
+        status: 'FILL_FAILED' as const,
+        reason: 'No fill target was found.',
+        code: 'TARGET_NOT_FOUND' as const,
+      },
+      {
+        questionId: 'failed-option',
+        status: 'FILL_FAILED' as const,
+        reason: 'The option was unavailable.',
+        code: 'INVALID_OPTION' as const,
+      },
+      {
+        questionId: 'failed-answer',
+        status: 'FILL_FAILED' as const,
+        reason: 'The answer was invalid.',
+        code: 'INVALID_ANSWER' as const,
+      },
+      {
+        questionId: 'failed-override',
+        status: 'FILL_FAILED' as const,
+        reason: 'The replacement failed validation.',
+        code: 'OVERRIDE_VALIDATION_FAILED' as const,
+      },
+      {
+        questionId: 'partial-known',
+        status: 'PARTIAL_FILL' as const,
+        reason: 'One option could not be applied.',
+        code: 'INVALID_ANSWER' as const,
+      },
+      {
+        questionId: 'partial-unknown',
+        status: 'PARTIAL_FILL' as const,
+        reason: 'Something went wrong.',
+        code: 'UNRECOGNIZED_FAILURE',
+      },
+      {
+        questionId: 'skipped-1',
+        status: 'SKIPPED' as const,
+        reason: 'The reviewed answer was skipped.',
+        code: null,
+      },
+    ];
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return snapshot;
+      if (message.type === 'p7-generate') {
+        return {
+          report: {
+            cycleId: 'cycle-failed-tooltip',
+            status: 'partial' as const,
+            results: [],
+          },
+          fillReport: {
+            cycleId: 'cycle-failed-tooltip',
+            outcomes,
+          },
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const summary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toContain(
+        '1 filled · 0 already filled · 8 failed · 1 skipped'
+      )
+    );
+
+    const failedTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
+      '.failed-details-trigger'
+    );
+    expect(failedTrigger?.getAttribute('aria-label')).toBe(
+      'Show details for 8 failed questions'
+    );
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      failedTrigger?.querySelector('svg.validation-failure-info')
+    ).not.toBeNull();
+    expect(
+      shadowRoot?.querySelector('.result-summary-failed')?.textContent
+    ).toBe('8 failed');
+
+    const failedAnchor = failedTrigger?.parentElement;
+    const mouseEnter = new Event('pointerenter');
+    Object.defineProperty(mouseEnter, 'pointerType', { value: 'mouse' });
+    failedAnchor?.dispatchEvent(mouseEnter);
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const mouseLeave = new Event('pointerleave');
+    Object.defineProperty(mouseLeave, 'pointerType', { value: 'mouse' });
+    failedAnchor?.dispatchEvent(mouseLeave);
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const failedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#failed-question-details'
+    );
+    const panelEnter = new Event('pointerenter');
+    Object.defineProperty(panelEnter, 'pointerType', { value: 'mouse' });
+    failedPanel?.dispatchEvent(panelEnter);
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const panelLeave = new Event('pointerleave');
+    Object.defineProperty(panelLeave, 'pointerType', { value: 'mouse' });
+    failedPanel?.dispatchEvent(panelLeave);
+    await vi.waitFor(() =>
+      expect(failedTrigger?.getAttribute('aria-expanded')).toBe('false')
+    );
+    failedTrigger?.focus();
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('true');
+    failedTrigger?.blur();
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('false');
+    const touchDown = new Event('pointerdown');
+    Object.defineProperty(touchDown, 'pointerType', { value: 'touch' });
+    failedTrigger?.dispatchEvent(touchDown);
+    failedTrigger?.click();
+    expect(failedTrigger?.getAttribute('aria-expanded')).toBe('true');
+    expect(failedPanel?.getAttribute('aria-hidden')).toBe('false');
+
+    const failedItems =
+      failedPanel?.querySelectorAll('.failed-details-item') ?? [];
+    expect(failedItems).toHaveLength(8);
+    expect(failedItems[0]?.textContent).toContain('Question ID failed-element');
+    expect(failedItems[0]?.textContent).toContain('Element failure question');
+    expect(failedItems[0]?.textContent).toContain(
+      'The question could not be located on the page.'
+    );
+    expect(failedItems[1]?.textContent).toContain('Question ID failed-type');
+    expect(failedItems[1]?.textContent).toContain('Type mismatch question');
+    expect(failedItems[1]?.textContent).toContain(
+      'The question type did not match the expected input.'
+    );
+    expect(failedItems[2]?.textContent).toContain('Question ID failed-target');
+    expect(failedItems[2]?.textContent).toContain('Target failure question');
+    expect(failedItems[2]?.textContent).toContain(
+      'No fillable field could be found.'
+    );
+    expect(failedItems[3]?.textContent).toContain('Question ID failed-option');
+    expect(failedItems[3]?.textContent).toContain('Invalid option question');
+    expect(failedItems[3]?.textContent).toContain(
+      'The requested answer option was unavailable.'
+    );
+    expect(failedItems[4]?.textContent).toContain('Question ID failed-answer');
+    expect(failedItems[4]?.textContent).toContain('Invalid answer question');
+    expect(failedItems[4]?.textContent).toContain(
+      'The answer could not be applied.'
+    );
+    expect(failedItems[5]?.textContent).toContain(
+      'Question ID failed-override'
+    );
+    expect(failedItems[5]?.textContent).toContain(
+      'Override validation question'
+    );
+    expect(failedItems[5]?.textContent).toContain(
+      'The replacement answer failed validation.'
+    );
+    expect(failedItems[6]?.textContent).toContain('Question ID partial-known');
+    expect(failedItems[6]?.textContent).toContain(
+      'Partial invalid answer question'
+    );
+    expect(failedItems[6]?.textContent).toContain(
+      'The answer could not be applied.'
+    );
+    expect(failedItems[7]?.textContent).toContain(
+      'Question ID partial-unknown'
+    );
+    expect(failedItems[7]?.textContent).toContain('Partial unknown question');
+    expect(failedItems[7]?.textContent).toContain(
+      'The answer could not be applied for an unknown reason.'
+    );
+    expect(failedPanel?.textContent).not.toContain('skipped-1');
+    expect(failedPanel?.textContent).not.toContain('Skipped question');
+    expect(failedPanel?.textContent).not.toContain('ok-1');
+    expect(failedPanel?.textContent).not.toContain('Successful question');
+    expect(summary()?.textContent).toContain(
+      '1 filled · 0 already filled · 8 failed · 1 skipped'
+    );
+
+    const skippedTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
+      '.skipped-details-trigger'
+    );
+    expect(skippedTrigger?.getAttribute('aria-label')).toBe(
+      'Show details for 1 skipped question'
+    );
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('.result-summary-skipped')
+        ?.textContent
+    ).toBe('1 skipped');
+    expect(
+      shadowRoot?.querySelector('.result-summary-row > .skipped-details')
+        ?.previousElementSibling
+    ).toBe(summary());
+    const skippedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#skipped-question-details'
+    );
+    expect(skippedPanel?.getAttribute('aria-label')).toBe(
+      'Skipped questions and reasons'
+    );
+    const skippedItems =
+      skippedPanel?.querySelectorAll('.skipped-details-item') ?? [];
+    expect(skippedItems).toHaveLength(1);
+    expect(skippedItems[0]?.textContent).toContain('Question ID skipped-1');
+    expect(skippedItems[0]?.textContent).toContain('Skipped question');
+    expect(skippedItems[0]?.textContent).toContain('Skipped during review.');
+
+    const overlayCss = readFileSync(
+      extensionPath('src/Overlay/Overlay.css'),
+      'utf8'
+    );
+    expect(overlayCss).toMatch(
+      /\.skipped-details-panel\s*\{[^}]*max-height:\s*min\(280px,[^}]*overflow-y:\s*auto;/
+    );
+    expect(overlayCss).toMatch(
+      /\.failed-details-panel\s*\{[^}]*max-height:\s*min\(280px,[^}]*overflow-y:\s*auto;/
+    );
+    expect(overlayCss).toMatch(
+      /\.failed-details-trigger\s*\{[^}]*width:\s*18px;[^}]*height:\s*18px;/
+    );
+    expect(overlayCss).toMatch(
+      /\.failed-details-panel\[data-visible='true'\]\s*\{[^}]*visibility:\s*visible;[^}]*opacity:\s*1;/
+    );
+  });
+
+  it('shows preserved failed-question text when page question metadata is unavailable', async () => {
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') {
+        return {
+          supported: true,
+          uiState: 'READY' as const,
+          page: { pageId: 'page-preserved-failed', questionCount: 1 },
+          lifecycle: null,
+          result: null,
+          error: null,
+        };
+      }
+      if (message.type === 'p7-generate') {
+        return {
+          report: {
+            cycleId: 'cycle-preserved-failed',
+            status: 'partial' as const,
+            results: [],
+          },
+          fillReport: {
+            cycleId: 'cycle-preserved-failed',
+            outcomes: [
+              {
+                questionId: 'failed-preserved',
+                questionText: 'Preserved failed prompt',
+                status: 'FILL_FAILED' as const,
+                answer: null,
+                reason: 'The current DOM question was not found.',
+                code: 'ELEMENT_NOT_FOUND' as const,
+              },
+            ],
+          },
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent
+      ).toContain('0 filled · 0 already filled · 1 failed · 0 skipped')
+    );
+
+    const failedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#failed-question-details'
+    );
+    expect(failedPanel?.textContent).toContain('Question ID failed-preserved');
+    expect(failedPanel?.textContent).toContain('Preserved failed prompt');
+    expect(failedPanel?.textContent).toContain(
+      'The question could not be located on the page.'
+    );
+  });
+
+  it('shows independent text for id-less skipped questions', async () => {
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') {
+        return {
+          supported: true,
+          uiState: 'READY' as const,
+          page: { pageId: 'page-idless-skipped', questionCount: 2 },
+          lifecycle: null,
+          result: null,
+          error: null,
+        };
+      }
+      if (message.type === 'p7-generate') {
+        return {
+          report: {
+            cycleId: 'cycle-idless-skipped',
+            status: 'partial' as const,
+            results: [],
+          },
+          fillReport: {
+            cycleId: 'cycle-idless-skipped',
+            outcomes: [
+              {
+                questionId: null,
+                questionText: 'First id-less prompt',
+                status: 'SKIPPED' as const,
+                answer: null,
+                reason: 'The reviewed answer was skipped.',
+                code: null,
+              },
+              {
+                questionId: null,
+                questionText: 'Second id-less prompt',
+                status: 'SKIPPED' as const,
+                answer: null,
+                reason: 'The reviewed answer was skipped.',
+                code: null,
+              },
+            ],
+          },
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(
+        shadowRoot?.querySelector<HTMLElement>('.result-summary')?.textContent
+      ).toContain('0 filled · 0 already filled · 0 failed · 2 skipped')
+    );
+
+    const skippedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#skipped-question-details'
+    );
+    const skippedItems =
+      skippedPanel?.querySelectorAll('.skipped-details-item') ?? [];
+    expect(skippedItems).toHaveLength(2);
+    expect(skippedItems[0]?.textContent).toContain('Question ID unavailable');
+    expect(skippedItems[0]?.textContent).toContain('First id-less prompt');
+    expect(skippedItems[0]?.textContent).not.toContain('Second id-less prompt');
+    expect(skippedItems[1]?.textContent).toContain('Question ID unavailable');
+    expect(skippedItems[1]?.textContent).toContain('Second id-less prompt');
+    expect(skippedItems[1]?.textContent).not.toContain('First id-less prompt');
+  });
+
   it('does not show the all-answers-filled note when generation fails', async () => {
     const sendMessage = vi.fn(async (message: { type?: string }) => {
       if (message.type === 'configuration-state') return configurationState;

@@ -32,6 +32,7 @@ export type FillFailureCode =
 
 export interface FillOutcome {
   questionId: string | null;
+  questionText?: string | null;
   status: FillStatus;
   answer: Answer | null;
   reason: string | null;
@@ -128,9 +129,7 @@ function currentChoiceAnswer(target: ResolvedChoiceTarget): Answer | null {
     : null;
 }
 
-function currentResolvedAnswer(
-  target: ResolvedQuestionTarget
-): Answer | null {
+function currentResolvedAnswer(target: ResolvedQuestionTarget): Answer | null {
   if (target.kind === 'short-text' || target.kind === 'paragraph') {
     const value = currentTextValue(target);
     return value ? { questionId: target.questionId, value } : null;
@@ -869,10 +868,7 @@ export function reconcileFillReport(
   const targetIndex = index ?? createQuestionTargetIndex(document);
   let changed = false;
   const outcomes = fillReport.outcomes.map((outcome) => {
-    if (
-      outcome.status !== 'FILL_FAILED' &&
-      outcome.status !== 'PARTIAL_FILL'
-    ) {
+    if (outcome.status !== 'FILL_FAILED' && outcome.status !== 'PARTIAL_FILL') {
       return outcome;
     }
     if (typeof outcome.questionId !== 'string' || !outcome.answer) {
@@ -926,15 +922,27 @@ export async function fillReviewedAnswers(
   const questionsById = new Map(
     form.questions.map((question) => [question.id, question])
   );
+  const remainingQuestionsById = new Map<string | null, Question[]>();
+  for (const question of form.questions) {
+    const questions = remainingQuestionsById.get(question.id);
+    if (questions) {
+      questions.push(question);
+    } else {
+      remainingQuestionsById.set(question.id, [question]);
+    }
+  }
   const index = createQuestionTargetIndex(document);
   const outcomes: FillOutcome[] = [];
   for (const result of report.results) {
     const questionId = result.questionId;
+    const associatedQuestion = remainingQuestionsById.get(questionId)?.shift();
+    const questionText = associatedQuestion?.text ?? null;
     const decision =
       questionId === null ? undefined : decisionsById.get(questionId);
     if (!decision || decision.decision === 'skip' || decision.answer === null) {
       outcomes.push({
         questionId,
+        questionText,
         status: 'SKIPPED',
         answer: null,
         reason: 'The reviewed answer was skipped.',
@@ -944,8 +952,8 @@ export async function fillReviewedAnswers(
     }
 
     if (decision.answer.questionId !== questionId) {
-      outcomes.push(
-        failureOutcome(
+      outcomes.push({
+        ...failureOutcome(
           questionId,
           {
             code: 'INVALID_ANSWER',
@@ -953,16 +961,17 @@ export async function fillReviewedAnswers(
               'The reviewed answer questionId does not match the decision.',
           },
           decision.answer
-        )
-      );
+        ),
+        questionText,
+      });
       continue;
     }
 
     const question =
       questionId === null ? undefined : questionsById.get(questionId);
     if (!question) {
-      outcomes.push(
-        failureOutcome(
+      outcomes.push({
+        ...failureOutcome(
           questionId,
           {
             code: 'ELEMENT_NOT_FOUND',
@@ -970,20 +979,24 @@ export async function fillReviewedAnswers(
               'The reviewed question is not present in the normalized form.',
           },
           decision.answer
-        )
-      );
+        ),
+        questionText,
+      });
       continue;
     }
 
+    const outcome = await fillQuestion(
+      document,
+      question,
+      decision.answer,
+      overwriteExisting,
+      index,
+      instrumentation
+    );
     outcomes.push(
-      await fillQuestion(
-        document,
-        question,
-        decision.answer,
-        overwriteExisting,
-        index,
-        instrumentation
-      )
+      outcome.status === 'FILL_FAILED' || outcome.status === 'PARTIAL_FILL'
+        ? { ...outcome, questionText: outcome.questionText ?? questionText }
+        : outcome
     );
   }
 

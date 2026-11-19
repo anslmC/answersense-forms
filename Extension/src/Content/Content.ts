@@ -824,6 +824,10 @@ async function handleRequest(request: {
         .filter((target) => target.status !== 'eligible')
         .map((target) => ({
           questionId: target.questionId,
+          questionText:
+            pageLifecycle.currentPage.form.questions.find(
+              (question) => question.id === target.questionId
+            )?.text ?? null,
           status: 'FILL_FAILED' as const,
           answer: null,
           reason: target.reason,

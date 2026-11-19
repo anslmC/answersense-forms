@@ -185,8 +185,32 @@ export interface WorkflowSnapshot {
   page: PageSummary | null;
   result: UiGenerationResult | null;
   error: string | null;
+  lifecycle?: {
+    activePage?: {
+      form?: {
+        activePageId?: string;
+        questions?: readonly WorkflowQuestion[];
+      };
+    } | null;
+  } | null;
   performance?: GenerationPerformanceReport;
   generationProgress?: GenerationProgress | null;
+}
+
+function lifecycleQuestionsForPage(
+  snapshot: WorkflowSnapshot
+): readonly WorkflowQuestion[] | undefined {
+  const form = snapshot.lifecycle?.activePage?.form;
+  if (!snapshot.page || !form || !Array.isArray(form.questions)) {
+    return undefined;
+  }
+  if (
+    form.activePageId !== undefined &&
+    form.activePageId !== snapshot.page.pageId
+  ) {
+    return undefined;
+  }
+  return form.questions;
 }
 
 export type UiState =
@@ -267,6 +291,7 @@ export class WorkflowStateMachine {
       ? {
           ...snapshot.page,
           questions:
+            lifecycleQuestionsForPage(snapshot) ??
             snapshot.page.questions ??
             (currentPage?.pageId === snapshot.page.pageId
               ? currentPage.questions

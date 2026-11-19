@@ -20,6 +20,7 @@ import {
   type FillReport,
 } from '../src/Fill/Filler';
 import { resolveCurrentQuestionTarget } from '../src/Fill/Resolver';
+import { createFinalizedPageHandoff } from '../src/Fill/Handoff';
 
 function question(
   id: string,
@@ -351,6 +352,7 @@ describe('skip cause traceability', () => {
       fill: [
         {
           questionId: 'dummy-question',
+          questionText: 'Dummy short-answer prompt',
           status: 'FILL_FAILED',
           reason: 'The current DOM question has no text input.',
           code: 'TARGET_NOT_FOUND',
@@ -358,6 +360,91 @@ describe('skip cause traceability', () => {
       ],
     });
     expect(fillReport.outcomes[0].status).not.toBe('SKIPPED');
+  });
+
+  it('retains each id-less skipped question text in result order', async () => {
+    const idlessForm: Form = {
+      formId: 'dummy-form',
+      activePageId: 'dummy-page',
+      questions: ['First id-less prompt', 'Second id-less prompt'].map(
+        (text) => ({
+          id: null,
+          text,
+          type: null,
+          required: false,
+          options: [],
+          existingInput: null,
+          supported: false,
+          unsupportedReason: 'Question type is unsupported.',
+        })
+      ),
+    };
+    const report = createGenerationReport('cycle-idless', [
+      {
+        questionId: null,
+        status: 'unsupported',
+        answer: null,
+        reason: 'Question type is unsupported.',
+      },
+      {
+        questionId: null,
+        status: 'unsupported',
+        answer: null,
+        reason: 'Question type is unsupported.',
+      },
+    ]);
+
+    const fillReport = await fillReviewedAnswers(
+      createDocument(),
+      idlessForm,
+      report,
+      []
+    );
+
+    expect(
+      fillReport.outcomes.map(({ questionId, questionText, status }) => ({
+        questionId,
+        questionText,
+        status,
+      }))
+    ).toEqual([
+      {
+        questionId: null,
+        questionText: 'First id-less prompt',
+        status: 'SKIPPED',
+      },
+      {
+        questionId: null,
+        questionText: 'Second id-less prompt',
+        status: 'SKIPPED',
+      },
+    ]);
+  });
+
+  it('uses preserved outcome text in the finalized page handoff', () => {
+    const staleForm: Form = {
+      ...form,
+      questions: form.questions.map((candidate) =>
+        candidate.id === 'short'
+          ? { ...candidate, text: 'Stale prompt' }
+          : candidate
+      ),
+    };
+    const handoff = createFinalizedPageHandoff(createDocument(), staleForm, {
+      cycleId: 'cycle-handoff',
+      outcomes: [
+        {
+          questionId: 'short',
+          questionText: 'Preserved failed prompt',
+          status: 'FILL_FAILED',
+          answer: null,
+          reason: 'The current DOM question was not found.',
+          code: 'ELEMENT_NOT_FOUND',
+        },
+      ],
+    });
+
+    expect(handoff.entries[0].questionText).toBe('Preserved failed prompt');
   });
 });
 
@@ -1695,9 +1782,7 @@ describe('event-driven choice verification', () => {
 
     setDocumentVisibility(document, false);
     document.dispatchEvent(new Event('visibilitychange'));
-    await vi.advanceTimersByTimeAsync(
-      CHOICE_VERIFICATION_VISIBLE_GRACE_MS - 1
-    );
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS - 1);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     const result = await fillPromise;

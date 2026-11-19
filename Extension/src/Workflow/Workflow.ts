@@ -3,7 +3,6 @@ import type {
   UiGenerationResult,
   WorkflowSnapshot,
 } from './State';
-import type { WorkflowQuestion } from './State';
 import { isGenerationProgress, isUiGenerationResult } from './State';
 import type { GenerationIntent } from '../Generation/Intent';
 import {
@@ -25,9 +24,6 @@ interface DiscoveryResponse {
 
 interface SnapshotResponse extends WorkflowSnapshot {
   supported: boolean;
-  lifecycle?: {
-    activePage?: { form?: { questions?: WorkflowQuestion[] } };
-  };
 }
 
 export function createBrowserWorkflow(): Workflow {
@@ -46,16 +42,24 @@ export function createBrowserWorkflow(): Workflow {
       }
       if ('uiState' in response) {
         const snapshot = response as unknown as SnapshotResponse;
+        const lifecycleForm = snapshot.lifecycle?.activePage?.form;
+        const lifecycleQuestions =
+          lifecycleForm &&
+          (lifecycleForm.activePageId === undefined ||
+            lifecycleForm.activePageId === snapshot.page?.pageId)
+            ? lifecycleForm.questions
+            : undefined;
         return {
           uiState: snapshot.uiState,
           page: snapshot.page
             ? {
                 ...snapshot.page,
-                questions: snapshot.lifecycle?.activePage?.form?.questions,
+                questions: lifecycleQuestions ?? snapshot.page.questions,
               }
             : null,
           result: snapshot.result ?? null,
           error: snapshot.error ?? null,
+          lifecycle: snapshot.lifecycle ?? null,
           ...(snapshot.performance
             ? { performance: snapshot.performance }
             : {}),
@@ -104,6 +108,7 @@ export function createBrowserWorkflow(): Workflow {
         },
         result: null,
         error: null,
+        lifecycle: snapshot,
       };
     },
   };

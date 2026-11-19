@@ -186,6 +186,116 @@ describe('P6 popup state machine', () => {
     expect(machine.confirmedPage(page).name).toBe('READY');
     expect(machine.confirmedPage(null).name).toBe('UNSUPPORTED');
   });
+
+  it('restores question text from same-page lifecycle metadata', () => {
+    const machine = new WorkflowStateMachine();
+    const restored = machine.restore({
+      uiState: 'READY',
+      page: { pageId: 'page-1', questionCount: 1 },
+      lifecycle: {
+        activePage: {
+          form: {
+            activePageId: 'page-1',
+            questions: [
+              {
+                id: 'name',
+                text: 'Restored prompt',
+                type: 'short-text',
+                supported: true,
+                existingInput: { hasValue: false },
+              },
+            ],
+          },
+        },
+      },
+      result: null,
+      error: null,
+    });
+
+    expect(restored).toMatchObject({
+      name: 'READY',
+      page: {
+        pageId: 'page-1',
+        questions: [{ id: 'name', text: 'Restored prompt' }],
+      },
+    });
+  });
+
+  it('replaces stale page question text with same-page lifecycle metadata', () => {
+    const machine = new WorkflowStateMachine();
+    const restored = machine.restore({
+      uiState: 'READY',
+      page: {
+        pageId: 'page-1',
+        questionCount: 1,
+        questions: [
+          {
+            id: 'name',
+            text: 'Stale prompt',
+            type: 'short-text',
+            supported: true,
+            existingInput: { hasValue: false },
+          },
+        ],
+      },
+      lifecycle: {
+        activePage: {
+          form: {
+            activePageId: 'page-1',
+            questions: [
+              {
+                id: 'name',
+                text: 'Fresh prompt',
+                type: 'short-text',
+                supported: true,
+                existingInput: { hasValue: false },
+              },
+            ],
+          },
+        },
+      },
+      result: null,
+      error: null,
+    });
+
+    expect(restored).toMatchObject({
+      name: 'READY',
+      page: {
+        pageId: 'page-1',
+        questions: [{ id: 'name', text: 'Fresh prompt' }],
+      },
+    });
+  });
+
+  it('does not attach lifecycle questions from another page', () => {
+    const machine = new WorkflowStateMachine();
+    const restored = machine.restore({
+      uiState: 'READY',
+      page: { pageId: 'page-2', questionCount: 1 },
+      lifecycle: {
+        activePage: {
+          form: {
+            activePageId: 'page-1',
+            questions: [
+              {
+                id: 'name',
+                text: 'Other page prompt',
+                type: 'short-text',
+                supported: true,
+                existingInput: { hasValue: false },
+              },
+            ],
+          },
+        },
+      },
+      result: null,
+      error: null,
+    });
+
+    expect(restored.name).toBe('READY');
+    if (restored.name !== 'READY') throw new Error('Expected READY state.');
+    expect(restored.page.questions).toBeUndefined();
+  });
 });
 
 describe('P6 popup workflow boundary', () => {

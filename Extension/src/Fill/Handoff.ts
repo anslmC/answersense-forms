@@ -107,7 +107,7 @@ export function createFinalizedPageHandoff(
         : snapshotAnswer(document, form, outcome.questionId as string, index);
     return {
       questionId: outcome.questionId as string,
-      questionText: question?.text ?? '',
+      questionText: outcome.questionText ?? question?.text ?? '',
       answer,
       outcome: outcome.status,
       reason: outcome.reason,
