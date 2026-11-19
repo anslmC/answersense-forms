@@ -2411,6 +2411,404 @@ describe('live Overlay generation workflow', () => {
     );
   });
 
+  it('classifies GENERATION_FAILED with SKIPPED as failed and preserves other skip reasons', async () => {
+    const questionDefinitions = [
+      { id: 'ok-1', text: 'Successful question' },
+      { id: 'generation-failed', text: 'Generation failure question' },
+      { id: 'validation-failed', text: 'Validation failure question' },
+      { id: 'abstained', text: 'Abstained question' },
+      { id: 'fill-failed', text: 'Fill failure question' },
+      { id: 'partial-fill', text: 'Partial fill question' },
+    ];
+    const snapshot = {
+      supported: true,
+      uiState: 'READY' as const,
+      page: {
+        pageId: 'page-generation-failed',
+        questionCount: questionDefinitions.length,
+      },
+      lifecycle: {
+        activePage: {
+          form: {
+            questions: questionDefinitions.map(({ id, text }) => ({
+              id,
+              text,
+              type: 'short-text',
+              supported: true,
+              existingInput: { hasValue: false },
+            })),
+          },
+        },
+      },
+      result: null,
+      error: null,
+    };
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return snapshot;
+      if (message.type === 'p7-generate') {
+        return {
+          report: {
+            cycleId: 'cycle-generation-failed',
+            status: 'partial' as const,
+            results: [
+              {
+                questionId: 'ok-1',
+                status: 'GENERATED' as const,
+                answer: { questionId: 'ok-1', value: 'Answer' },
+                reason: null,
+              },
+              {
+                questionId: 'generation-failed',
+                status: 'GENERATION_FAILED' as const,
+                answer: null,
+                reason: 'Generation failed.',
+              },
+              {
+                questionId: 'validation-failed',
+                status: 'VALIDATION_FAILED' as const,
+                answer: null,
+                reason: 'Answer did not match.',
+              },
+              {
+                questionId: 'abstained',
+                status: 'ABSTAINED' as const,
+                answer: null,
+                reason: 'LOW_CONFIDENCE',
+              },
+              {
+                questionId: 'fill-failed',
+                status: 'GENERATED' as const,
+                answer: { questionId: 'fill-failed', value: 'Answer' },
+                reason: null,
+              },
+              {
+                questionId: 'partial-fill',
+                status: 'GENERATED' as const,
+                answer: { questionId: 'partial-fill', value: 'Answer' },
+                reason: null,
+              },
+            ],
+          },
+          fillReport: {
+            cycleId: 'cycle-generation-failed',
+            outcomes: [
+              { questionId: 'ok-1', status: 'FILLED' as const },
+              {
+                questionId: 'generation-failed',
+                status: 'SKIPPED' as const,
+                answer: null,
+                reason: 'The reviewed answer was skipped.',
+                code: null,
+              },
+              {
+                questionId: 'validation-failed',
+                status: 'SKIPPED' as const,
+                answer: null,
+                reason: 'The reviewed answer was skipped.',
+                code: null,
+              },
+              {
+                questionId: 'abstained',
+                status: 'SKIPPED' as const,
+                answer: null,
+                reason: 'The reviewed answer was skipped.',
+                code: null,
+              },
+              {
+                questionId: 'fill-failed',
+                status: 'FILL_FAILED' as const,
+                answer: null,
+                reason: 'The current DOM question was not found.',
+                code: 'ELEMENT_NOT_FOUND' as const,
+              },
+              {
+                questionId: 'partial-fill',
+                status: 'PARTIAL_FILL' as const,
+                answer: null,
+                reason: 'One option could not be applied.',
+                code: 'INVALID_ANSWER' as const,
+              },
+            ],
+          },
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const summary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toContain(
+        '1 filled · 0 already filled · 3 failed · 2 skipped'
+      )
+    );
+
+    const failedTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
+      '.failed-details-trigger'
+    );
+    expect(failedTrigger?.getAttribute('aria-label')).toBe(
+      'Show details for 3 failed questions'
+    );
+    const failedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#failed-question-details'
+    );
+    const failedItems =
+      failedPanel?.querySelectorAll('.failed-details-item') ?? [];
+    expect(failedItems).toHaveLength(3);
+    expect(failedItems[0]?.textContent).toContain(
+      'Question ID generation-failed'
+    );
+    expect(failedItems[0]?.textContent).toContain(
+      'Generation failure question'
+    );
+    expect(failedItems[0]?.textContent).toContain('Answer generation failed.');
+    expect(failedItems[1]?.textContent).toContain('Question ID fill-failed');
+    expect(failedItems[1]?.textContent).toContain(
+      'The question could not be located on the page.'
+    );
+    expect(failedItems[2]?.textContent).toContain('Question ID partial-fill');
+    expect(failedItems[2]?.textContent).toContain(
+      'The answer could not be applied.'
+    );
+    expect(failedPanel?.textContent).not.toContain('validation-failed');
+    expect(failedPanel?.textContent).not.toContain('abstained');
+
+    const skippedTrigger = shadowRoot?.querySelector<HTMLButtonElement>(
+      '.skipped-details-trigger'
+    );
+    expect(skippedTrigger?.getAttribute('aria-label')).toBe(
+      'Show details for 2 skipped questions'
+    );
+    const skippedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#skipped-question-details'
+    );
+    const skippedItems =
+      skippedPanel?.querySelectorAll('.skipped-details-item') ?? [];
+    expect(skippedItems).toHaveLength(2);
+    expect(skippedItems[0]?.textContent).toContain(
+      'Question ID validation-failed'
+    );
+    expect(skippedItems[0]?.textContent).toContain(
+      'The generated answer did not match the question.'
+    );
+    expect(skippedItems[1]?.textContent).toContain('Question ID abstained');
+    expect(skippedItems[1]?.textContent).toContain(
+      'No confident answer was available.'
+    );
+    expect(skippedPanel?.textContent).not.toContain('generation-failed');
+    expect(skippedPanel?.textContent).not.toContain(
+      'Generation failure question'
+    );
+  });
+
+  it('pairs normal and override generation results without reclassifying failed overrides', async () => {
+    const normalResult = {
+      report: {
+        cycleId: 'cycle-normal-pairing',
+        status: 'partial' as const,
+        results: [
+          {
+            questionId: 'question-1',
+            status: 'ABSTAINED' as const,
+            answer: null,
+            reason: 'LOW_CONFIDENCE',
+          },
+          {
+            questionId: 'question-2',
+            status: 'VALIDATION_FAILED' as const,
+            answer: null,
+            reason: 'Answer did not match.',
+          },
+          {
+            questionId: 'question-3',
+            status: 'GENERATED' as const,
+            answer: { questionId: 'question-3', value: 'Three' },
+            reason: null,
+          },
+          {
+            questionId: 'question-4',
+            status: 'GENERATED' as const,
+            answer: { questionId: 'question-4', value: 'Four' },
+            reason: null,
+          },
+        ],
+      },
+      fillReport: {
+        cycleId: 'cycle-normal-pairing',
+        outcomes: [
+          {
+            questionId: 'question-1',
+            status: 'SKIPPED' as const,
+            answer: null,
+            reason: 'The reviewed answer was skipped.',
+            code: null,
+          },
+          {
+            questionId: 'question-2',
+            status: 'SKIPPED' as const,
+            answer: null,
+            reason: 'The reviewed answer was skipped.',
+            code: null,
+          },
+          { questionId: 'question-3', status: 'FILLED' as const },
+          { questionId: 'question-4', status: 'FILLED' as const },
+        ],
+      },
+    };
+    const overrideResult = {
+      report: {
+        cycleId: 'cycle-override-pairing',
+        status: 'partial' as const,
+        results: [
+          {
+            questionId: 'question-1',
+            status: 'GENERATION_FAILED' as const,
+            answer: null,
+            reason: 'Generation failed.',
+          },
+          {
+            questionId: 'question-2',
+            status: 'GENERATED' as const,
+            answer: { questionId: 'question-2', value: 'Two' },
+            reason: null,
+          },
+          {
+            questionId: 'question-3',
+            status: 'GENERATED' as const,
+            answer: { questionId: 'question-3', value: 'Three' },
+            reason: null,
+          },
+          {
+            questionId: 'question-4',
+            status: 'GENERATED' as const,
+            answer: { questionId: 'question-4', value: 'Four' },
+            reason: null,
+          },
+        ],
+      },
+      fillReport: {
+        cycleId: 'cycle-override-pairing',
+        outcomes: [
+          {
+            questionId: 'question-1',
+            status: 'SKIPPED' as const,
+            answer: null,
+            reason: 'The reviewed answer was skipped.',
+            code: null,
+          },
+          { questionId: 'question-2', status: 'FILLED' as const },
+          { questionId: 'question-3', status: 'FILLED' as const },
+          { questionId: 'question-4', status: 'FILLED' as const },
+        ],
+      },
+    };
+    let generationCalls = 0;
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') return createSnapshot();
+      if (message.type === 'p7-generate') {
+        generationCalls += 1;
+        return generationCalls === 1 ? normalResult : overrideResult;
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const primary = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-primary-action]');
+    const overrideAction = () =>
+      shadowRoot?.querySelector<HTMLButtonElement>('[data-override-action]');
+    const summary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
+
+    await vi.waitFor(() => expect(primary()?.hidden).toBe(false));
+    primary()?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toBe(
+        '2 filled · 2 already filled · 0 failed · 2 skipped'
+      )
+    );
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('#skipped-question-details')
+        ?.textContent
+    ).toContain('Question ID question-2');
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('#skipped-question-details')
+        ?.textContent
+    ).toContain('The generated answer did not match the question.');
+
+    overrideAction()?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-all]')
+      ?.click();
+    shadowRoot
+      ?.querySelector<HTMLButtonElement>('[data-override-confirm]')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toBe(
+        '3 filled · 1 already filled · 0 failed · 1 skipped'
+      )
+    );
+    expect(shadowRoot?.textContent).toContain('3 overrided');
+    const skippedPanel = shadowRoot?.querySelector<HTMLElement>(
+      '#skipped-question-details'
+    );
+    const skippedItems =
+      skippedPanel?.querySelectorAll('.skipped-details-item') ?? [];
+    expect(skippedItems).toHaveLength(1);
+    expect(skippedItems[0]?.textContent).toContain('Question ID question-1');
+    expect(skippedItems[0]?.textContent).toContain(
+      'No confident answer was available.'
+    );
+    expect(skippedPanel?.textContent).not.toContain('Question ID question-2');
+    expect(shadowRoot?.querySelector('#failed-question-details')).toBeNull();
+  });
+
   it('shows preserved failed-question text when page question metadata is unavailable', async () => {
     const sendMessage = vi.fn(async (message: { type?: string }) => {
       if (message.type === 'configuration-state') return configurationState;

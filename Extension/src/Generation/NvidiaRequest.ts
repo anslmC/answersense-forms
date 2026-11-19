@@ -29,6 +29,8 @@ export const DEFAULT_NVIDIA_MEASUREMENT_PROFILE: NvidiaPayloadProfile =
     lightning: false,
   });
 
+export const NVIDIA_LIGHTNING_REASONING_BUDGET = 450;
+
 export function createNvidiaUserContent(
   request: NvidiaGenerationRequest
 ): string {
@@ -94,7 +96,10 @@ export function createNvidiaPayload(
   profile: NvidiaPayloadProfile = DEFAULT_NVIDIA_MEASUREMENT_PROFILE
 ): Record<string, unknown> {
   const reasoningParameters = profile.lightning
-    ? { chat_template_kwargs: { enable_thinking: true } }
+    ? {
+        chat_template_kwargs: { enable_thinking: true },
+        reasoning_budget: NVIDIA_LIGHTNING_REASONING_BUDGET,
+      }
     : { reasoning_effort: 'low' };
   return {
     model: profile.modelId,

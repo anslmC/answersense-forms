@@ -728,6 +728,7 @@ describe('NVIDIA batch provider integration', () => {
       expect(payload.chat_template_kwargs).toEqual({
         enable_thinking: true,
       });
+      expect(payload.reasoning_budget).toBe(450);
       expect(payload).not.toHaveProperty('reasoning_effort');
       expect(payload.response_format).toEqual({ type: 'json_object' });
       expect(payload.max_tokens).toBe(32768);

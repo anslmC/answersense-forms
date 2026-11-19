@@ -45,6 +45,7 @@ import {
 const LARGE_FORM_CANDIDATE_THRESHOLD = 10;
 const LARGE_FORM_NOTICE_TEXT =
   'Large form · Processing multiple questions. This may take longer than usual.';
+const GENERATION_FAILED_REASON = 'Answer generation failed.';
 
 function isSuccessfulOverrideOutcome(outcome: FillOutcome): boolean {
   return (
@@ -52,6 +53,36 @@ function isSuccessfulOverrideOutcome(outcome: FillOutcome): boolean {
     outcome.status === 'PARTIAL_FILL' ||
     outcome.status === 'PRESERVED_EXISTING'
   );
+}
+
+function pairGenerationResults(
+  outcomes: readonly FillOutcome[],
+  results: readonly QuestionResult[]
+): Map<FillOutcome, QuestionResult> {
+  const resultsByQuestionId = new Map<string | null, QuestionResult[]>();
+  for (const result of results) {
+    const candidates = resultsByQuestionId.get(result.questionId);
+    if (candidates) {
+      candidates.push(result);
+    } else {
+      resultsByQuestionId.set(result.questionId, [result]);
+    }
+  }
+  const paired = new Map<FillOutcome, QuestionResult>();
+  for (const outcome of outcomes) {
+    const result = resultsByQuestionId.get(outcome.questionId)?.shift();
+    if (result) {
+      paired.set(outcome, result);
+    }
+  }
+  return paired;
+}
+
+function isGenerationFailureOutcome(
+  outcome: FillOutcome,
+  result: QuestionResult | undefined
+): boolean {
+  return outcome.status === 'SKIPPED' && result?.status === 'GENERATION_FAILED';
 }
 
 function sameGeneratedResult(
@@ -914,7 +945,7 @@ export function mountAnswerSenseApp(
     fillReason: string | null
   ): string {
     if (result?.status === 'GENERATION_FAILED') {
-      return 'Answer generation failed.';
+      return GENERATION_FAILED_REASON;
     }
     if (result?.status === 'VALIDATION_FAILED') {
       return 'The generated answer did not match the question.';
@@ -967,11 +998,14 @@ export function mountAnswerSenseApp(
     summaryRow: HTMLElement,
     failedLabel: HTMLElement,
     outcomes: readonly FillOutcome[],
+    generationResults: ReadonlyMap<FillOutcome, QuestionResult>,
     questions: readonly WorkflowQuestion[]
   ): void {
     const failedOutcomes = outcomes.filter(
       (outcome) =>
-        outcome.status === 'FILL_FAILED' || outcome.status === 'PARTIAL_FILL'
+        outcome.status === 'FILL_FAILED' ||
+        outcome.status === 'PARTIAL_FILL' ||
+        isGenerationFailureOutcome(outcome, generationResults.get(outcome))
     );
     if (failedOutcomes.length === 0) return;
 
@@ -1045,7 +1079,12 @@ export function mountAnswerSenseApp(
 
       const reason = createElement('span');
       reason.className = 'failed-details-reason';
-      reason.textContent = failedReason(outcome);
+      reason.textContent = isGenerationFailureOutcome(
+        outcome,
+        generationResults.get(outcome)
+      )
+        ? GENERATION_FAILED_REASON
+        : failedReason(outcome);
       item.append(reason);
       list.append(item);
     }
@@ -1183,11 +1222,13 @@ export function mountAnswerSenseApp(
   function appendSkippedQuestionDetails(
     summaryRow: HTMLElement,
     outcomes: readonly FillOutcome[],
-    generationResults: ReadonlyMap<string | null, QuestionResult>,
+    generationResults: ReadonlyMap<FillOutcome, QuestionResult>,
     questions: readonly WorkflowQuestion[]
   ): void {
     const skippedOutcomes = outcomes.filter(
-      (outcome) => outcome.status === 'SKIPPED'
+      (outcome) =>
+        outcome.status === 'SKIPPED' &&
+        !isGenerationFailureOutcome(outcome, generationResults.get(outcome))
     );
     if (skippedOutcomes.length === 0) return;
 
@@ -1241,7 +1282,7 @@ export function mountAnswerSenseApp(
     for (const outcome of skippedOutcomes) {
       const questionId = outcome.questionId;
       const question = questionByOutcome.get(outcome);
-      const generationResult = generationResults.get(questionId);
+      const generationResult = generationResults.get(outcome);
       const item = createElement('li');
       item.className = 'skipped-details-item';
 
@@ -1615,20 +1656,51 @@ export function mountAnswerSenseApp(
           ? overridePresentation
           : overridePresentationFromResult(state.result);
       const isOverrideResult = activeOverridePresentation !== null;
-      const summaryOutcomes = isOverrideResult
-        ? activeOverridePresentation.normalResult.fillReport.outcomes.map(
-            (outcome) => {
-              const overrideOutcome =
-                activeOverridePresentation.overrideResult.fillReport.outcomes.find(
-                  (candidate) => candidate.questionId === outcome.questionId
-                );
-              return overrideOutcome &&
-                isSuccessfulOverrideOutcome(overrideOutcome)
-                ? overrideOutcome
-                : outcome;
-            }
+      const normalResult = activeOverridePresentation
+        ? activeOverridePresentation.normalResult
+        : state.result;
+      const normalGenerationResults = pairGenerationResults(
+        normalResult.fillReport.outcomes,
+        normalResult.report.results
+      );
+      const overrideGenerationResults = activeOverridePresentation
+        ? pairGenerationResults(
+            activeOverridePresentation.overrideResult.fillReport.outcomes,
+            activeOverridePresentation.overrideResult.report.results
           )
-        : outcomes;
+        : new Map<FillOutcome, QuestionResult>();
+      const summaryEntries = isOverrideResult
+        ? normalResult.fillReport.outcomes.map((outcome) => {
+            const overrideOutcome =
+              activeOverridePresentation.overrideResult.fillReport.outcomes.find(
+                (candidate) => candidate.questionId === outcome.questionId
+              );
+            if (
+              overrideOutcome &&
+              isSuccessfulOverrideOutcome(overrideOutcome)
+            ) {
+              return {
+                outcome: overrideOutcome,
+                generationResult:
+                  overrideGenerationResults.get(overrideOutcome),
+              };
+            }
+            return {
+              outcome,
+              generationResult: normalGenerationResults.get(outcome),
+            };
+          })
+        : outcomes.map((outcome) => ({
+            outcome,
+            generationResult: normalGenerationResults.get(outcome),
+          }));
+      const summaryOutcomes = summaryEntries.map(({ outcome }) => outcome);
+      const generationResultByOutcome = new Map<FillOutcome, QuestionResult>();
+      for (const { outcome, generationResult } of summaryEntries) {
+        if (generationResult) {
+          generationResultByOutcome.set(outcome, generationResult);
+        }
+      }
       const filledCount = summaryOutcomes.filter(
         ({ status }) => status === 'FILLED'
       ).length;
@@ -1674,10 +1746,21 @@ export function mountAnswerSenseApp(
       }
       const alreadyFilledCount = alreadyFilledQuestionIds.size;
       const failedCount = summaryOutcomes.filter(
-        ({ status }) => status === 'FILL_FAILED' || status === 'PARTIAL_FILL'
+        (outcome) =>
+          outcome.status === 'FILL_FAILED' ||
+          outcome.status === 'PARTIAL_FILL' ||
+          isGenerationFailureOutcome(
+            outcome,
+            generationResultByOutcome.get(outcome)
+          )
       ).length;
       const skippedCount = summaryOutcomes.filter(
-        ({ status }) => status === 'SKIPPED'
+        (outcome) =>
+          outcome.status === 'SKIPPED' &&
+          !isGenerationFailureOutcome(
+            outcome,
+            generationResultByOutcome.get(outcome)
+          )
       ).length;
       const overridedCount = activeOverridePresentation
         ? activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
@@ -1705,31 +1788,17 @@ export function mountAnswerSenseApp(
       const summaryRow = createElement('div');
       summaryRow.className = 'result-summary-row';
       summaryRow.append(summary);
-      const generationResults = new Map<string | null, QuestionResult>();
-      if (activeOverridePresentation) {
-        for (const result of activeOverridePresentation.normalResult.report
-          .results) {
-          generationResults.set(result.questionId, result);
-        }
-        for (const result of activeOverridePresentation.overrideResult.report
-          .results) {
-          generationResults.set(result.questionId, result);
-        }
-      } else {
-        for (const result of state.result.report.results) {
-          generationResults.set(result.questionId, result);
-        }
-      }
       appendSkippedQuestionDetails(
         summaryRow,
         summaryOutcomes,
-        generationResults,
+        generationResultByOutcome,
         state.page.questions ?? []
       );
       appendFailedQuestionDetails(
         summaryRow,
         failedLabel,
         summaryOutcomes,
+        generationResultByOutcome,
         state.page.questions ?? []
       );
       if (overridedCount > 0 && skippedCount > 0) {
