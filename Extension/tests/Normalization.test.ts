@@ -43,6 +43,8 @@ describe('Active page normalization', () => {
           existingInput: { value: 'Ada Lovelace', hasValue: true },
           supported: true,
           unsupportedReason: null,
+          hasVisualMaterial: false,
+          requiresUnavailableVisual: false,
         },
         {
           id: 'language',
@@ -56,6 +58,8 @@ describe('Active page normalization', () => {
           existingInput: { value: 'TypeScript', hasValue: true },
           supported: true,
           unsupportedReason: null,
+          hasVisualMaterial: false,
+          requiresUnavailableVisual: false,
         },
         {
           id: 'unknown',

@@ -808,6 +808,8 @@ describe('Active Google Forms page discovery', () => {
         required: true,
         options: [],
         existingValue: 'Existing details',
+        hasVisualMaterial: false,
+        requiresUnavailableVisual: false,
       },
       {
         kind: 'unsupported',

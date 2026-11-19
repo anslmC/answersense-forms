@@ -23,6 +23,8 @@ export interface DiscoveredQuestion {
   options: DiscoveredOption[];
   existingValue: string | string[] | null;
   answerParts?: number;
+  hasVisualMaterial?: boolean;
+  requiresUnavailableVisual?: boolean;
 }
 
 export interface UnsupportedQuestion {
@@ -59,6 +61,90 @@ function isVisible(element: HTMLElement): boolean {
     element.getAttribute('aria-hidden') !== 'true' &&
     element.style.display !== 'none'
   );
+}
+
+const visualMaterialSelector = 'img, picture, svg, canvas, [role="img"]';
+const optionSelector = '[role="radio"], [role="checkbox"], [role="option"]';
+const visualNounPattern =
+  '(?:images?|pictures?|photos?|photographs?|diagrams?|figures?|charts?|graphs?|tables?|truth[ -]?tables?|circuits?(?:\\s+diagrams?)?|schematics?|maps?|screenshots?|illustrations?|drawings?|flow\\s?charts?|exhibits?|timelines?)';
+
+const visualReferencePatterns = [
+  new RegExp(
+    `\\b(?:based\\s+on|according\\s+to|refer(?:ring)?\\s+to|as\\s+(?:shown|seen|displayed|depicted|illustrated|pictured)|shown|displayed|depicted|illustrated|pictured|presented)\\b[^.!?]{0,40}\\b${visualNounPattern}\\b`,
+    'i'
+  ),
+  new RegExp(
+    `\\b${visualNounPattern}\\b[^.!?]{0,24}\\b(?:shown|showing|shows|displayed|displaying|displays|depicted|depicting|depicts|illustrated|illustrating|illustrates|pictured|provided|contains|containing|above|below)\\b`,
+    'i'
+  ),
+  new RegExp(
+    `\\b(?:this|these|that|the\\s+following)\\s+${visualNounPattern}\\b`,
+    'i'
+  ),
+  new RegExp(
+    `\\b(?:matches?|corresponds?\\s+to|represents?|equivalent\\s+to|derived\\s+from|follows?\\s+from)\\b[^.!?]{0,40}\\b(?:the\\s+|this\\s+)?${visualNounPattern}\\b`,
+    'i'
+  ),
+  new RegExp(
+    `\\b(?:look\\s+at|examine|observe|study|view|see)\\b[^.!?]{0,30}\\b(?:the\\s+|this\\s+)?${visualNounPattern}\\b`,
+    'i'
+  ),
+];
+
+function hasHiddenVisualAncestor(element: Element): boolean {
+  let current: Element | null = element;
+  while (current) {
+    const style = current.getAttribute('style') ?? '';
+    if (
+      current.hasAttribute('hidden') ||
+      current.getAttribute('aria-hidden') === 'true' ||
+      /display\s*:\s*none|visibility\s*:\s*hidden/i.test(style)
+    ) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function hasTinyImageDimensions(element: Element): boolean {
+  if (element.tagName.toLowerCase() !== 'img') {
+    return false;
+  }
+  const width = Number.parseFloat(element.getAttribute('width') ?? '');
+  const height = Number.parseFloat(element.getAttribute('height') ?? '');
+  return (
+    (Number.isFinite(width) && width <= 1) ||
+    (Number.isFinite(height) && height <= 1)
+  );
+}
+
+function isDecorativeVisualElement(element: Element): boolean {
+  if (hasHiddenVisualAncestor(element)) {
+    return true;
+  }
+  const role = element.getAttribute('role');
+  return role === 'presentation' || role === 'none';
+}
+
+function hasMeaningfulVisualMaterial(root: ParentNode): boolean {
+  return Array.from(root.querySelectorAll(visualMaterialSelector)).some(
+    (element) =>
+      !isDecorativeVisualElement(element) && !hasTinyImageDimensions(element)
+  );
+}
+
+function hasVisualOptions(question: HTMLElement): boolean {
+  const options = Array.from(question.querySelectorAll(optionSelector));
+  return (
+    options.length > 0 &&
+    options.every((option) => hasMeaningfulVisualMaterial(option))
+  );
+}
+
+function referencesVisualMaterial(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return visualReferencePatterns.some((pattern) => pattern.test(normalized));
 }
 
 function isRespondentQuestionContainer(question: HTMLElement): boolean {
@@ -226,6 +312,7 @@ function discoverQuestion(
 
   const options = getOptions(question);
   const answerParts = countAnswerParts(text);
+  const hasVisualMaterial = hasMeaningfulVisualMaterial(question);
   return {
     kind: 'supported',
     id,
@@ -235,6 +322,10 @@ function discoverQuestion(
     options,
     existingValue: getExistingValue(question, type, options),
     ...(answerParts > 1 ? { answerParts } : {}),
+    hasVisualMaterial,
+    requiresUnavailableVisual:
+      hasVisualMaterial &&
+      (referencesVisualMaterial(text) || hasVisualOptions(question)),
   };
 }
 

@@ -25,6 +25,8 @@ export interface GenerationQuestion {
   required: boolean;
   options: string[];
   answerParts?: number;
+  hasVisualMaterial?: boolean;
+  requiresUnavailableVisual?: boolean;
 }
 
 export interface SettledContextItem {

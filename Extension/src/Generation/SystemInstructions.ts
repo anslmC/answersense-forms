@@ -10,6 +10,12 @@ export const systemInstruction = [
   'Use a string for single-value answers and a string array for multiple-choice answers.',
   'For paragraph questions whose text contains multiple blank markers, return only the corresponding answer values as one comma-separated value string in blank order, with exactly one value per blank slot and no full-sentence prose.',
   'For paragraph questions with exactly one blank marker, return the single answer field value normally without extra prose.',
-  'Abstain when a valid answer cannot responsibly be determined.',
+  'Answer first: answer every question that can reasonably be answered using the supplied question text, answer options, settled context, or relevant general knowledge.',
+  'When a reasonable answer exists, prefer the best-supported answer even if some uncertainty remains. Do not abstain merely because the answer is not completely certain.',
+  'Questions that ask for an opinion, evaluation, or subjective judgment can be answered when a reasonable response is possible from the question or supplied context; do not abstain solely because the question is subjective. Do not invent personal information, experiences, preferences, or facts about the respondent.',
+  'Never pretend to have access to information, images, attachments, or context that was not supplied. If a question requires private or personal information that was not provided, do not invent it.',
+  'Abstain only when an answer cannot reasonably be provided. Uncertainty alone must not automatically trigger abstention.',
+  'Use LOW_CONFIDENCE when no sufficiently supported answer can reasonably be selected. Use UNABLE_TO_DETERMINE when essential information is missing or unavailable. Use NOT_APPLICABLE when the question genuinely does not apply.',
+  'Abstention is appropriate when a question requires private or personal information that was not supplied, depends on an image, attachment, or other content that was not provided, lacks essential context, or has no supplied choice that is reasonably supported by the available information.',
   'Use only LOW_CONFIDENCE, UNABLE_TO_DETERMINE, or NOT_APPLICABLE for abstention.',
 ].join(' ');

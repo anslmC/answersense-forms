@@ -28,6 +28,8 @@ export function computePageFingerprint(form: Form): string {
     type: question.type,
     required: question.required,
     options: question.options.map((option) => option.label),
+    hasVisualMaterial: question.hasVisualMaterial === true,
+    requiresUnavailableVisual: question.requiresUnavailableVisual === true,
   }));
 
   return stableHash(JSON.stringify(content));
@@ -57,6 +59,10 @@ function normalizeSupportedQuestion(question: DiscoveredQuestion): Question {
     ...(question.answerParts && question.answerParts > 1
       ? { answerParts: question.answerParts }
       : {}),
+    hasVisualMaterial:
+      question.hasVisualMaterial === true ||
+      question.requiresUnavailableVisual === true,
+    requiresUnavailableVisual: question.requiresUnavailableVisual === true,
   };
 }
 

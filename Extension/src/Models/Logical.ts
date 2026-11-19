@@ -29,6 +29,8 @@ export interface Question {
   supported: boolean;
   unsupportedReason: string | null;
   answerParts?: number;
+  hasVisualMaterial?: boolean;
+  requiresUnavailableVisual?: boolean;
 }
 
 export type QuestionResultStatus =

@@ -244,6 +244,17 @@ export function validateGenerationResponse(
     }
 
     const questionId = question.id as string;
+    if (question.requiresUnavailableVisual === true) {
+      return [
+        {
+          questionId,
+          status: 'ABSTAINED',
+          answer: null,
+          reason: 'UNABLE_TO_DETERMINE',
+        },
+      ];
+    }
+
     const result = resultsById.get(questionId) as GenerationResult;
     if (result.status === 'GENERATION_FAILED') {
       return [

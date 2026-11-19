@@ -63,6 +63,10 @@ function createRequest(
     ...(question.answerParts && question.answerParts > 1
       ? { answerParts: question.answerParts }
       : {}),
+    ...(question.hasVisualMaterial === true ? { hasVisualMaterial: true } : {}),
+    ...(question.requiresUnavailableVisual === true
+      ? { requiresUnavailableVisual: true }
+      : {}),
   }));
   return {
     cycleId,
