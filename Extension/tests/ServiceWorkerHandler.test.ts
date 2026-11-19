@@ -456,6 +456,68 @@ describe('Service Worker Generate terminal projection', () => {
     expect(authorized.resolved.configurationDigest).toBeTruthy();
   });
 
+  it('persists the normal result as the base for an Override result', async () => {
+    const { handleMessage, state } =
+      await prepareGenerationResponse(validResult);
+    const chromeApi = (
+      globalThis as typeof globalThis & {
+        chrome: { tabs: { sendMessage: ReturnType<typeof vi.fn> } };
+      }
+    ).chrome;
+    const overrideResult = {
+      report: {
+        cycleId: 'cycle-override',
+        status: 'complete',
+        results: [],
+      },
+      fillReport: { cycleId: 'cycle-override', outcomes: [] },
+    };
+    const uiSender = { id: extensionId } as HandlerSender;
+
+    await expect(
+      handleMessage({ type: 'p7-generate' }, uiSender)
+    ).resolves.toEqual(validResult);
+    chromeApi.tabs.sendMessage.mockImplementation(
+      async (_tabId: number, message: { type?: string }) => {
+        if (message.type === 'preflight-generation') {
+          return { status: 'valid' };
+        }
+        if (message.type === 'generate-current-page') {
+          return overrideResult;
+        }
+        return validResult;
+      }
+    );
+    await expect(
+      handleMessage(
+        {
+          type: 'p7-generate',
+          intent: {
+            type: 'OVERRIDE_FILLED',
+            selectedQuestionIds: ['question-1'],
+          },
+        },
+        uiSender
+      )
+    ).resolves.toEqual({
+      ...overrideResult,
+      overrideBaseResult: validResult,
+    });
+    expect(state.sessionValues).toEqual(
+      expect.objectContaining({
+        answerSenseIntegrationState: expect.objectContaining({
+          [activeTabId]: expect.objectContaining({
+            uiState: 'REVIEW',
+            result: {
+              ...overrideResult,
+              overrideBaseResult: validResult,
+            },
+          }),
+        }),
+      })
+    );
+  });
+
   it('stores in-flight candidate progress and clears it at completion', async () => {
     const { handleMessage, state } =
       await prepareGenerationResponse(validResult);

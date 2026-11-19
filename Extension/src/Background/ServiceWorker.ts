@@ -868,12 +868,25 @@ export async function handleMessage(
         notifyGenerationTerminalState(terminalSnapshot, contentPerformance);
         return result;
       }
+      let resultForStore = result;
+      if (
+        message.intent?.type === 'OVERRIDE_FILLED' &&
+        currentSnapshot?.result &&
+        !('status' in currentSnapshot.result)
+      ) {
+        const normalResult =
+          currentSnapshot.result.overrideBaseResult ?? currentSnapshot.result;
+        resultForStore = {
+          ...result,
+          overrideBaseResult: withoutPerformance(normalResult),
+        };
+      }
       const terminalSnapshot = await stateStore.updateIfGenerationCurrent(
         tabId,
         generationOperationId,
         {
           uiState: 'REVIEW',
-          result: withoutPerformance(result),
+          result: withoutPerformance(resultForStore),
           error: null,
           generationOperationId: null,
           generationProgress: null,
@@ -883,7 +896,7 @@ export async function handleMessage(
         throw new Error('Generation operation was superseded.');
       }
       notifyGenerationTerminalState(terminalSnapshot, contentPerformance);
-      return result;
+      return resultForStore;
     } catch (error) {
       const failure = providerBoundaryError(error);
       const terminalSnapshot = await stateStore.updateIfGenerationCurrent(

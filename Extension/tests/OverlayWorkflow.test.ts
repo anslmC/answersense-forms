@@ -1657,7 +1657,7 @@ describe('live Overlay generation workflow', () => {
       ?.click();
     await vi.waitFor(() =>
       expect(summary()?.textContent).toBe(
-        '3 filled · 0 already filled · 1 failed · 0 skipped · 3 overrided'
+        '4 filled · 0 already filled · 0 failed · 0 skipped · 3 overrided'
       )
     );
     const failureHeader =
@@ -1701,7 +1701,7 @@ describe('live Overlay generation workflow', () => {
     expect(
       shadowRoot?.querySelector<HTMLButtonElement>('[data-force-clear]')?.hidden
     ).toBe(true);
-    expect(summary()?.textContent).toContain('3 filled');
+    expect(summary()?.textContent).toContain('4 filled');
     expect(summary()?.textContent).toContain('3 overrided');
     shadowRoot
       ?.querySelector<HTMLButtonElement>('[data-override-action]')
@@ -1710,6 +1710,74 @@ describe('live Overlay generation workflow', () => {
     expect(
       shadowRoot?.querySelectorAll('[data-override-specific-list] input')
     ).toHaveLength(4);
+  });
+
+  it('restores normal filled counts from a persisted Override base result', async () => {
+    const overrideResult = {
+      report: {
+        cycleId: 'cycle-override',
+        status: 'complete' as const,
+        results: [],
+      },
+      fillReport: {
+        cycleId: 'cycle-override',
+        outcomes: [
+          { questionId: 'question-1', status: 'FILLED' as const },
+          { questionId: 'question-2', status: 'FILLED' as const },
+          { questionId: 'question-3', status: 'FILLED' as const },
+          {
+            questionId: 'question-4',
+            status: 'FILL_FAILED' as const,
+            reason:
+              'The question was empty. Consider manually entering an answer or using Auto-Generate.',
+          },
+        ],
+      },
+      overrideBaseResult: generationResult,
+    };
+    const sendMessage = vi.fn(async (message: { type?: string }) => {
+      if (message.type === 'configuration-state') return configurationState;
+      if (message.type === 'p7-discover') {
+        return {
+          ...createSnapshot(),
+          uiState: 'REVIEW' as const,
+          result: overrideResult,
+        };
+      }
+      return {};
+    });
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => undefined),
+        },
+      },
+      runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    });
+    vi.stubGlobal('Option', function (label: string, value: string) {
+      const option = document.createElement('option');
+      option.textContent = label;
+      option.value = value;
+      return option;
+    });
+
+    overlay = await mountOverlay();
+    const shadowRoot = document.querySelector(
+      '#answersense-overlay-host'
+    )?.shadowRoot;
+    const summary = () =>
+      shadowRoot?.querySelector<HTMLElement>('.result-summary');
+
+    await vi.waitFor(() =>
+      expect(summary()?.textContent).toBe(
+        '4 filled · 0 already filled · 0 failed · 0 skipped · 3 overrided'
+      )
+    );
+    expect(
+      shadowRoot?.querySelector<HTMLElement>('.override-failure')?.textContent
+    ).toBe('Override failed for Q4. ↻');
   });
 
   it('does not append an Override count for cancellation or failed Override', async () => {

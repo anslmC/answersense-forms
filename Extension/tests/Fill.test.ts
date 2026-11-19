@@ -15,7 +15,9 @@ import {
   CHOICE_VERIFICATION_VISIBLE_GRACE_MS,
   createSkipDiagnostics,
   fillReviewedAnswers,
+  reconcileFillReport,
   type ChoiceVerificationDetails,
+  type FillReport,
 } from '../src/Fill/Filler';
 import { resolveCurrentQuestionTarget } from '../src/Fill/Resolver';
 
@@ -1617,7 +1619,7 @@ describe('event-driven choice verification', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('settles as a failure after the maximum wait when the document stays hidden', async () => {
+  it('waits beyond the maximum wait while hidden and verifies when visible', async () => {
     vi.useFakeTimers();
     const document = createDocument();
     setDocumentVisibility(document, true);
@@ -1644,6 +1646,60 @@ describe('event-driven choice verification', () => {
     await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_MAX_WAIT_MS - 1);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(false);
+    expect(records).toHaveLength(0);
+
+    option.setAttribute('aria-checked', 'true');
+    setDocumentVisibility(document, false);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    const result = await fillPromise;
+
+    expect(result.outcomes[0]).toMatchObject({ status: 'FILLED' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      mode: 'EVENT',
+      verified: true,
+      documentHidden: false,
+      documentVisibility: 'visible',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('settles after the visible grace when a hidden document becomes visible without a selection', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    setDocumentVisibility(document, true);
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.click = () => {};
+    const report = reportFor([{ questionId: 'choice', value: 'Beta' }]);
+    const { records, instrumentation } = collectInstrumentation();
+
+    let settled = false;
+    const fillPromise = fillReviewedAnswers(
+      document,
+      form,
+      report,
+      [acceptGeneratedAnswer('choice', report.results[0].answer!)],
+      false,
+      instrumentation
+    ).then((value) => {
+      settled = true;
+      return value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_MAX_WAIT_MS);
+    expect(settled).toBe(false);
+
+    setDocumentVisibility(document, false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(
+      CHOICE_VERIFICATION_VISIBLE_GRACE_MS - 1
+    );
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
     const result = await fillPromise;
 
     expect(result.outcomes[0]).toMatchObject({
@@ -1654,9 +1710,80 @@ describe('event-driven choice verification', () => {
     expect(records[0]).toMatchObject({
       mode: 'FALLBACK',
       verified: false,
-      documentHidden: true,
-      documentVisibility: 'hidden',
+      documentHidden: false,
+      documentVisibility: 'visible',
     });
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reconciles a failed outcome when the answer appears while a later question is filled', async () => {
+    vi.useFakeTimers();
+    const document = createDocument();
+    const choice = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    const checkbox = document.querySelector<HTMLElement>(
+      '[data-question-id="checks"] [aria-label="One"]'
+    )!;
+    choice.click = () => {
+      setTimeout(
+        () => choice.setAttribute('aria-checked', 'true'),
+        CHOICE_VERIFICATION_VISIBLE_GRACE_MS + 50
+      );
+    };
+    checkbox.click = () => {
+      setTimeout(() => checkbox.setAttribute('aria-checked', 'true'), 100);
+    };
+    const report = reportFor([
+      { questionId: 'choice', value: 'Beta' },
+      { questionId: 'checks', value: ['One'] },
+    ]);
+
+    const fillPromise = fillReviewedAnswers(document, form, report, [
+      acceptGeneratedAnswer('choice', report.results[0].answer!),
+      acceptGeneratedAnswer('checks', report.results[1].answer!),
+    ]);
+
+    await vi.advanceTimersByTimeAsync(CHOICE_VERIFICATION_VISIBLE_GRACE_MS);
+    expect(choice.getAttribute('aria-checked')).toBe('false');
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await fillPromise;
+
+    expect(result.outcomes).toMatchObject([
+      { questionId: 'choice', status: 'FILLED' },
+      { questionId: 'checks', status: 'FILLED' },
+    ]);
+    expect(choice.getAttribute('aria-checked')).toBe('true');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reconciles failed outcomes directly from the current DOM', () => {
+    const document = createDocument();
+    const option = document.querySelector<HTMLElement>(
+      '[data-question-id="choice"] [aria-label="Beta"]'
+    )!;
+    option.setAttribute('aria-checked', 'true');
+    const fillReport = {
+      cycleId: 'cycle-reconcile',
+      outcomes: [
+        {
+          questionId: 'choice',
+          status: 'FILL_FAILED',
+          answer: { questionId: 'choice', value: 'Beta' },
+          reason: 'The requested choice was not selected in the current DOM.',
+          code: 'INVALID_OPTION',
+        },
+      ],
+    } satisfies FillReport;
+
+    const reconciled = reconcileFillReport(document, form, fillReport);
+
+    expect(reconciled.outcomes[0]).toEqual({
+      questionId: 'choice',
+      status: 'FILLED',
+      answer: { questionId: 'choice', value: 'Beta' },
+      reason: null,
+      code: null,
+    });
   });
 });

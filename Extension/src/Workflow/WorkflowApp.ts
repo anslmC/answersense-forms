@@ -40,6 +40,38 @@ const LARGE_FORM_CANDIDATE_THRESHOLD = 10;
 const LARGE_FORM_NOTICE_TEXT =
   'Large form · Processing multiple questions. This may take longer than usual.';
 
+function isSuccessfulOverrideOutcome(outcome: FillOutcome): boolean {
+  return (
+    outcome.status === 'FILLED' ||
+    outcome.status === 'PARTIAL_FILL' ||
+    outcome.status === 'PRESERVED_EXISTING'
+  );
+}
+
+function sameGeneratedResult(
+  left: GeneratedUiResult,
+  right: GeneratedUiResult
+): boolean {
+  return (
+    left === right ||
+    (left.report.cycleId === right.report.cycleId &&
+      left.fillReport.cycleId === right.fillReport.cycleId)
+  );
+}
+
+interface OverridePresentation {
+  normalResult: GeneratedUiResult;
+  overrideResult: GeneratedUiResult;
+}
+
+function overridePresentationFromResult(
+  result: GeneratedUiResult
+): OverridePresentation | null {
+  return result.overrideBaseResult
+    ? { normalResult: result.overrideBaseResult, overrideResult: result }
+    : null;
+}
+
 export interface WorkflowAppOptions {
   root?: ParentNode;
   onState?: (state: UiState) => void;
@@ -223,10 +255,7 @@ export function mountAnswerSenseApp(
   const controller = new WorkflowController(createBrowserWorkflow());
   let primaryAction: HTMLButtonElement | null = null;
   let primaryActionContainer: HTMLElement | null = null;
-  let overridePresentation: {
-    normalResult: GeneratedUiResult;
-    overrideResult: GeneratedUiResult;
-  } | null = null;
+  let overridePresentation: OverridePresentation | null = null;
 
   function currentConfigurationSelection(): ConfigurationSelection {
     return {
@@ -1244,9 +1273,9 @@ export function mountAnswerSenseApp(
       const outcomes = state.result.fillReport.outcomes;
       const activeOverridePresentation =
         overridePresentation &&
-        state.result === overridePresentation.overrideResult
+        sameGeneratedResult(state.result, overridePresentation.overrideResult)
           ? overridePresentation
-          : null;
+          : overridePresentationFromResult(state.result);
       const isOverrideResult = activeOverridePresentation !== null;
       const summaryOutcomes = isOverrideResult
         ? activeOverridePresentation.normalResult.fillReport.outcomes.map(
@@ -1255,7 +1284,10 @@ export function mountAnswerSenseApp(
                 activeOverridePresentation.overrideResult.fillReport.outcomes.find(
                   (candidate) => candidate.questionId === outcome.questionId
                 );
-              return overrideOutcome ?? outcome;
+              return overrideOutcome &&
+                isSuccessfulOverrideOutcome(overrideOutcome)
+                ? overrideOutcome
+                : outcome;
             }
           )
         : outcomes;
@@ -1309,13 +1341,11 @@ export function mountAnswerSenseApp(
       const skippedCount = summaryOutcomes.filter(
         ({ status }) => status === 'SKIPPED'
       ).length;
-      const overridedCount =
-        overridePresentation &&
-        state.result === overridePresentation.overrideResult
-          ? overridePresentation.overrideResult.fillReport.outcomes.filter(
-              ({ status }) => status === 'FILLED'
-            ).length
-          : 0;
+      const overridedCount = activeOverridePresentation
+        ? activeOverridePresentation.overrideResult.fillReport.outcomes.filter(
+            ({ status }) => status === 'FILLED'
+          ).length
+        : 0;
 
       const summary = createElement('p');
       summary.className = 'result-summary';
@@ -2798,7 +2828,14 @@ export function mountAnswerSenseApp(
           snapshot.performance ?? readPerformanceReport(message.snapshot)
         );
       }
-      overridePresentation = null;
+      const preservesOverridePresentation =
+        overridePresentation !== null &&
+        state.name === 'REVIEW' &&
+        !('status' in state.result) &&
+        sameGeneratedResult(state.result, overridePresentation.overrideResult);
+      if (overridePresentation && !preservesOverridePresentation) {
+        overridePresentation = null;
+      }
       options.onState?.(state);
       renderAll(state);
     }

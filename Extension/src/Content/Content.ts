@@ -10,6 +10,7 @@ import { createAcceptedReviewDecisions } from '../Review/Decisions';
 import {
   createSkipDiagnostics,
   fillReviewedAnswers,
+  reconcileFillReport,
   type FillOutcome,
 } from '../Fill/Filler';
 import { createFinalizedPageHandoff } from '../Fill/Handoff';
@@ -915,33 +916,45 @@ async function handleRequest(request: {
       );
       const fillDurationMs = elapsedSince(fillStartedAt);
       performance.addPhase('fillDurationMs', fillDurationMs);
-      for (const outcome of filledReport.outcomes) {
+      const captureStartedAt = monotonicNow();
+      pageLifecycle.captureCurrentAnswers(document);
+      performance.addPhase('postFillCaptureMs', elapsedSince(captureStartedAt));
+      const reconciledReport = reconcileFillReport(
+        document,
+        pageLifecycle.currentPage.form,
+        filledReport
+      );
+      const reconciledCount = reconciledReport.outcomes.filter(
+        (outcome, index) =>
+          outcome.status !== filledReport.outcomes[index]?.status
+      ).length;
+      if (reconciledCount > 0) {
+        performance.addCount('fillOutcomeReconciledCount', reconciledCount);
+      }
+      for (const outcome of reconciledReport.outcomes) {
         performance.addCount(`fillStatus:${outcome.status}`);
       }
-      const filledCount = filledReport.outcomes.filter(
+      const filledCount = reconciledReport.outcomes.filter(
         (outcome) =>
           outcome.status === 'FILLED' ||
           outcome.status === 'PARTIAL_FILL' ||
           outcome.status === 'PRESERVED_EXISTING'
       ).length;
-      const failedCount = filledReport.outcomes.filter(
+      const failedCount = reconciledReport.outcomes.filter(
         (outcome) => outcome.status === 'FILL_FAILED'
       ).length;
       performance.recordBrowser({
         phase: 'fill',
         durationMs: fillDurationMs,
-        questionCount: filledReport.outcomes.length,
+        questionCount: reconciledReport.outcomes.length,
         filledCount,
         failedCount,
         attemptCount: null,
       });
-      const captureStartedAt = monotonicNow();
-      pageLifecycle.captureCurrentAnswers(document);
-      performance.addPhase('postFillCaptureMs', elapsedSince(captureStartedAt));
       const fillReport = {
-        cycleId: filledReport.cycleId,
+        cycleId: reconciledReport.cycleId,
         outcomes: Object.freeze([
-          ...filledReport.outcomes,
+          ...reconciledReport.outcomes,
           ...overrideFailures,
         ]),
       };

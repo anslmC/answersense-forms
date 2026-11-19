@@ -104,6 +104,7 @@ export interface GeneratedUiResult {
   report: GenerationReport;
   fillReport: FillReport;
   performance?: GenerationPerformanceReport;
+  overrideBaseResult?: GeneratedUiResult;
 }
 
 export interface ReusedUiResult {
@@ -161,7 +162,9 @@ function isGeneratedUiResult(value: unknown): value is GeneratedUiResult {
           outcome.questionId === null) &&
         typeof outcome.status === 'string' &&
         validFillStatuses.has(outcome.status)
-    )
+    ) &&
+    (value.overrideBaseResult === undefined ||
+      isGeneratedUiResult(value.overrideBaseResult))
   );
 }
 

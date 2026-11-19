@@ -15,6 +15,7 @@ import {
   type QuestionTargetIndex,
   type ResolutionFailure,
   type ResolvedChoiceTarget,
+  type ResolvedQuestionTarget,
   type ResolvedTextTarget,
 } from './Resolver';
 
@@ -125,6 +126,39 @@ function currentChoiceAnswer(target: ResolvedChoiceTarget): Answer | null {
         value: target.kind === 'multiple-choice' ? selected : selected[0],
       }
     : null;
+}
+
+function currentResolvedAnswer(
+  target: ResolvedQuestionTarget
+): Answer | null {
+  if (target.kind === 'short-text' || target.kind === 'paragraph') {
+    const value = currentTextValue(target);
+    return value ? { questionId: target.questionId, value } : null;
+  }
+  if (target.kind === 'single-choice' || target.kind === 'multiple-choice') {
+    return currentChoiceAnswer(target);
+  }
+  return null;
+}
+
+function answerSatisfies(
+  requested: Answer | null,
+  current: Answer | null
+): boolean {
+  if (!requested || !current) {
+    return false;
+  }
+  const requestedValue = requested.value;
+  const currentValue = current.value;
+  if (Array.isArray(requestedValue)) {
+    return (
+      Array.isArray(currentValue) &&
+      requestedValue.every((value) => currentValue.includes(value))
+    );
+  }
+  return Array.isArray(currentValue)
+    ? currentValue.includes(requestedValue)
+    : currentValue === requestedValue;
 }
 
 function preserveExisting(
@@ -248,8 +282,9 @@ function getMutationObserverConstructor(
  * Watches only the option elements involved in one verification. The observer
  * is installed before the click and the grace timer only advances while the
  * document is visible, because Google Forms defers committing `aria-checked`
- * until the tab becomes visible again. A separate maximum wait bounds the
- * whole verification so a document that never becomes visible still settles.
+ * until the tab becomes visible again. The maximum wait is also visibility-
+ * aware: a hidden document stays pending until it becomes visible, then the
+ * visible grace window bounds verification.
  */
 function createChoiceVerifier(
   isSelected: () => boolean,
@@ -433,7 +468,13 @@ function createChoiceVerifier(
     if (settled) {
       return;
     }
-    refreshVisibility();
+    if (refreshVisibility().hidden) {
+      // Google Forms commits deferred choices when the document becomes
+      // visible. Settling here would report a failure for a selection that is
+      // still pending; the visibility listener rechecks and restarts the
+      // visible grace window instead.
+      return;
+    }
     finishExpired();
   };
 
@@ -816,6 +857,61 @@ async function fillQuestion(
   );
 }
 
+export function reconcileFillReport(
+  document: Document,
+  form: Form,
+  fillReport: FillReport,
+  index?: QuestionTargetIndex
+): FillReport {
+  const questionsById = new Map(
+    form.questions.map((question) => [question.id, question])
+  );
+  const targetIndex = index ?? createQuestionTargetIndex(document);
+  let changed = false;
+  const outcomes = fillReport.outcomes.map((outcome) => {
+    if (
+      outcome.status !== 'FILL_FAILED' &&
+      outcome.status !== 'PARTIAL_FILL'
+    ) {
+      return outcome;
+    }
+    if (typeof outcome.questionId !== 'string' || !outcome.answer) {
+      return outcome;
+    }
+    const question = questionsById.get(outcome.questionId);
+    if (!question) {
+      return outcome;
+    }
+    const resolved = resolveCurrentQuestionTarget(
+      document,
+      question,
+      targetIndex
+    );
+    if (!resolved.ok) {
+      return outcome;
+    }
+    const current = currentResolvedAnswer(resolved.target);
+    if (!current || !answerSatisfies(outcome.answer, current)) {
+      return outcome;
+    }
+    changed = true;
+    return {
+      ...outcome,
+      status: 'FILLED' as const,
+      answer: current,
+      reason: null,
+      code: null,
+    };
+  });
+  if (!changed) {
+    return fillReport;
+  }
+  return Object.freeze({
+    cycleId: fillReport.cycleId,
+    outcomes: Object.freeze(outcomes),
+  });
+}
+
 export async function fillReviewedAnswers(
   document: Document,
   form: Form,
@@ -891,8 +987,13 @@ export async function fillReviewedAnswers(
     );
   }
 
-  return Object.freeze({
-    cycleId: report.cycleId,
-    outcomes: Object.freeze(outcomes),
-  });
+  return reconcileFillReport(
+    document,
+    form,
+    Object.freeze({
+      cycleId: report.cycleId,
+      outcomes: Object.freeze(outcomes),
+    }),
+    index
+  );
 }
