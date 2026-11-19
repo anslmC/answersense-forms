@@ -31,7 +31,7 @@ export interface NvidiaBatchFailureMetadata {
   readonly questionIds: readonly string[];
   readonly safeCode: ProviderErrorCode;
   readonly category: NvidiaBatchFailureCategory;
-  readonly retryable: boolean | null;
+  readonly retryable: boolean;
   readonly message: string;
   readonly httpStatus?: number | null;
   readonly retryAfterMs?: number | null;
@@ -87,9 +87,14 @@ export interface NvidiaBatchExecutionOptions {
   readonly batchMetadata?: ReadonlyMap<number, NvidiaBatchPerformanceMetadata>;
 }
 
+export type NvidiaRecoveryDisposition = 'RETRY' | 'SPLIT' | 'NONE';
+
 export interface NvidiaFailureDetails {
   readonly category: NvidiaBatchFailureCategory;
-  readonly retryable: boolean | null;
+  /** True only when resending can plausibly change the outcome. Never null. */
+  readonly retryable: boolean;
+  /** How recovery should act: resend, narrow structurally, or stop. */
+  readonly disposition: NvidiaRecoveryDisposition;
   readonly message: string;
 }
 
@@ -100,51 +105,63 @@ export const NVIDIA_FAILURE_DETAILS: Record<
   AUTHENTICATION_FAILED: {
     category: 'AUTHENTICATION',
     retryable: false,
+    disposition: 'NONE',
     message: 'Credential invalid.',
   },
   PERMISSION_DENIED: {
     category: 'PERMISSION',
     retryable: false,
+    disposition: 'NONE',
     message: 'Provider access denied.',
   },
   INVALID_REQUEST: {
     category: 'INVALID_REQUEST',
     retryable: false,
+    disposition: 'NONE',
     message: 'Provider request was invalid.',
   },
   RATE_LIMITED: {
     category: 'RATE_LIMIT',
     retryable: true,
+    disposition: 'RETRY',
     message: 'Provider rate limit reached.',
   },
   PROVIDER_UNAVAILABLE: {
     category: 'PROVIDER_UNAVAILABLE',
     retryable: true,
+    disposition: 'RETRY',
     message: 'Provider unavailable.',
   },
   TIMEOUT: {
     category: 'TIMEOUT',
     retryable: true,
+    disposition: 'RETRY',
     message: 'Provider request timed out.',
   },
+  // Truncated or malformed output is recoverable, but only by narrowing the
+  // request: the same batch is likely to fail the same way again.
   INCOMPLETE_PROVIDER_RESPONSE: {
     category: 'MALFORMED_RESPONSE',
-    retryable: null,
+    retryable: true,
+    disposition: 'SPLIT',
     message: 'NVIDIA response was truncated before completion.',
   },
   MALFORMED_PROVIDER_RESPONSE: {
     category: 'MALFORMED_RESPONSE',
-    retryable: null,
+    retryable: true,
+    disposition: 'SPLIT',
     message: 'Provider returned an invalid response.',
   },
   NETWORK_FAILURE: {
     category: 'NETWORK',
     retryable: true,
+    disposition: 'RETRY',
     message: 'Provider network request failed.',
   },
   PROVIDER_FAILURE: {
     category: 'PROVIDER_FAILURE',
-    retryable: null,
+    retryable: false,
+    disposition: 'NONE',
     message: 'Provider request failed.',
   },
 };

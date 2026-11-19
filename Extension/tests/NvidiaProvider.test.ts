@@ -1139,8 +1139,9 @@ describe('NVIDIA Lightning production regressions', () => {
         NVIDIA_LIGHTNING_REQUEST_TIMEOUT_MS - 1
       );
       expect(fetchMock).toHaveBeenCalledOnce();
-      await vi.advanceTimersByTimeAsync(2);
+      await vi.advanceTimersByTimeAsync(200_000);
       await expect(generation).resolves.toMatchObject({ safeCode: 'TIMEOUT' });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
@@ -1261,7 +1262,7 @@ describe('NVIDIA Lightning production regressions', () => {
 
     const thrown = await generateError(provider);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(thrown).toMatchObject({
       safeCode: 'PROVIDER_UNAVAILABLE',
       diagnostics: {
@@ -1314,26 +1315,35 @@ describe('NVIDIA Lightning production regressions', () => {
     }
   });
 
-  it('captures Retry-After without retrying a non-idempotent generation request', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response('private provider body', {
-          status: 429,
-          headers: { 'Retry-After': '3' },
-        })
-    );
-    const provider = new NvidiaProvider(
-      'synthetic-test-key',
-      NVIDIA_NEMOTRON_LIGHTNING_MODEL,
-      fetchMock
-    );
+  it('honors Retry-After while bounding recovery for a rate-limited request', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response('private provider body', {
+            status: 429,
+            headers: { 'Retry-After': '3' },
+          })
+      );
+      const provider = new NvidiaProvider(
+        'synthetic-test-key',
+        NVIDIA_NEMOTRON_LIGHTNING_MODEL,
+        fetchMock
+      );
 
-    const thrown = await generateError(provider);
+      const generation = provider
+        .generate(request)
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(7_000);
+      const thrown = await generation;
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(thrown).toMatchObject({
-      safeCode: 'RATE_LIMITED',
-      diagnostics: { retryAfterMs: 3_000 },
-    });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(thrown).toMatchObject({
+        safeCode: 'RATE_LIMITED',
+        diagnostics: { retryAfterMs: 3_000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

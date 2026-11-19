@@ -9,6 +9,7 @@ import { resolveAnswerParts, splitAnswerParts } from './AnswerParts';
 import {
   isNvidiaProviderErrorCode,
   nvidiaFailureDetails,
+  type NvidiaRecoveryDisposition,
 } from './NvidiaBatchExecution';
 
 const ABSTENTION_REASONS = new Set([
@@ -34,7 +35,10 @@ export interface NvidiaResultFailureDetails {
   readonly code: string;
   readonly message: string;
   readonly retryable: boolean;
+  readonly disposition: NvidiaRecoveryDisposition;
 }
+
+const MAX_MODEL_FAILURE_MESSAGE_LENGTH = 512;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -149,19 +153,30 @@ function canonicalResultForQuestion(
 export function nvidiaResultFailureDetails(
   result: FailedQuestionResult
 ): NvidiaResultFailureDetails {
-  const code = result.failure.code;
+  const code = result.failure.code.trim();
   if (isNvidiaProviderErrorCode(code)) {
     const details = nvidiaFailureDetails(code);
     return {
       code,
       message: details.message,
-      retryable: details.retryable === true,
+      retryable: details.retryable,
+      disposition: details.disposition,
     };
   }
+  // The model declared its own failure. Keep its diagnosis for display, but an
+  // unknown code is a terminal judgement: retrying it would just ask the model
+  // the same question again.
+  const modelMessage = result.failure.message
+    .trim()
+    .slice(0, MAX_MODEL_FAILURE_MESSAGE_LENGTH);
   return {
     code: 'PROVIDER_FAILURE',
-    message: nvidiaFailureDetails('PROVIDER_FAILURE').message,
+    message:
+      modelMessage.length > 0
+        ? modelMessage
+        : nvidiaFailureDetails('PROVIDER_FAILURE').message,
     retryable: false,
+    disposition: 'NONE',
   };
 }
 

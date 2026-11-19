@@ -34,6 +34,11 @@ import {
 } from '../src/Generation/NvidiaProvider';
 import type { Form } from '../src/Models/Logical';
 import { validateGenerationResponse } from '../src/Generation/Validation';
+import {
+  computeNvidiaOverallTimeoutMs,
+  computeNvidiaRequestBudget,
+  mergeNvidiaDeadlineResults,
+} from '../src/Generation/NvidiaRecovery';
 
 function makeQuestion(
   index: number,
@@ -961,7 +966,7 @@ describe('NVIDIA batch execution', () => {
         batchIndex: 1,
         safeCode: 'PROVIDER_FAILURE',
         category: 'PROVIDER_FAILURE',
-        retryable: null,
+        retryable: false,
         message: 'Provider request failed.',
       },
     });
@@ -1038,6 +1043,252 @@ describe('NVIDIA batch execution', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('NVIDIA single-batch recovery parity', () => {
+  it('salvages a partial single-batch response and retries only the missing question', async () => {
+    const request = makeRequest(5);
+    let calls = 0;
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      calls += 1;
+      const batchRequest = requestFromBody(init?.body);
+      const answered =
+        calls === 1
+          ? batchRequest.questions.slice(0, 4)
+          : batchRequest.questions;
+      return new Response(
+        JSON.stringify(
+          completion(
+            JSON.stringify({
+              cycleId: batchRequest.cycleId,
+              results: answered.map((question) => ({
+                questionId: question.questionId,
+                status: 'GENERATED',
+                answer: { questionId: question.questionId, value: 'A' },
+              })),
+            })
+          )
+        ),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    const provider = new NvidiaProvider(
+      'synthetic-test-key',
+      NVIDIA_MODEL,
+      fetchMock
+    );
+
+    const response = await provider.generate(request);
+    const batches = (
+      fetchMock.mock.calls as unknown as Array<[string, RequestInit]>
+    ).map(([, init]) => requestFromBody(init.body));
+
+    expect(batches.map((batch) => batch.questions.length)).toEqual([5, 1]);
+    expect(response.results.map((result) => result.questionId)).toEqual(
+      request.questions.map((question) => question.questionId)
+    );
+    expect(
+      response.results.every((result) => result.status === 'GENERATED')
+    ).toBe(true);
+  });
+
+  it('preserves request context for a single-batch request', async () => {
+    const settledContext = [
+      {
+        questionId: 'settled-1',
+        questionText: 'Settled question',
+        answer: 'A',
+      },
+    ];
+    const request = makeRequest(2, { settledContext });
+    const fetchMock = successfulBatchFetch();
+    const provider = new NvidiaProvider(
+      'synthetic-test-key',
+      NVIDIA_MODEL,
+      fetchMock
+    );
+
+    await provider.generate(request);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [batch] = capturedBatches(fetchMock);
+    expect(batch.cycleId).toBe(request.cycleId);
+    expect(batch.settledContext).toEqual(settledContext);
+    expect(batch.questions.map((question) => question.questionId)).toEqual([
+      'q-1',
+      'q-2',
+    ]);
+  });
+
+  it('reports truncated provider responses as retryable malformed responses', async () => {
+    const request = makeRequest(2);
+    const batches = planNvidiaBatches(request);
+    const runBatch = vi.fn(async () => {
+      throw new NvidiaProviderError('INCOMPLETE_PROVIDER_RESPONSE');
+    });
+
+    const outcomes = await executeNvidiaBatches(request, batches, runBatch, {
+      concurrency: 1,
+    });
+
+    expect(outcomes[0]).toMatchObject({
+      ok: false,
+      metadata: {
+        safeCode: 'INCOMPLETE_PROVIDER_RESPONSE',
+        category: 'MALFORMED_RESPONSE',
+        retryable: true,
+      },
+    });
+  });
+
+  it('budgets the complete bounded workload for a ten-question batch', () => {
+    const options = {
+      initialBatchQuestionCounts: [10],
+      concurrency: 2,
+      requestTimeoutMs: 60_000,
+      minimumTimeoutMs: 180_000,
+    };
+
+    expect(computeNvidiaRequestBudget(options)).toEqual({
+      structuralRequests: 19,
+      leafRetryRequests: 20,
+      rootTimeoutRetryRequests: 1,
+      totalRequests: 40,
+    });
+    // 40 requests and 21 bounded backoffs at the maximum 8-second backoff,
+    // divided across two workers, plus the longest dependency chain.
+    expect(computeNvidiaOverallTimeoutMs(options)).toBe(1_502_000);
+  });
+
+  it('budgets the complete bounded workload for sixty-four questions', () => {
+    const options = {
+      initialBatchQuestionCounts: [10, 10, 10, 10, 10, 10, 4],
+      concurrency: 2,
+      requestTimeoutMs: 60_000,
+      minimumTimeoutMs: 180_000,
+    };
+
+    expect(computeNvidiaRequestBudget(options)).toEqual({
+      structuralRequests: 121,
+      leafRetryRequests: 128,
+      rootTimeoutRetryRequests: 7,
+      totalRequests: 256,
+    });
+    // Total request and backoff work divided across two workers, plus the
+    // longest dependency chain.
+    expect(computeNvidiaOverallTimeoutMs(options)).toBe(8_438_000);
+  });
+
+  it('includes leaf retries and timeout-triggered root retries', () => {
+    const options = {
+      initialBatchQuestionCounts: [10],
+      concurrency: 2,
+      requestTimeoutMs: 60_000,
+      minimumTimeoutMs: 180_000,
+    };
+
+    expect(
+      computeNvidiaRequestBudget({ ...options, maxAttempts: 1 })
+    ).toMatchObject({ leafRetryRequests: 0, rootTimeoutRetryRequests: 0 });
+    expect(
+      computeNvidiaRequestBudget({ ...options, maxAttempts: 3 })
+    ).toMatchObject({ leafRetryRequests: 20, rootTimeoutRetryRequests: 1 });
+  });
+
+  it('reflects concurrency and backoff in the overall deadline', () => {
+    const options = {
+      initialBatchQuestionCounts: [10],
+      requestTimeoutMs: 60_000,
+      minimumTimeoutMs: 180_000,
+    };
+    expect(computeNvidiaOverallTimeoutMs({ ...options, concurrency: 2 })).toBe(
+      1_502_000
+    );
+    expect(computeNvidiaOverallTimeoutMs({ ...options, concurrency: 1 })).toBe(
+      2_568_000
+    );
+    expect(
+      computeNvidiaOverallTimeoutMs({
+        ...options,
+        concurrency: 2,
+        maxBackoffMs: 0,
+      })
+    ).toBe(1_410_000);
+  });
+
+  it('does not truncate large workloads at the previous ten-minute cap', () => {
+    expect(
+      computeNvidiaOverallTimeoutMs({
+        initialBatchQuestionCounts: [10, 10, 10, 10, 10, 10, 4],
+        concurrency: 2,
+        requestTimeoutMs: 60_000,
+        minimumTimeoutMs: 180_000,
+      })
+    ).toBeGreaterThan(600_000);
+  });
+
+  it('merges successful completed outcomes at a batch deadline without duplicates', () => {
+    const request = makeRequest(3);
+    const batches = planNvidiaBatches(request);
+    const results = new Map<
+      string,
+      ReturnType<typeof generatedResponse>['results'][number]
+    >();
+    results.set('q-1', {
+      questionId: 'q-1',
+      status: 'GENERATED',
+      answer: { questionId: 'q-1', value: 'B' },
+    });
+
+    const merged = mergeNvidiaDeadlineResults(
+      [
+        {
+          ok: true,
+          batch: batches[0],
+          response: {
+            cycleId: request.cycleId,
+            results: [
+              {
+                questionId: 'q-1',
+                status: 'GENERATED',
+                answer: { questionId: 'q-1', value: 'A' },
+              },
+              {
+                questionId: 'q-2',
+                status: 'GENERATED',
+                answer: { questionId: 'q-2', value: 'A' },
+              },
+              {
+                questionId: 'q-3',
+                status: 'GENERATION_FAILED',
+                answer: null,
+                failure: { code: 'TIMEOUT', message: 'Provider timed out.' },
+              },
+            ],
+          },
+        },
+        {
+          ok: false,
+          batch: batches[0],
+          error: new NvidiaProviderError('TIMEOUT'),
+          metadata: {
+            batchIndex: 0,
+            questionIds: ['q-1', 'q-2', 'q-3'],
+            safeCode: 'TIMEOUT',
+            category: 'TIMEOUT',
+            retryable: true,
+            message: 'Provider request timed out.',
+          },
+        },
+      ],
+      results
+    );
+
+    expect(merged.map((result) => result.questionId)).toEqual(['q-2']);
+    expect(results.get('q-1')).toMatchObject({ answer: { value: 'B' } });
+    expect(results.get('q-2')).toMatchObject({ status: 'GENERATED' });
+    expect(results.has('q-3')).toBe(false);
   });
 });
 

@@ -36,14 +36,198 @@ import {
 } from '../Shared/Performance';
 
 export const NVIDIA_RECOVERY_MAX_ATTEMPTS = 3;
-export const NVIDIA_RECOVERY_MAX_SPLIT_DEPTH = 3;
+// The 10-question batch cap needs four ceil-halving splits to reach a single
+// question: 10 → 5 → 3 → 2 → 1.
+export const NVIDIA_RECOVERY_MAX_SPLIT_DEPTH = 4;
 export const NVIDIA_RECOVERY_BASE_BACKOFF_MS = 250;
 export const NVIDIA_RECOVERY_MAX_BACKOFF_MS = 8_000;
+export const NVIDIA_RECOVERY_DEADLINE_MESSAGE =
+  'Generation timed out before all answers were produced.';
+// The batch executor owns the outcomes that complete inside a wave. Give its
+// deadline a one-millisecond head start so it can report those outcomes before
+// the outer recovery deadline fires.
+const NVIDIA_BATCH_DEADLINE_MARGIN_MS = 1;
+
+export interface NvidiaOverallTimeoutOptions {
+  readonly initialBatchQuestionCounts: readonly number[];
+  readonly concurrency: number;
+  readonly requestTimeoutMs: number;
+  readonly minimumTimeoutMs: number;
+  readonly maxAttempts?: number;
+  readonly maxSplitDepth?: number;
+  readonly maxBackoffMs?: number;
+}
+
+export interface NvidiaRequestBudget {
+  readonly structuralRequests: number;
+  readonly leafRetryRequests: number;
+  readonly rootTimeoutRetryRequests: number;
+  readonly totalRequests: number;
+}
+
+function finiteFloor(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function normalizeBudgetInputs(options: NvidiaOverallTimeoutOptions): {
+  readonly batchQuestionCounts: readonly number[];
+  readonly maxAttempts: number;
+  readonly maxSplitDepth: number;
+} {
+  return {
+    batchQuestionCounts: options.initialBatchQuestionCounts.map((count) =>
+      finiteFloor(count, 0)
+    ),
+    maxAttempts: Math.max(
+      1,
+      finiteFloor(options.maxAttempts ?? NVIDIA_RECOVERY_MAX_ATTEMPTS, 1)
+    ),
+    maxSplitDepth: finiteFloor(
+      options.maxSplitDepth ?? NVIDIA_RECOVERY_MAX_SPLIT_DEPTH,
+      0
+    ),
+  };
+}
+
+// A structurally failing batch may narrow through a full binary split tree.
+// The request count is the number of nodes in that tree, bounded by the
+// configured split depth.
+function maxStructuralRequests(
+  questionCount: number,
+  splitDepth: number,
+  maxSplitDepth: number
+): number {
+  if (questionCount <= 0) {
+    return 0;
+  }
+  if (questionCount === 1 || splitDepth >= maxSplitDepth) {
+    return 1;
+  }
+  const left = Math.ceil(questionCount / 2);
+  return (
+    1 +
+    maxStructuralRequests(left, splitDepth + 1, maxSplitDepth) +
+    maxStructuralRequests(questionCount - left, splitDepth + 1, maxSplitDepth)
+  );
+}
+
+/**
+ * Counts the worst-case provider requests for the planned batches. Every
+ * question can be charged at most `maxAttempts - 1` retries (splits release
+ * the parent attempt), and a timed-out initial batch can retry once at its
+ * root before the timeout policy narrows it.
+ */
+export function computeNvidiaRequestBudget(
+  options: NvidiaOverallTimeoutOptions
+): NvidiaRequestBudget {
+  const { batchQuestionCounts, maxAttempts, maxSplitDepth } =
+    normalizeBudgetInputs(options);
+  const totalQuestions = batchQuestionCounts.reduce(
+    (total, count) => total + count,
+    0
+  );
+  const structuralRequests = batchQuestionCounts.reduce(
+    (total, count) => total + maxStructuralRequests(count, 0, maxSplitDepth),
+    0
+  );
+  const leafRetryRequests = totalQuestions * Math.max(0, maxAttempts - 1);
+  const rootTimeoutRetryRequests =
+    maxAttempts > 1
+      ? batchQuestionCounts.filter((count) => count > 0).length
+      : 0;
+  return {
+    structuralRequests,
+    leafRetryRequests,
+    rootTimeoutRetryRequests,
+    totalRequests:
+      structuralRequests + leafRetryRequests + rootTimeoutRetryRequests,
+  };
+}
+
+/**
+ * Sizes the overall generation deadline from the bounded request workload.
+ * Requests run at the configured concurrency, but split branches are
+ * sequential, so the schedule also reserves the longest dependency chain.
+ * Retries can wait for up to the configured backoff, and the whole allowance
+ * is added to the schedule. The result is finite and is never silently capped
+ * below the calculated requirement.
+ */
+export function computeNvidiaOverallTimeoutMs(
+  options: NvidiaOverallTimeoutOptions
+): number {
+  const concurrency = Math.max(1, finiteFloor(options.concurrency, 1));
+  const requestTimeoutMs = Math.max(
+    1,
+    finiteFloor(options.requestTimeoutMs, 1)
+  );
+  const minimumTimeoutMs = Math.max(
+    1,
+    finiteFloor(options.minimumTimeoutMs, 1)
+  );
+  const maxBackoffMs = Math.max(
+    0,
+    finiteFloor(options.maxBackoffMs ?? NVIDIA_RECOVERY_MAX_BACKOFF_MS, 0)
+  );
+  const { maxAttempts, maxSplitDepth } = normalizeBudgetInputs(options);
+  const budget = computeNvidiaRequestBudget(options);
+  if (budget.totalRequests === 0) {
+    return minimumTimeoutMs;
+  }
+
+  const retryCount = budget.leafRetryRequests + budget.rootTimeoutRetryRequests;
+  const retryAllowancePerPath = Math.max(0, maxAttempts - 1);
+  const criticalPathMs =
+    (maxSplitDepth + 1) * requestTimeoutMs +
+    retryAllowancePerPath * (requestTimeoutMs + maxBackoffMs);
+  const totalWorkMs =
+    budget.totalRequests * requestTimeoutMs + retryCount * maxBackoffMs;
+  const scheduledMs = totalWorkMs + (concurrency - 1) * criticalPathMs;
+  const requiredMs = Math.ceil(scheduledMs / concurrency);
+  return Math.max(
+    minimumTimeoutMs,
+    Math.min(Number.MAX_SAFE_INTEGER, requiredMs)
+  );
+}
+
+/**
+ * Merges answers that finished just before a batch deadline fired. Results
+ * already accepted by recovery win, and only successful statuses are merged;
+ * unresolved questions stay unresolved for the timeout diagnostic.
+ */
+export function mergeNvidiaDeadlineResults(
+  completedOutcomes: readonly NvidiaBatchOutcome[],
+  results: Map<string, GenerationResult>
+): readonly GenerationResult[] {
+  const merged: GenerationResult[] = [];
+  for (const outcome of completedOutcomes) {
+    if (!outcome.ok) {
+      continue;
+    }
+    const taskQuestionIds = new Set(
+      outcome.batch.questions.map((question) => question.questionId)
+    );
+    for (const result of outcome.response.results) {
+      if (
+        !taskQuestionIds.has(result.questionId) ||
+        results.has(result.questionId) ||
+        (result.status !== 'GENERATED' && result.status !== 'ABSTAINED')
+      ) {
+        continue;
+      }
+      results.set(result.questionId, result);
+      merged.push(result);
+    }
+  }
+  return merged;
+}
 
 export class NvidiaRecoveryDeadlineError extends Error {
   constructor(
     public readonly acceptedResults: readonly GenerationResult[],
-    public readonly unresolvedQuestionIds: readonly string[]
+    public readonly unresolvedQuestionIds: readonly string[],
+    public readonly completedResults: readonly GenerationResult[] = [
+      ...acceptedResults,
+    ]
   ) {
     super('NVIDIA generation recovery exceeded its overall deadline.');
     this.name = 'NvidiaRecoveryDeadlineError';
@@ -327,8 +511,17 @@ export async function executeNvidiaRecovery(
     request.questions.flatMap((question) =>
       results.has(question.questionId) ? [] : [question.questionId]
     );
+  const completedResults = () =>
+    request.questions.flatMap((question) => {
+      const result = results.get(question.questionId);
+      return result ? [result] : [];
+    });
   const deadlineError = () =>
-    new NvidiaRecoveryDeadlineError(acceptedResults(), unresolvedQuestionIds());
+    new NvidiaRecoveryDeadlineError(
+      acceptedResults(),
+      unresolvedQuestionIds(),
+      completedResults()
+    );
   const failureDescriptor = (
     descriptor: NvidiaBatchFailureDescriptor
   ): NvidiaBatchFailureDescriptor => ({ ...descriptor });
@@ -437,6 +630,18 @@ export async function executeNvidiaRecovery(
     }
   };
 
+  // A split is a structural narrowing step, not a retry of the same request.
+  // Release the attempt charged for the parent execution so narrowing cannot
+  // exhaust the per-question budget before a single-question request is tried.
+  const releaseAttempt = (questions: readonly GenerationQuestion[]): void => {
+    for (const question of questions) {
+      attempts.set(
+        question.questionId,
+        Math.max(0, (attempts.get(question.questionId) ?? 1) - 1)
+      );
+    }
+  };
+
   const abortFromCaller = () => {
     cancelled = true;
     controller.abort();
@@ -482,12 +687,12 @@ export async function executeNvidiaRecovery(
     questions: readonly GenerationQuestion[],
     splitDepth: number,
     notBefore: number
-  ): void => {
+  ): boolean => {
     const unresolved = questions.filter(
       (question) => !results.has(question.questionId)
     );
     if (unresolved.length === 0) {
-      return;
+      return false;
     }
     const retryable = unresolved.filter((question) => {
       if (isExhausted(question.questionId)) {
@@ -497,7 +702,7 @@ export async function executeNvidiaRecovery(
       return true;
     });
     if (retryable.length === 0) {
-      return;
+      return false;
     }
 
     const batch = createNvidiaQuestionBatch(
@@ -518,7 +723,7 @@ export async function executeNvidiaRecovery(
     ) {
       nextBatchIndex += 1;
       pending.push({ batch, splitDepth, notBefore });
-      return;
+      return true;
     }
     if (retryable.length === 1 || splitDepth >= normalized.maxSplitDepth) {
       const descriptor = failureDescriptorForCode('INVALID_REQUEST');
@@ -526,12 +731,23 @@ export async function executeNvidiaRecovery(
         lastFailureById.set(question.questionId, descriptor);
         finalizeQuestion(question.questionId);
       }
-      return;
+      return false;
     }
     const midpoint = Math.ceil(retryable.length / 2);
-    recordSplit(retryable.length, splitDepth + 1, 'BATCH_LIMIT');
-    enqueueQuestions(retryable.slice(0, midpoint), splitDepth + 1, notBefore);
-    enqueueQuestions(retryable.slice(midpoint), splitDepth + 1, notBefore);
+    const left = enqueueQuestions(
+      retryable.slice(0, midpoint),
+      splitDepth + 1,
+      notBefore
+    );
+    const right = enqueueQuestions(
+      retryable.slice(midpoint),
+      splitDepth + 1,
+      notBefore
+    );
+    if (left || right) {
+      recordSplit(retryable.length, splitDepth + 1, 'BATCH_LIMIT');
+    }
+    return left || right;
   };
 
   const scheduleRetry = (
@@ -554,32 +770,41 @@ export async function executeNvidiaRecovery(
       unresolved.length > 1 &&
       splitDepth < normalized.maxSplitDepth
     ) {
-      recordRetry(
-        'SPLIT',
-        unresolved.length,
-        splitDepth + 1,
-        delayMs,
-        backoffMs,
-        reason
-      );
+      releaseAttempt(unresolved);
       const midpoint = Math.ceil(unresolved.length / 2);
-      enqueueQuestions(
+      const left = enqueueQuestions(
         unresolved.slice(0, midpoint),
         splitDepth + 1,
         notBefore
       );
-      enqueueQuestions(unresolved.slice(midpoint), splitDepth + 1, notBefore);
+      const right = enqueueQuestions(
+        unresolved.slice(midpoint),
+        splitDepth + 1,
+        notBefore
+      );
+      if (left || right) {
+        recordRetry(
+          'SPLIT',
+          unresolved.length,
+          splitDepth + 1,
+          delayMs,
+          backoffMs,
+          reason
+        );
+      }
       return;
     }
-    recordRetry(
-      'RETRY',
-      unresolved.length,
-      splitDepth,
-      delayMs,
-      backoffMs,
-      reason
-    );
-    enqueueQuestions(unresolved, splitDepth, notBefore);
+    const enqueued = enqueueQuestions(unresolved, splitDepth, notBefore);
+    if (enqueued) {
+      recordRetry(
+        'RETRY',
+        unresolved.length,
+        splitDepth,
+        delayMs,
+        backoffMs,
+        reason
+      );
+    }
   };
 
   const handleSuccess = (
@@ -589,6 +814,7 @@ export async function executeNvidiaRecovery(
     const taskIds = new Set(
       task.batch.questions.map((question) => question.questionId)
     );
+    let structuralModelFailureRequested = false;
     for (const result of response.results) {
       if (!taskIds.has(result.questionId)) {
         continue;
@@ -608,12 +834,14 @@ export async function executeNvidiaRecovery(
       }
       everFailedQuestionIds.add(result.questionId);
       const details = nvidiaResultFailureDetails(result);
-      const descriptor = {
+      lastFailureById.set(result.questionId, {
         code: details.code,
         message: details.message,
-      };
-      lastFailureById.set(result.questionId, descriptor);
-      if (!details.retryable || isExhausted(result.questionId)) {
+      });
+      if (details.disposition === 'SPLIT') {
+        structuralModelFailureRequested = true;
+      }
+      if (details.disposition === 'NONE' || isExhausted(result.questionId)) {
         results.set(result.questionId, result);
         notifyFinalized();
       }
@@ -636,7 +864,7 @@ export async function executeNvidiaRecovery(
     scheduleRetry(
       unresolved,
       task.splitDepth,
-      'RETRY',
+      structuralModelFailureRequested ? 'SPLIT' : 'RETRY',
       0,
       null,
       'MISSING_RESULT'
@@ -670,15 +898,15 @@ export async function executeNvidiaRecovery(
     );
     const retryAfter = retryAfterMsFor(outcome, normalized.maxBackoffMs);
 
+    const details = nvidiaFailureDetails(outcome.metadata.safeCode);
+    if (details.disposition === 'NONE') {
+      for (const question of unresolved) {
+        finalizeQuestion(question.questionId);
+      }
+      return;
+    }
+
     switch (outcome.metadata.category) {
-      case 'AUTHENTICATION':
-      case 'PERMISSION':
-      case 'INVALID_REQUEST':
-      case 'PROVIDER_FAILURE':
-        for (const question of unresolved) {
-          finalizeQuestion(question.questionId);
-        }
-        return;
       case 'RATE_LIMIT': {
         recordConcurrencyReduction('RATE_LIMIT');
         scheduleRetry(
@@ -848,13 +1076,32 @@ export async function executeNvidiaRecovery(
         outcomes = await executeNvidiaBatches(request, batches, runner, {
           concurrency: currentConcurrency,
           signal: controller.signal,
-          overallTimeoutMs: remainingMs(),
+          overallTimeoutMs:
+            normalized.deadlineAt === null
+              ? undefined
+              : Math.max(
+                  1,
+                  (remainingMs() ?? 1) - NVIDIA_BATCH_DEADLINE_MARGIN_MS
+                ),
           ...(performance ? { performance } : {}),
           batchMetadata,
         });
       } catch (error) {
         if (error instanceof NvidiaBatchDeadlineError) {
           deadlineExpired = true;
+          // The batch executor can finish requests just before its deadline
+          // fires. Keep those answers instead of regenerating them.
+          for (const result of mergeNvidiaDeadlineResults(
+            error.completedOutcomes,
+            results
+          )) {
+            providerResultIds.add(result.questionId);
+            lastFailureById.delete(result.questionId);
+            if (everFailedQuestionIds.has(result.questionId)) {
+              recoveredQuestionIds.add(result.questionId);
+            }
+            notifyFinalized();
+          }
           throw deadlineError();
         }
         if (error instanceof NvidiaBatchCancellationError) {

@@ -2462,7 +2462,8 @@ describe('live Overlay generation workflow', () => {
                 questionId: 'generation-failed',
                 status: 'GENERATION_FAILED' as const,
                 answer: null,
-                reason: 'Generation failed.',
+                reason:
+                  'NVIDIA response was truncated before completion. nvapi-0123456789abcdef',
               },
               {
                 questionId: 'validation-failed',
@@ -2587,7 +2588,11 @@ describe('live Overlay generation workflow', () => {
     expect(failedItems[0]?.textContent).toContain(
       'Generation failure question'
     );
-    expect(failedItems[0]?.textContent).toContain('Answer generation failed.');
+    expect(failedItems[0]?.textContent).toContain(
+      'NVIDIA response was truncated before completion.'
+    );
+    expect(failedItems[0]?.textContent).toContain('[redacted]');
+    expect(failedItems[0]?.textContent).not.toContain('nvapi-');
     expect(failedItems[1]?.textContent).toContain('Question ID fill-failed');
     expect(failedItems[1]?.textContent).toContain(
       'The question could not be located on the page.'

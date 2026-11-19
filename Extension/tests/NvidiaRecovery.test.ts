@@ -5,6 +5,8 @@ import type {
   GenerationResponse,
   GenerationResult,
 } from '../src/Generation/Contract';
+import type { Form, NormalizedActivePage } from '../src/Models/Logical';
+import { GenerationCoordinator } from '../src/Generation/Pipeline';
 import { NvidiaBatchCancellationError } from '../src/Generation/NvidiaBatchExecution';
 import {
   createNvidiaQuestionBatch,
@@ -17,11 +19,13 @@ import {
   getNvidiaModelPolicy,
 } from '../src/Generation/NvidiaProvider';
 import {
+  NVIDIA_RECOVERY_DEADLINE_MESSAGE,
   NvidiaRecoveryDeadlineError,
   computeNvidiaRecoveryBackoff,
   executeNvidiaRecovery,
 } from '../src/Generation/NvidiaRecovery';
 import { parseNvidiaSalvageObjects } from '../src/Generation/NvidiaSalvage';
+import { GenerationPerformanceRecorder } from '../src/Shared/Performance';
 
 function makeQuestion(
   index: number,
@@ -95,6 +99,43 @@ function successfulResponse(request: GenerationRequest): Response {
       headers: { 'Content-Type': 'application/json' },
     }
   );
+}
+
+function makeForm(count: number): Form {
+  return {
+    formId: 'recovery-form',
+    activePageId: 'recovery-page',
+    questions: Array.from({ length: count }, (_, index) => ({
+      id: `q-${index + 1}`,
+      text: `Question ${index + 1}`,
+      type: 'single-choice' as const,
+      required: true,
+      options: ['A', 'B', 'C'].map((label) => ({ label, selected: false })),
+      existingInput: { value: null, hasValue: false },
+      supported: true,
+      unsupportedReason: null,
+    })),
+  };
+}
+
+function hangingBatchFetch(unresolvedQuestionId: string) {
+  return vi.fn((_url: unknown, init?: RequestInit): Promise<Response> => {
+    const batchRequest = requestFromBody(init?.body);
+    if (
+      batchRequest.questions.some(
+        (question) => question.questionId === unresolvedQuestionId
+      )
+    ) {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true }
+        );
+      });
+    }
+    return Promise.resolve(successfulResponse(batchRequest));
+  });
 }
 
 describe('NVIDIA partial-response salvage', () => {
@@ -689,6 +730,214 @@ describe('NVIDIA recovery orchestration', () => {
   });
 });
 
+describe('NVIDIA recovery structural bounds', () => {
+  it('narrows a malformed batch to single-question requests and recovers', async () => {
+    const request = makeRequest(10);
+    const initialBatches = planNvidiaBatches(request);
+    const calls: string[][] = [];
+    const runner = vi.fn(
+      async (batchRequest: GenerationRequest): Promise<GenerationResponse> => {
+        const ids = batchRequest.questions.map(
+          (question) => question.questionId
+        );
+        calls.push(ids);
+        if (ids.length > 1) {
+          throw new NvidiaProviderError('MALFORMED_PROVIDER_RESPONSE');
+        }
+        return generatedResponse(batchRequest);
+      }
+    );
+
+    const response = await executeNvidiaRecovery(
+      request,
+      initialBatches,
+      runner,
+      {
+        concurrency: 1,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        random: () => 0,
+      }
+    );
+
+    expect(calls[0]).toHaveLength(10);
+    expect(calls.some((ids) => ids.length === 1)).toBe(true);
+    expect(Math.max(...calls.map((ids) => ids.length))).toBeLessThanOrEqual(10);
+    expect(response.results).toHaveLength(10);
+    expect(
+      response.results.every((result) => result.status === 'GENERATED')
+    ).toBe(true);
+  });
+
+  it('narrows a repeatedly timing-out batch to single-question requests', async () => {
+    const request = makeRequest(10);
+    const initialBatches = planNvidiaBatches(request);
+    const calls: string[][] = [];
+    const runner = vi.fn(
+      async (batchRequest: GenerationRequest): Promise<GenerationResponse> => {
+        const ids = batchRequest.questions.map(
+          (question) => question.questionId
+        );
+        calls.push(ids);
+        if (ids.length > 1) {
+          throw new NvidiaProviderError('TIMEOUT');
+        }
+        return generatedResponse(batchRequest);
+      }
+    );
+
+    const response = await executeNvidiaRecovery(
+      request,
+      initialBatches,
+      runner,
+      {
+        concurrency: 1,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        random: () => 0,
+      }
+    );
+
+    expect(calls[0]).toHaveLength(10);
+    expect(calls[1]).toHaveLength(10);
+    expect(calls.some((ids) => ids.length === 1)).toBe(true);
+    expect(
+      response.results.every((result) => result.status === 'GENERATED')
+    ).toBe(true);
+  });
+
+  it('keeps an unknown model-declared failure terminal and preserves its message', async () => {
+    const request = makeRequest(1);
+    const initialBatches = [
+      createNvidiaQuestionBatch(request, request.questions, 0),
+    ];
+    const calls: string[][] = [];
+    const runner = vi.fn(
+      async (batchRequest: GenerationRequest): Promise<GenerationResponse> => {
+        calls.push(
+          batchRequest.questions.map((question) => question.questionId)
+        );
+        return {
+          cycleId: request.cycleId,
+          results: [
+            {
+              questionId: 'q-1',
+              status: 'GENERATION_FAILED',
+              answer: null,
+              failure: {
+                code: 'UNSUPPORTED_EXPRESSION',
+                message: 'Cannot evaluate that expression.',
+              },
+            },
+          ],
+        };
+      }
+    );
+
+    const response = await executeNvidiaRecovery(
+      request,
+      initialBatches,
+      runner,
+      {
+        concurrency: 1,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        random: () => 0,
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(response.results[0]).toMatchObject({
+      questionId: 'q-1',
+      status: 'GENERATION_FAILED',
+      failure: {
+        code: 'UNSUPPORTED_EXPRESSION',
+        message: 'Cannot evaluate that expression.',
+      },
+    });
+  });
+
+  it('retries a recoverable model-declared failure with bounded attempts', async () => {
+    const request = makeRequest(1);
+    const initialBatches = [
+      createNvidiaQuestionBatch(request, request.questions, 0),
+    ];
+    const calls: string[][] = [];
+    const runner = vi.fn(
+      async (batchRequest: GenerationRequest): Promise<GenerationResponse> => {
+        calls.push(
+          batchRequest.questions.map((question) => question.questionId)
+        );
+        if (calls.length === 1) {
+          return {
+            cycleId: request.cycleId,
+            results: [
+              {
+                questionId: 'q-1',
+                status: 'GENERATION_FAILED',
+                answer: null,
+                failure: {
+                  code: 'PROVIDER_UNAVAILABLE',
+                  message: 'Provider unavailable.',
+                },
+              },
+            ],
+          };
+        }
+        return generatedResponse(batchRequest);
+      }
+    );
+
+    const response = await executeNvidiaRecovery(
+      request,
+      initialBatches,
+      runner,
+      {
+        concurrency: 1,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        random: () => 0,
+      }
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(response.results[0]).toMatchObject({
+      questionId: 'q-1',
+      status: 'GENERATED',
+    });
+  });
+
+  it('records no recovery events for splits that enqueue nothing', async () => {
+    const request = makeRequest(2);
+    const initialBatches = [
+      createNvidiaQuestionBatch(request, request.questions, 0),
+    ];
+    const performance = new GenerationPerformanceRecorder(
+      'recovery-telemetry',
+      'UI'
+    );
+    const runner = vi.fn(async () => {
+      throw new NvidiaProviderError('MALFORMED_PROVIDER_RESPONSE');
+    });
+
+    await expect(
+      executeNvidiaRecovery(request, initialBatches, runner, {
+        concurrency: 1,
+        maxAttempts: 1,
+        maxSplitDepth: 0,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        random: () => 0,
+        performance,
+      })
+    ).rejects.toBeInstanceOf(NvidiaProviderError);
+
+    const report = performance.getReport();
+    expect(report.recovery?.retryCount ?? 0).toBe(0);
+    expect(report.recovery?.splitCount ?? 0).toBe(0);
+  });
+});
+
 describe('NVIDIA provider recovery integration', () => {
   it('salvages successful batches and splits a malformed batch', async () => {
     const request = makeRequest(25);
@@ -753,5 +1002,142 @@ describe('NVIDIA provider recovery integration', () => {
     expect(response.results.map((result) => result.status)).toEqual(
       Array.from({ length: 11 }, () => 'GENERATED')
     );
+  });
+
+  it('returns accepted answers and marks only unresolved questions as failed at the deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const request = makeRequest(25);
+      const fetchMock = hangingBatchFetch('q-21');
+      const provider = new NvidiaProvider(
+        'synthetic-test-key',
+        undefined,
+        fetchMock,
+        undefined,
+        100
+      );
+
+      const generation = provider.generate(request);
+      await vi.advanceTimersByTimeAsync(100);
+      const response = await generation;
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(response.results).toHaveLength(25);
+      expect(
+        response.results.slice(0, 20).map((result) => result.status)
+      ).toEqual(Array.from({ length: 20 }, () => 'GENERATED'));
+      expect(response.results.slice(20).map((result) => result.status)).toEqual(
+        Array.from({ length: 5 }, () => 'GENERATION_FAILED')
+      );
+      expect(response.results.slice(20)).toEqual(
+        Array.from({ length: 5 }, (_, index) => ({
+          questionId: `q-${index + 21}`,
+          status: 'GENERATION_FAILED',
+          answer: null,
+          failure: {
+            code: 'TIMEOUT',
+            message: NVIDIA_RECOVERY_DEADLINE_MESSAGE,
+          },
+        }))
+      );
+      // Each successful batch was requested exactly once.
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => {
+          const batchRequest = requestFromBody(init?.body);
+          return batchRequest.questions[0].questionId !== 'q-21';
+        })
+      ).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('validates partial deadline results in the normal pipeline', async () => {
+    vi.useFakeTimers();
+    try {
+      const form = makeForm(25);
+      const page: NormalizedActivePage = {
+        form,
+        questionResults: [],
+        processingCycle: { cycleId: 'cycle-partial' },
+      };
+      const provider = new NvidiaProvider(
+        'synthetic-test-key',
+        undefined,
+        hangingBatchFetch('q-21'),
+        undefined,
+        100
+      );
+      const coordinator = new GenerationCoordinator(() => 'cycle-partial');
+
+      const generation = coordinator.generate(page, [], provider);
+      await vi.advanceTimersByTimeAsync(100);
+      const report = await generation;
+
+      expect(report).not.toBeNull();
+      expect(report?.status).toBe('partial');
+      expect(
+        report?.results.slice(0, 20).map((result) => result.status)
+      ).toEqual(Array.from({ length: 20 }, () => 'GENERATED'));
+      expect(report?.results.slice(20).map((result) => result.status)).toEqual(
+        Array.from({ length: 5 }, () => 'GENERATION_FAILED')
+      );
+      expect(report?.results[20].reason).toBe(NVIDIA_RECOVERY_DEADLINE_MESSAGE);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the existing timeout failure when nothing was generated', async () => {
+    vi.useFakeTimers();
+    try {
+      const request = makeRequest(3);
+      const fetchMock = hangingBatchFetch('q-1');
+      const provider = new NvidiaProvider(
+        'synthetic-test-key',
+        undefined,
+        fetchMock,
+        undefined,
+        100
+      );
+
+      const generation = provider
+        .generate(request)
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(generation).resolves.toMatchObject({ safeCode: 'TIMEOUT' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps caller cancellation distinct from deadline expiration', async () => {
+    vi.useFakeTimers();
+    try {
+      const request = makeRequest(25);
+      const fetchMock = hangingBatchFetch('q-1');
+      const provider = new NvidiaProvider(
+        'synthetic-test-key',
+        undefined,
+        fetchMock,
+        undefined,
+        100
+      );
+      const controller = new AbortController();
+
+      const generation = provider
+        .generate(request, controller.signal)
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(1);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(100);
+      const thrown = await generation;
+
+      expect(thrown).toMatchObject({ safeCode: 'PROVIDER_UNAVAILABLE' });
+      expect(thrown).not.toMatchObject({ safeCode: 'TIMEOUT' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

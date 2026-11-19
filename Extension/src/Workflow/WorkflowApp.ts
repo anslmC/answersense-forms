@@ -46,6 +46,42 @@ const LARGE_FORM_CANDIDATE_THRESHOLD = 10;
 const LARGE_FORM_NOTICE_TEXT =
   'Large form · Processing multiple questions. This may take longer than usual.';
 const GENERATION_FAILED_REASON = 'Answer generation failed.';
+const MAX_FAILURE_DIAGNOSTIC_LENGTH = 180;
+const SENSITIVE_FAILURE_TOKEN_PATTERN =
+  /\b(?:nvapi-[A-Za-z0-9_-]{6,}|sk-[A-Za-z0-9_-]{6,}|Bearer\s+[A-Za-z0-9._-]{6,}|[A-Za-z0-9_-]{40,})\b/gi;
+
+/**
+ * Failure reasons can come from provider diagnostics or model output. Render
+ * only a bounded, single-line summary and redact anything that looks like a
+ * credential or an opaque provider token.
+ */
+function sanitizeFailureDiagnostic(
+  reason: string | null | undefined
+): string | null {
+  const normalized = reason
+    ?.split('')
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code < 0x20 || code === 0x7f ? ' ' : character;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+  const redacted = normalized.replace(
+    SENSITIVE_FAILURE_TOKEN_PATTERN,
+    '[redacted]'
+  );
+  return redacted.length > MAX_FAILURE_DIAGNOSTIC_LENGTH
+    ? `${redacted.slice(0, MAX_FAILURE_DIAGNOSTIC_LENGTH - 3).trimEnd()}...`
+    : redacted;
+}
+
+function generationFailureReason(result: QuestionResult | undefined): string {
+  return sanitizeFailureDiagnostic(result?.reason) ?? GENERATION_FAILED_REASON;
+}
 
 function isSuccessfulOverrideOutcome(outcome: FillOutcome): boolean {
   return (
@@ -945,7 +981,7 @@ export function mountAnswerSenseApp(
     fillReason: string | null
   ): string {
     if (result?.status === 'GENERATION_FAILED') {
-      return GENERATION_FAILED_REASON;
+      return generationFailureReason(result);
     }
     if (result?.status === 'VALIDATION_FAILED') {
       return 'The generated answer did not match the question.';
@@ -1083,7 +1119,7 @@ export function mountAnswerSenseApp(
         outcome,
         generationResults.get(outcome)
       )
-        ? GENERATION_FAILED_REASON
+        ? generationFailureReason(generationResults.get(outcome))
         : failedReason(outcome);
       item.append(reason);
       list.append(item);
