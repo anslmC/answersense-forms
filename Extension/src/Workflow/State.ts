@@ -1,11 +1,16 @@
 import type { GenerationReport } from '../Generation/Report';
 import type { FillReport } from '../Fill/Filler';
+import type { GenerationProgress } from '../Generation/Progress';
+import { isGenerationProgress } from '../Generation/Progress';
 import type { GenerationPerformanceReport } from '../Shared/Performance';
 import {
   createOverrideFilledIntent,
   type GenerationIntent,
   type OverrideFilledIntent,
 } from '../Generation/Intent';
+
+export type { GenerationProgress } from '../Generation/Progress';
+export { isGenerationProgress } from '../Generation/Progress';
 
 export type UiStateName =
   'UNSUPPORTED' | 'READY' | 'GENERATING' | 'REVIEW' | 'ERROR';
@@ -22,23 +27,6 @@ export interface WorkflowQuestion {
   type: string | null;
   supported: boolean;
   existingInput: { hasValue: boolean } | null;
-}
-
-export interface GenerationProgress {
-  candidateQuestionCount: number;
-}
-
-export function isGenerationProgress(
-  value: unknown
-): value is GenerationProgress {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidateQuestionCount = (value as Record<string, unknown>)
-    .candidateQuestionCount;
-  return (
-    typeof candidateQuestionCount === 'number' &&
-    Number.isSafeInteger(candidateQuestionCount) &&
-    candidateQuestionCount >= 0
-  );
 }
 
 export function filledOverrideCandidates(
@@ -194,6 +182,7 @@ export interface WorkflowSnapshot {
     } | null;
   } | null;
   performance?: GenerationPerformanceReport;
+  generationOperationId?: string | null;
   generationProgress?: GenerationProgress | null;
 }
 
@@ -231,6 +220,7 @@ export type UiState =
       page: PageSummary | null;
       message: string;
       performance?: GenerationPerformanceReport;
+      generationProgress?: GenerationProgress;
     };
 
 function pageWithFilledOutcomes(
@@ -317,10 +307,16 @@ export class WorkflowStateMachine {
         ...(generationProgress ? { generationProgress } : {}),
       };
     } else if (normalizedUiState === 'ERROR') {
+      const generationProgress = isGenerationProgress(
+        snapshot.generationProgress
+      )
+        ? snapshot.generationProgress
+        : undefined;
       this.current = {
         name: 'ERROR',
         page,
         message: snapshot.error ?? 'Generation failed.',
+        ...(generationProgress ? { generationProgress } : {}),
       };
     } else if (
       normalizedUiState === 'REVIEW' &&
@@ -364,23 +360,21 @@ export class WorkflowStateMachine {
     return this.current;
   }
 
-  setGenerationProgress(candidateQuestionCount: number): UiState {
-    if (
-      this.current.name !== 'GENERATING' ||
-      !Number.isSafeInteger(candidateQuestionCount) ||
-      candidateQuestionCount < 0
-    ) {
+  setGenerationProgress(progress: GenerationProgress): UiState {
+    if (this.current.name !== 'GENERATING' || !isGenerationProgress(progress)) {
       return this.current;
     }
+    const existing = this.current.generationProgress;
     if (
-      this.current.generationProgress?.candidateQuestionCount ===
-      candidateQuestionCount
+      existing &&
+      existing.generationOperationId === progress.generationOperationId &&
+      progress.sequence <= existing.sequence
     ) {
       return this.current;
     }
     this.current = {
       ...this.current,
-      generationProgress: { candidateQuestionCount },
+      generationProgress: progress,
     };
     return this.current;
   }
@@ -419,6 +413,9 @@ export class WorkflowStateMachine {
       name: 'ERROR',
       page: this.current.page,
       message,
+      ...(this.current.generationProgress
+        ? { generationProgress: this.current.generationProgress }
+        : {}),
     };
     return this.current;
   }

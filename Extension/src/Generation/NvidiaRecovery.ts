@@ -87,6 +87,7 @@ export interface NvidiaRecoveryOptions {
   readonly payloadProfile?: NvidiaPayloadProfile;
   readonly reasoningTokenReserve?: number;
   readonly performance?: GenerationPerformanceRecorder;
+  readonly onResultsFinalized?: (finalizedQuestionCount: number) => void;
 }
 
 interface NormalizedRecoveryOptions {
@@ -102,6 +103,7 @@ interface NormalizedRecoveryOptions {
   readonly payloadProfile: NvidiaPayloadProfile;
   readonly reasoningTokenReserve: number;
   readonly performance?: GenerationPerformanceRecorder;
+  readonly onResultsFinalized?: (finalizedQuestionCount: number) => void;
 }
 
 interface RecoveryTask {
@@ -184,6 +186,9 @@ function normalizeOptions(
       0
     ),
     ...(options.performance ? { performance: options.performance } : {}),
+    ...(options.onResultsFinalized
+      ? { onResultsFinalized: options.onResultsFinalized }
+      : {}),
   };
 }
 
@@ -282,6 +287,9 @@ export async function executeNvidiaRecovery(
     request.questions.map((question) => [question.questionId, question])
   );
   const results = new Map<string, GenerationResult>();
+  const notifyFinalized = (): void => {
+    normalized.onResultsFinalized?.(results.size);
+  };
   const lastFailureById = new Map<string, NvidiaBatchFailureDescriptor>();
   const attempts = new Map<string, number>();
   const timeoutCounts = new Map<string, number>();
@@ -408,6 +416,7 @@ export async function executeNvidiaRecovery(
       answer: null,
       failure: failureDescriptor(descriptor),
     });
+    notifyFinalized();
   };
 
   const isExhausted = (questionId: string): boolean =>
@@ -590,6 +599,7 @@ export async function executeNvidiaRecovery(
       }
       if (result.status === 'GENERATED' || result.status === 'ABSTAINED') {
         results.set(result.questionId, result);
+        notifyFinalized();
         lastFailureById.delete(result.questionId);
         if (everFailedQuestionIds.has(result.questionId)) {
           recoveredQuestionIds.add(result.questionId);
@@ -605,6 +615,7 @@ export async function executeNvidiaRecovery(
       lastFailureById.set(result.questionId, descriptor);
       if (!details.retryable || isExhausted(result.questionId)) {
         results.set(result.questionId, result);
+        notifyFinalized();
       }
     }
 

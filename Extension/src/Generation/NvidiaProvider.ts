@@ -4,6 +4,7 @@ import type {
   GenerationResponse,
   ProviderErrorCode,
   ProviderErrorContract,
+  ProviderProgressObserver,
 } from './Contract';
 import { NvidiaBatchCancellationError } from './NvidiaBatchExecution';
 import {
@@ -1502,7 +1503,8 @@ export class NvidiaProvider implements GenerationInterface {
   async generate(
     request: GenerationRequest,
     signal?: AbortSignal,
-    performance?: GenerationPerformanceRecorder
+    performance?: GenerationPerformanceRecorder,
+    onProgress?: ProviderProgressObserver
   ): Promise<GenerationResponse> {
     const providerStartedAt = performance ? monotonicNow() : 0;
     let outcome: PerformanceOutcome = 'UNKNOWN';
@@ -1589,6 +1591,7 @@ export class NvidiaProvider implements GenerationInterface {
             });
             recordResponseResultCounts(performance, response);
           }
+          onProgress?.(response.results.length);
           outcome = 'SUCCESS';
           return response;
         } catch (error) {
@@ -1659,6 +1662,7 @@ export class NvidiaProvider implements GenerationInterface {
             payloadProfile: policy.payloadProfile,
             reasoningTokenReserve: policy.reasoningTokenReserve,
             ...(performance ? { performance } : {}),
+            ...(onProgress ? { onResultsFinalized: onProgress } : {}),
           }
         );
         const validationStartedAt = performance ? monotonicNow() : 0;

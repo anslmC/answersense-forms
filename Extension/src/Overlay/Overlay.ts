@@ -250,6 +250,12 @@ function buildWorkflowAppScaffold(body: HTMLElement): void {
               aria-valuemax="100"
             >
               <div class="workflow-progress-fill" data-workflow-progress-fill></div>
+              <div class="workflow-progress-scanner" aria-hidden="true">
+                <span class="workflow-progress-scanner-anchor"></span>
+                <span class="workflow-progress-scanner-anchor"></span>
+                <span class="workflow-progress-scanner-anchor"></span>
+                <span class="workflow-progress-scanner-traveler"></span>
+              </div>
             </div>
           </div>
           <p class="workflow-progress-text" data-workflow-progress-text></p>

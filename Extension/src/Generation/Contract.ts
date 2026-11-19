@@ -83,10 +83,13 @@ export interface GenerationResponse {
   results: GenerationResult[];
 }
 
+export type ProviderProgressObserver = (finalizedQuestionCount: number) => void;
+
 export interface GenerationInterface {
   generate(
     request: GenerationRequest,
     signal?: AbortSignal,
-    performance?: GenerationPerformanceRecorder
+    performance?: GenerationPerformanceRecorder,
+    onProgress?: ProviderProgressObserver
   ): Promise<GenerationResponse>;
 }

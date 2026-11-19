@@ -63,6 +63,9 @@ export function createBrowserWorkflow(): Workflow {
           ...(snapshot.performance
             ? { performance: snapshot.performance }
             : {}),
+          ...(typeof snapshot.generationOperationId === 'string'
+            ? { generationOperationId: snapshot.generationOperationId }
+            : {}),
           ...(isGenerationProgress(snapshot.generationProgress)
             ? { generationProgress: snapshot.generationProgress }
             : {}),

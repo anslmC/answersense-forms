@@ -544,16 +544,38 @@ describe('Service Worker Generate terminal projection', () => {
       expect(chromeApi.tabs.sendMessage).toHaveBeenCalled()
     );
 
+    const generationOperationId = (
+      state.sessionValues?.answerSenseIntegrationState as Record<
+        number,
+        { generationOperationId?: string }
+      >
+    )[activeTabId]?.generationOperationId;
+    expect(generationOperationId).toBeTruthy();
+    const progressUpdate = {
+      type: 'generation-progress',
+      generationOperationId,
+      phase: 'GENERATING',
+      determinate: false,
+      completedUnits: 0,
+      totalUnits: 11,
+      candidateQuestionCount: 11,
+    };
+
     await expect(
-      handleMessage(
-        { type: 'generation-progress', candidateQuestionCount: 11 },
-        sender(activeTabId)
-      )
+      handleMessage(progressUpdate, sender(activeTabId))
     ).resolves.toMatchObject({
       status: 'progress-stored',
       snapshot: {
         uiState: 'GENERATING',
-        generationProgress: { candidateQuestionCount: 11 },
+        generationProgress: {
+          generationOperationId,
+          candidateQuestionCount: 11,
+          phase: 'GENERATING',
+          determinate: false,
+          completedUnits: 0,
+          totalUnits: 11,
+          sequence: 1,
+        },
       },
     });
     expect(state.sessionValues).toEqual(
@@ -561,7 +583,10 @@ describe('Service Worker Generate terminal projection', () => {
         answerSenseIntegrationState: expect.objectContaining({
           [activeTabId]: expect.objectContaining({
             uiState: 'GENERATING',
-            generationProgress: { candidateQuestionCount: 11 },
+            generationProgress: expect.objectContaining({
+              generationOperationId,
+              candidateQuestionCount: 11,
+            }),
           }),
         }),
       })
@@ -569,7 +594,11 @@ describe('Service Worker Generate terminal projection', () => {
     await vi.waitFor(() =>
       expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(activeTabId, {
         type: 'p7-generation-progress',
-        candidateQuestionCount: 11,
+        progress: expect.objectContaining({
+          generationOperationId,
+          candidateQuestionCount: 11,
+          sequence: 1,
+        }),
       })
     );
 

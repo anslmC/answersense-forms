@@ -108,7 +108,7 @@ function isIntegrationSnapshot(value: unknown): value is IntegrationSnapshot {
       typeof value.generationOperationId === 'string') &&
     (value.generationProgress === undefined ||
       value.generationProgress === null ||
-      (value.uiState === 'GENERATING' &&
+      ((value.uiState === 'GENERATING' || value.uiState === 'ERROR') &&
         isGenerationProgress(value.generationProgress)))
   );
 }

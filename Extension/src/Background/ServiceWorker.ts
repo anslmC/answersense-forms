@@ -22,8 +22,17 @@ import {
   resolveProviderModel,
 } from '../Generation/ProviderRegistry';
 import { configurationIdentity } from '../Generation/Credentials';
-import type { GenerationRequest } from '../Generation/Contract';
+import type {
+  GenerationRequest,
+  ProviderProgressObserver,
+} from '../Generation/Contract';
 import type { GenerationIntent } from '../Generation/Intent';
+import {
+  isGenerationProgressUpdate,
+  mergeGenerationProgress,
+  type GenerationProgress,
+  type GenerationProgressUpdate,
+} from '../Generation/Progress';
 import {
   resolveActiveProviderConfiguration,
   resolveAuthorizedProviderConfiguration,
@@ -76,6 +85,11 @@ interface WorkerMessage {
   providerConfig?: unknown;
   selectedConfiguration?: unknown;
   candidateQuestionCount?: unknown;
+  generationOperationId?: unknown;
+  phase?: unknown;
+  determinate?: unknown;
+  completedUnits?: unknown;
+  totalUnits?: unknown;
   intent?: GenerationIntent;
 }
 
@@ -193,6 +207,68 @@ function notifyGenerationTerminalState(
     type: 'p7-state-updated',
     snapshot: performance ? { ...snapshot, performance } : snapshot,
   }).catch(() => undefined);
+}
+
+const generationProgressQueues = new Map<number, Promise<void>>();
+
+function enqueueGenerationProgress(
+  tabId: number,
+  task: () => Promise<void>
+): Promise<void> {
+  const previous = generationProgressQueues.get(tabId) ?? Promise.resolve();
+  const next = previous.then(task, task);
+  generationProgressQueues.set(tabId, next);
+  void next.finally(() => {
+    if (generationProgressQueues.get(tabId) === next) {
+      generationProgressQueues.delete(tabId);
+    }
+  });
+  return next;
+}
+
+async function publishGenerationProgress(
+  tabId: number,
+  generationOperationId: string,
+  update: GenerationProgressUpdate
+): Promise<GenerationProgress | null> {
+  let published: GenerationProgress | null = null;
+  await enqueueGenerationProgress(tabId, async () => {
+    try {
+      const current = await stateStore.get(tabId);
+      if (
+        !current ||
+        current.generationOperationId !== generationOperationId ||
+        current.uiState !== 'GENERATING'
+      ) {
+        return;
+      }
+      const previous = current.generationProgress ?? null;
+      const progress = mergeGenerationProgress(
+        previous,
+        update,
+        generationOperationId,
+        (previous?.sequence ?? 0) + 1
+      );
+      const snapshot = await stateStore.updateIfGenerationCurrent(
+        tabId,
+        generationOperationId,
+        { generationProgress: progress }
+      );
+      if (!snapshot) {
+        return;
+      }
+      published = progress;
+      void chrome.tabs
+        .sendMessage(tabId, {
+          type: 'p7-generation-progress',
+          progress,
+        })
+        .catch(() => undefined);
+    } catch {
+      // Progress is best-effort and must never affect generation.
+    }
+  });
+  return published;
 }
 
 function withoutPerformance<T>(value: T): T {
@@ -432,10 +508,52 @@ export async function handleMessage(
       resolved.provider.providerId,
       resolved.model.modelId
     );
+    const requestedOperationId =
+      typeof message.generationOperationId === 'string' &&
+      message.generationOperationId.length > 0
+        ? message.generationOperationId
+        : null;
+    const currentSnapshot = requestedOperationId
+      ? await stateStore.get(requestingTabId)
+      : null;
+    const progressOperationId =
+      requestedOperationId !== null &&
+      currentSnapshot?.generationOperationId === requestedOperationId &&
+      currentSnapshot.uiState === 'GENERATING'
+        ? requestedOperationId
+        : null;
+    const totalUnits = Array.isArray(generationRequest?.questions)
+      ? generationRequest.questions.length
+      : 0;
+    const onProgress: ProviderProgressObserver | undefined = progressOperationId
+      ? (finalizedQuestionCount) => {
+          void publishGenerationProgress(requestingTabId, progressOperationId, {
+            phase: 'GENERATING',
+            determinate: true,
+            completedUnits: finalizedQuestionCount,
+            totalUnits,
+            candidateQuestionCount: totalUnits,
+          });
+        }
+      : undefined;
+    if (progressOperationId) {
+      await publishGenerationProgress(requestingTabId, progressOperationId, {
+        phase: 'GENERATING',
+        determinate: false,
+        completedUnits: 0,
+        totalUnits,
+        candidateQuestionCount: totalUnits,
+      });
+    }
     try {
       const result = await resolved
         .adapter(resolved.secret, resolved.model.modelId)
-        .generate(generationRequest, generationController.signal, performance);
+        .generate(
+          generationRequest,
+          generationController.signal,
+          performance,
+          onProgress
+        );
       performance.finish('SUCCESS');
       const report = performance.getReport();
       performance.log();
@@ -640,33 +758,32 @@ export async function handleMessage(
   }
 
   if (message.type === 'generation-progress') {
-    const candidateQuestionCount = message.candidateQuestionCount;
+    const generationOperationId = message.generationOperationId;
     if (
-      typeof candidateQuestionCount !== 'number' ||
-      !Number.isSafeInteger(candidateQuestionCount) ||
-      candidateQuestionCount < 0
+      typeof generationOperationId !== 'string' ||
+      !generationOperationId ||
+      !isGenerationProgressUpdate(message)
     ) {
       return { status: 'ignored' };
     }
     const tabId = tabIdFromSender(sender);
     const current = await stateStore.get(tabId);
-    if (!current?.generationOperationId || current.uiState !== 'GENERATING') {
+    if (
+      !current?.generationOperationId ||
+      current.uiState !== 'GENERATING' ||
+      current.generationOperationId !== generationOperationId
+    ) {
       return { status: 'ignored' };
     }
-    const snapshot = await stateStore.updateIfGenerationCurrent(
+    const progress = await publishGenerationProgress(
       tabId,
-      current.generationOperationId,
-      { generationProgress: { candidateQuestionCount } }
+      generationOperationId,
+      message
     );
-    if (!snapshot) {
+    if (!progress) {
       return { status: 'ignored' };
     }
-    void chrome.tabs
-      .sendMessage(tabId, {
-        type: 'p7-generation-progress',
-        candidateQuestionCount,
-      })
-      .catch(() => undefined);
+    const snapshot = await stateStore.get(tabId);
     return { status: 'progress-stored', snapshot };
   }
 
@@ -836,12 +953,17 @@ export async function handleMessage(
     }
     const generationController = new AbortController();
     activeGenerationControllers.set(tabId, generationController);
+    await notifyPopup({
+      type: 'p7-state-updated',
+      snapshot: admission.snapshot,
+    }).catch(() => undefined);
     try {
       const result = await chrome.tabs.sendMessage(tabId, {
         type: 'generate-current-page',
         intent: message.intent,
         configurationDigest: resolved.configurationDigest,
         configurationRevision: resolved.authorizationRevision,
+        generationOperationId,
       });
       const contentPerformance = readPerformanceReport(result);
       if (result?.error) {
@@ -908,7 +1030,6 @@ export async function handleMessage(
             failure instanceof Error ? failure.message : 'Generation failed.',
           result: null,
           generationOperationId: null,
-          generationProgress: null,
         }
       );
       notifyGenerationTerminalState(

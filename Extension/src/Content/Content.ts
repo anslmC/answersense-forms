@@ -33,6 +33,7 @@ import type {
   GenerationRequest,
   GenerationResponse,
 } from '../Generation/Contract';
+import type { GenerationProgressUpdate } from '../Generation/Progress';
 import {
   createOverrideFilledIntent,
   parseGenerationIntent,
@@ -79,12 +80,16 @@ const lifecyclePublications = new LifecyclePublicationQueue((message) =>
   chrome.runtime.sendMessage(message)
 );
 
-function publishGenerationProgress(candidateQuestionCount: number): void {
+function publishGenerationProgress(
+  generationOperationId: string,
+  update: GenerationProgressUpdate
+): void {
   try {
     void Promise.resolve(
       chrome.runtime.sendMessage({
         type: 'generation-progress',
-        candidateQuestionCount,
+        generationOperationId,
+        ...update,
       })
     ).catch(() => undefined);
   } catch {
@@ -607,7 +612,8 @@ void hydration.then(async () => {
 function createGeminiGenerator(
   configurationDigest: string,
   configurationRevision: number,
-  performance?: GenerationPerformanceRecorder
+  performance?: GenerationPerformanceRecorder,
+  generationOperationId?: string
 ) {
   return {
     async generate(request: GenerationRequest): Promise<GenerationResponse> {
@@ -617,6 +623,7 @@ function createGeminiGenerator(
         request,
         configurationDigest,
         configurationRevision,
+        ...(generationOperationId ? { generationOperationId } : {}),
       });
       if (performance) {
         performance.addPhase(
@@ -673,6 +680,7 @@ async function handleRequest(request: {
   type?: string;
   configurationDigest?: string;
   configurationRevision?: number;
+  generationOperationId?: string;
   intent?: unknown;
 }): Promise<unknown> {
   if (request.type === 'toggle-overlay') {
@@ -765,6 +773,22 @@ async function handleRequest(request: {
 
   if (request.type === 'generate-current-page') {
     const handlerStartedAt = monotonicNow();
+    const generationOperationId =
+      typeof request.generationOperationId === 'string' &&
+      request.generationOperationId.length > 0
+        ? request.generationOperationId
+        : null;
+    const reportProgress = (update: GenerationProgressUpdate): void => {
+      if (generationOperationId) {
+        publishGenerationProgress(generationOperationId, update);
+      }
+    };
+    reportProgress({
+      phase: 'PREPARING',
+      determinate: false,
+      completedUnits: 0,
+      totalUnits: 0,
+    });
     await hydration;
     const hydrationCompletedAt = monotonicNow();
     if (
@@ -856,16 +880,39 @@ async function handleRequest(request: {
         createGeminiGenerator(
           request.configurationDigest,
           request.configurationRevision,
-          performance
+          performance,
+          generationOperationId ?? undefined
         ),
         pageLifecycle.currentCycle,
         executionIntent,
         performance,
-        publishGenerationProgress
+        (candidateQuestionCount) =>
+          reportProgress({
+            phase: 'GENERATING',
+            determinate: false,
+            completedUnits: 0,
+            totalUnits: candidateQuestionCount,
+            candidateQuestionCount,
+          }),
+        () =>
+          reportProgress({
+            phase: 'VALIDATING',
+            determinate: true,
+            completedUnits: 0,
+            totalUnits: 1,
+          })
       );
       if (!report) {
         throw new Error('Generation response was stale or invalidated.');
       }
+      const fillTotalUnits = report.results.length + overrideFailures.length;
+      let fillCompletedUnits = 0;
+      reportProgress({
+        phase: 'FILLING',
+        determinate: true,
+        completedUnits: 0,
+        totalUnits: fillTotalUnits,
+      });
       const fillStartedAt = monotonicNow();
       const fillDocumentHidden =
         document.visibilityState === 'hidden' || document.hidden;
@@ -881,6 +928,15 @@ async function handleRequest(request: {
         createAcceptedReviewDecisions(report),
         executionIntent.type === 'OVERRIDE_FILLED',
         {
+          recordFillOutcome: () => {
+            fillCompletedUnits += 1;
+            reportProgress({
+              phase: 'FILLING',
+              determinate: true,
+              completedUnits: fillCompletedUnits,
+              totalUnits: fillTotalUnits,
+            });
+          },
           recordVerification: (details) => {
             performance.addCount('choiceVerificationCount');
             performance.addCount(
@@ -920,6 +976,12 @@ async function handleRequest(request: {
       );
       const fillDurationMs = elapsedSince(fillStartedAt);
       performance.addPhase('fillDurationMs', fillDurationMs);
+      reportProgress({
+        phase: 'VERIFYING',
+        determinate: true,
+        completedUnits: 0,
+        totalUnits: 1,
+      });
       const captureStartedAt = monotonicNow();
       pageLifecycle.captureCurrentAnswers(document);
       performance.addPhase('postFillCaptureMs', elapsedSince(captureStartedAt));
@@ -978,6 +1040,12 @@ async function handleRequest(request: {
           }
         ).__answersenseSkipDiagnostics = skipDiagnostics;
       }
+      reportProgress({
+        phase: 'FINALIZING',
+        determinate: true,
+        completedUnits: 0,
+        totalUnits: 1,
+      });
       const publishStartedAt = monotonicNow();
       await publishLifecycleSnapshot();
       const publishDurationMs = elapsedSince(publishStartedAt);

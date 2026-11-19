@@ -59,6 +59,7 @@ export interface ChoiceVerificationDetails {
 
 export interface FillInstrumentation {
   recordVerification?(details: ChoiceVerificationDetails): void;
+  recordFillOutcome?(outcome: FillOutcome): void;
 }
 
 export interface SkipDiagnostic {
@@ -933,6 +934,10 @@ export async function fillReviewedAnswers(
   }
   const index = createQuestionTargetIndex(document);
   const outcomes: FillOutcome[] = [];
+  const recordOutcome = (outcome: FillOutcome): void => {
+    outcomes.push(outcome);
+    instrumentation?.recordFillOutcome?.(outcome);
+  };
   for (const result of report.results) {
     const questionId = result.questionId;
     const associatedQuestion = remainingQuestionsById.get(questionId)?.shift();
@@ -940,7 +945,7 @@ export async function fillReviewedAnswers(
     const decision =
       questionId === null ? undefined : decisionsById.get(questionId);
     if (!decision || decision.decision === 'skip' || decision.answer === null) {
-      outcomes.push({
+      recordOutcome({
         questionId,
         questionText,
         status: 'SKIPPED',
@@ -952,7 +957,7 @@ export async function fillReviewedAnswers(
     }
 
     if (decision.answer.questionId !== questionId) {
-      outcomes.push({
+      recordOutcome({
         ...failureOutcome(
           questionId,
           {
@@ -970,7 +975,7 @@ export async function fillReviewedAnswers(
     const question =
       questionId === null ? undefined : questionsById.get(questionId);
     if (!question) {
-      outcomes.push({
+      recordOutcome({
         ...failureOutcome(
           questionId,
           {
@@ -993,7 +998,7 @@ export async function fillReviewedAnswers(
       index,
       instrumentation
     );
-    outcomes.push(
+    recordOutcome(
       outcome.status === 'FILL_FAILED' || outcome.status === 'PARTIAL_FILL'
         ? { ...outcome, questionText: outcome.questionText ?? questionText }
         : outcome

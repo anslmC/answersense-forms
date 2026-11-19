@@ -509,6 +509,7 @@ describe('Content navigation runtime adapter', () => {
             type: 'generate-current-page',
             configurationDigest: 'digest-1',
             configurationRevision: 1,
+            generationOperationId: 'generation-1',
           },
           {},
           () => resolve()
@@ -657,6 +658,7 @@ describe('Content navigation runtime adapter', () => {
             type: 'generate-current-page',
             configurationDigest: 'digest-1',
             configurationRevision: 1,
+            generationOperationId: 'generation-override',
           },
           {},
           (response) => {

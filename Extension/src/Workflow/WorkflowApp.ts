@@ -30,6 +30,12 @@ import {
   type GenerationIntent,
 } from '../Generation/Intent';
 import {
+  calculateProgressPercent,
+  generationProgressText,
+  isGenerationProgress,
+  type GenerationProgress,
+} from '../Generation/Progress';
+import {
   GenerationPerformanceRecorder,
   readPerformanceReport,
   type GenerationPerformanceReport,
@@ -229,6 +235,10 @@ export function mountAnswerSenseApp(
   let localGenerationSnapshotPending = false;
   let invalidatedGenerationOperationToken: number | null = null;
   let activeGenerationRun: ActiveGenerationRun | null = null;
+  let activeGenerationOperationId: string | null = null;
+  let lastGenerationProgressSequence = -1;
+  let lastLiveProgressOperationId: string | null = null;
+  let lastLiveProgressPercent = 0;
   let generationDurationTimer: ReturnType<typeof setInterval> | null = null;
   let generationElapsedMs: number | null = null;
   let generationDurationOutcome: GenerationDurationOutcome | null = null;
@@ -251,6 +261,73 @@ export function mountAnswerSenseApp(
     sourcePage: PageSummary;
     page: PageSummary;
   } | null = null;
+
+  function resetGenerationProgressTracking(): void {
+    activeGenerationOperationId = null;
+    lastGenerationProgressSequence = -1;
+    lastLiveProgressOperationId = null;
+    lastLiveProgressPercent = 0;
+  }
+
+  function trackGenerationSnapshotProgress(
+    snapshot: WorkflowSnapshot & { generationOperationId?: string | null }
+  ): void {
+    if (snapshot.uiState === 'GENERATING') {
+      const progress = isGenerationProgress(snapshot.generationProgress)
+        ? snapshot.generationProgress
+        : null;
+      const operationId =
+        typeof snapshot.generationOperationId === 'string'
+          ? snapshot.generationOperationId
+          : (progress?.generationOperationId ?? null);
+      if (operationId !== null && operationId !== activeGenerationOperationId) {
+        activeGenerationOperationId = operationId;
+        lastGenerationProgressSequence = progress?.sequence ?? -1;
+        return;
+      }
+      if (progress && progress.sequence > lastGenerationProgressSequence) {
+        lastGenerationProgressSequence = progress.sequence;
+      }
+      return;
+    }
+    resetGenerationProgressTracking();
+  }
+
+  function renderLiveGenerationProgress(
+    progressElement: HTMLElement,
+    progressBar: HTMLElement,
+    progressText: HTMLElement,
+    progressFill: HTMLElement,
+    progress: GenerationProgress | undefined
+  ): void {
+    progressElement.classList.add('is-processing');
+    if (
+      progress &&
+      progress.generationOperationId !== lastLiveProgressOperationId
+    ) {
+      lastLiveProgressOperationId = progress.generationOperationId;
+      lastLiveProgressPercent = 0;
+    }
+    if (!progress || !progress.determinate || progress.totalUnits <= 0) {
+      progressElement.classList.add('is-indeterminate');
+      progressFill.style.width = `${lastLiveProgressPercent}%`;
+      progressBar.removeAttribute('aria-valuenow');
+      const text = progress
+        ? generationProgressText(progress)
+        : 'Preparing page…';
+      progressBar.setAttribute('aria-valuetext', text);
+      progressText.textContent = text;
+      return;
+    }
+    progressElement.classList.remove('is-indeterminate');
+    const percent = calculateProgressPercent(progress);
+    lastLiveProgressPercent = percent;
+    progressFill.style.width = `${percent}%`;
+    progressBar.setAttribute('aria-valuenow', String(percent));
+    const text = generationProgressText(progress);
+    progressBar.setAttribute('aria-valuetext', text);
+    progressText.textContent = text;
+  }
 
   const controller = new WorkflowController(createBrowserWorkflow());
   let primaryAction: HTMLButtonElement | null = null;
@@ -1393,11 +1470,15 @@ export function mountAnswerSenseApp(
     progress.hidden = true;
     progress.classList.remove(
       'is-processing',
+      'is-indeterminate',
       'is-complete',
       'is-partial',
       'is-error'
     );
     progressText.textContent = '';
+    progressFill.style.width = '';
+    progressBar.removeAttribute('aria-valuenow');
+    progressBar.removeAttribute('aria-valuetext');
     if (generationNotice) {
       generationNotice.hidden = true;
       generationNotice.textContent = '';
@@ -1419,10 +1500,13 @@ export function mountAnswerSenseApp(
     } else if (state.name === 'GENERATING') {
       progress.hidden = false;
       progress.classList.remove('is-complete', 'is-partial', 'is-error');
-      progress.classList.add('is-processing');
-      progressFill.style.width = '';
-      progressBar.removeAttribute('aria-valuetext');
-      progressText.textContent = 'Processing page…';
+      renderLiveGenerationProgress(
+        progress,
+        progressBar,
+        progressText,
+        progressFill,
+        state.generationProgress
+      );
       if (generationNotice) {
         const candidateQuestionCount =
           state.generationProgress?.candidateQuestionCount ?? 0;
@@ -1447,9 +1531,17 @@ export function mountAnswerSenseApp(
     } else if (state.name === 'ERROR') {
       progress.hidden = false;
       progress.classList.add('is-error');
+      progress.classList.remove('is-processing', 'is-indeterminate');
+      if (state.generationProgress) {
+        const percent = calculateProgressPercent(state.generationProgress);
+        progressFill.style.width = `${percent}%`;
+        progressBar.setAttribute('aria-valuenow', String(percent));
+      } else {
+        progressFill.style.width = '0%';
+        progressBar.removeAttribute('aria-valuenow');
+      }
       progressBar.setAttribute('aria-valuetext', 'Failed');
       progressText.textContent = 'Failed';
-      progressFill.style.width = '100%';
       const modelAccessErrorMessage =
         'This key or project doesn’t have access to the selected model. Check your API key and project permissions.';
       const serviceUnavailable503Message =
@@ -2465,6 +2557,7 @@ export function mountAnswerSenseApp(
     if (overrideMessage)
       overrideMessage.textContent = 'Override selection ready.';
     publishOverrideIntent(intent);
+    resetGenerationProgressTracking();
     const performance = beginUiGenerationPerformance('override');
     const run: ActiveGenerationRun = {
       performance,
@@ -3012,6 +3105,7 @@ export function mountAnswerSenseApp(
   primary.addEventListener('click', () => {
     if (!canGenerateCurrentSelection()) return;
     overridePresentation = null;
+    resetGenerationProgressTracking();
     const performance = beginUiGenerationPerformance('standard');
     const run: ActiveGenerationRun = {
       performance,
@@ -3039,18 +3133,34 @@ export function mountAnswerSenseApp(
     resetOverrideFlow();
     forceClear.disabled = false;
   });
-  chrome.runtime.onMessage.addListener((message) => {
+  const runtimeMessageListener = (message: {
+    type?: string;
+    snapshot?: unknown;
+    progress?: unknown;
+  }) => {
     if (message?.type === 'p7-generation-progress') {
-      const candidateQuestionCount = message.candidateQuestionCount;
+      const progress = message.progress;
       if (
-        typeof candidateQuestionCount !== 'number' ||
+        !isGenerationProgress(progress) ||
         controller.state.name !== 'GENERATING'
       ) {
         return;
       }
-      const state = controller.stateMachine.setGenerationProgress(
-        candidateQuestionCount
-      );
+      if (activeGenerationOperationId === null) {
+        const stateProgress = controller.state.generationProgress;
+        activeGenerationOperationId =
+          stateProgress?.generationOperationId ??
+          progress.generationOperationId;
+        lastGenerationProgressSequence = stateProgress?.sequence ?? -1;
+      }
+      if (progress.generationOperationId !== activeGenerationOperationId) {
+        return;
+      }
+      if (progress.sequence <= lastGenerationProgressSequence) {
+        return;
+      }
+      lastGenerationProgressSequence = progress.sequence;
+      const state = controller.stateMachine.setGenerationProgress(progress);
       options.onState?.(state);
       renderGeneration(state);
       return;
@@ -3059,6 +3169,7 @@ export function mountAnswerSenseApp(
       const snapshot = message.snapshot as WorkflowSnapshot & {
         generationOperationId?: string | null;
       };
+      trackGenerationSnapshotProgress(snapshot);
       const terminalGenerationSnapshot =
         snapshot.generationOperationId == null &&
         (snapshot.uiState === 'REVIEW' || snapshot.uiState === 'ERROR');
@@ -3096,7 +3207,8 @@ export function mountAnswerSenseApp(
       options.onState?.(state);
       renderAll(state);
     }
-  });
+  };
+  chrome.runtime.onMessage.addListener(runtimeMessageListener);
 
   async function refresh(): Promise<void> {
     overridePresentation = null;
@@ -3116,6 +3228,7 @@ export function mountAnswerSenseApp(
     refresh,
     ready,
     dispose: () => {
+      chrome.runtime.onMessage.removeListener?.(runtimeMessageListener);
       resetValidationTiming();
       clearGenerationCancelReveal();
       clearCancelConfirmation();

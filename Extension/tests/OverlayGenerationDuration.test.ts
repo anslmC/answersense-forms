@@ -75,6 +75,22 @@ function createSnapshot() {
   };
 }
 
+function generationProgress(
+  candidateQuestionCount: number,
+  sequence: number,
+  generationOperationId = 'generation-1'
+) {
+  return {
+    generationOperationId,
+    sequence,
+    candidateQuestionCount,
+    phase: 'GENERATING' as const,
+    determinate: false,
+    completedUnits: 0,
+    totalUnits: candidateQuestionCount,
+  };
+}
+
 interface DeferredGeneration {
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
@@ -83,17 +99,19 @@ interface DeferredGeneration {
 type RuntimeListener = (message: {
   type?: string;
   snapshot?: unknown;
-  candidateQuestionCount?: number;
+  progress?: unknown;
 }) => void;
 
 let overlay: OverlayHandle | null = null;
 let pendingGenerations: DeferredGeneration[] = [];
 let runtimeListener: RuntimeListener | null = null;
+let removeListener: ReturnType<typeof vi.fn>;
 let sendMessage: ReturnType<typeof vi.fn>;
 
 function installChrome(): void {
   pendingGenerations = [];
   runtimeListener = null;
+  removeListener = vi.fn();
   sendMessage = vi.fn(async (message: { type?: string }) => {
     if (message.type === 'configuration-state') return configurationState;
     if (message.type === 'p7-discover') return createSnapshot();
@@ -115,7 +133,10 @@ function installChrome(): void {
         set: vi.fn(async () => undefined),
       },
     },
-    runtime: { sendMessage, onMessage: { addListener } },
+    runtime: {
+      sendMessage,
+      onMessage: { addListener, removeListener },
+    },
   });
   vi.stubGlobal('Option', function (label: string, value: string) {
     const option = document.createElement('option');
@@ -140,6 +161,14 @@ const cancelButton = () =>
   shadowRoot().querySelector<HTMLButtonElement>('[data-generation-cancel]');
 const progressText = () =>
   shadowRoot().querySelector<HTMLElement>('[data-workflow-progress-text]');
+const progressBar = () =>
+  shadowRoot().querySelector<HTMLElement>('[data-workflow-progress-bar]');
+const progressFill = () =>
+  shadowRoot().querySelector<HTMLElement>('[data-workflow-progress-fill]');
+const progressRoot = () =>
+  shadowRoot().querySelector<HTMLElement>('[data-workflow-progress]');
+const progressScanner = () =>
+  shadowRoot().querySelector<HTMLElement>('.workflow-progress-scanner');
 const generationNotice = () =>
   shadowRoot().querySelector<HTMLElement>('[data-generation-notice]');
 
@@ -221,7 +250,7 @@ describe('overlay live generation duration', () => {
 
     expect(status()?.textContent).toBe('Generating · 0 ms');
     expect(duration()?.textContent).toBe(' · 0 ms');
-    expect(progressText()?.textContent).toBe('Processing page…');
+    expect(progressText()?.textContent).toBe('Preparing page…');
     expect(displayedDurationMs()).toBe(0);
     expect(vi.getTimerCount()).toBe(2);
   });
@@ -411,14 +440,14 @@ describe('overlay live generation duration', () => {
 
     runtimeListener?.({
       type: 'p7-generation-progress',
-      candidateQuestionCount: 10,
+      progress: generationProgress(10, 1),
     });
     await flush();
     expect(generationNotice()?.hidden).toBe(true);
 
     runtimeListener?.({
       type: 'p7-generation-progress',
-      candidateQuestionCount: 11,
+      progress: generationProgress(11, 2),
     });
     await flush();
     expect(generationNotice()?.hidden).toBe(false);
@@ -426,11 +455,11 @@ describe('overlay live generation duration', () => {
       'Large form · Processing multiple questions. This may take longer than usual.'
     );
     expect(status()?.textContent).toContain('Generating');
-    expect(progressText()?.textContent).toBe('Processing page…');
+    expect(progressText()?.textContent).toBe('Generating answers…');
 
     runtimeListener?.({
       type: 'p7-generation-progress',
-      candidateQuestionCount: 1,
+      progress: generationProgress(1, 3),
     });
     await flush();
     expect(generationNotice()?.hidden).toBe(true);
@@ -456,7 +485,7 @@ describe('overlay live generation duration', () => {
           ...snapshot,
           uiState: 'GENERATING',
           generationOperationId: 'generation-restored',
-          generationProgress: { candidateQuestionCount: 11 },
+          generationProgress: generationProgress(11, 1, 'generation-restored'),
         };
       }
       return {};
@@ -471,7 +500,94 @@ describe('overlay live generation duration', () => {
     );
   });
 
-  it('cleans up the duration timer when the overlay is destroyed', async () => {
+  it('ignores stale, out-of-order, and other-operation progress', async () => {
+    await mount();
+    await startGeneration();
+
+    const update = (
+      overrides: Partial<ReturnType<typeof generationProgress>> = {}
+    ) => ({
+      type: 'p7-generation-progress',
+      progress: {
+        ...generationProgress(10, 2),
+        phase: 'FILLING' as const,
+        determinate: true,
+        completedUnits: 5,
+        totalUnits: 10,
+        ...overrides,
+      },
+    });
+
+    runtimeListener?.(update());
+    await flush();
+    expect(progressBar()?.getAttribute('aria-valuenow')).toBe('75');
+    expect(progressFill()?.style.width).toBe('75%');
+
+    runtimeListener?.(update({ sequence: 3 }));
+    await flush();
+    expect(progressBar()?.getAttribute('aria-valuenow')).toBe('75');
+
+    runtimeListener?.(update({ sequence: 3, completedUnits: 10 }));
+    await flush();
+    expect(progressBar()?.getAttribute('aria-valuenow')).toBe('75');
+
+    runtimeListener?.(update({ sequence: 1, completedUnits: 0 }));
+    await flush();
+    expect(progressBar()?.getAttribute('aria-valuenow')).toBe('75');
+
+    runtimeListener?.(
+      update({ generationOperationId: 'other-operation', sequence: 99 })
+    );
+    await flush();
+    expect(progressBar()?.getAttribute('aria-valuenow')).toBe('75');
+
+    runtimeListener?.(update({ sequence: 4, completedUnits: 10 }));
+    await flush();
+    expect(progressBar()?.getAttribute('aria-valuenow')).toBe('85');
+  });
+
+  it('shows the scanner only during indeterminate progress', async () => {
+    await mount();
+    await startGeneration();
+
+    expect(progressRoot()?.classList.contains('is-indeterminate')).toBe(true);
+    expect(progressScanner()?.getAttribute('aria-hidden')).toBe('true');
+    expect(progressScanner()?.children).toHaveLength(4);
+    expect(progressFill()?.style.width).toBe('0%');
+
+    runtimeListener?.({
+      type: 'p7-generation-progress',
+      progress: {
+        generationOperationId: 'generation-1',
+        sequence: 1,
+        candidateQuestionCount: 10,
+        phase: 'FILLING',
+        determinate: true,
+        completedUnits: 5,
+        totalUnits: 10,
+      },
+    });
+    await flush();
+
+    expect(progressRoot()?.classList.contains('is-indeterminate')).toBe(false);
+    expect(progressFill()?.style.width).toBe('75%');
+
+    runtimeListener?.({
+      type: 'p7-state-updated',
+      snapshot: {
+        ...createSnapshot(),
+        uiState: 'REVIEW',
+        result: generationResult,
+      },
+    });
+    await flush();
+
+    expect(progressRoot()?.classList.contains('is-indeterminate')).toBe(false);
+    expect(progressRoot()?.classList.contains('is-complete')).toBe(true);
+    expect(progressFill()?.style.width).toBe('100%');
+  });
+
+  it('cleans up the duration timer and listener when the overlay is destroyed', async () => {
     await mount();
     await startGeneration();
     await vi.advanceTimersByTimeAsync(5_000);
@@ -482,5 +598,6 @@ describe('overlay live generation duration', () => {
 
     expect(document.querySelector('#answersense-overlay-host')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith(runtimeListener);
   });
 });

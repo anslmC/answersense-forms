@@ -237,6 +237,35 @@ describe('NVIDIA recovery orchestration', () => {
     );
   });
 
+  it('reports unique finalized question counts without double counting retries', async () => {
+    const request = makeRequest(3);
+    const initialBatches = planNvidiaBatches(request);
+    const finalizedCounts: number[] = [];
+    const runner = vi.fn(
+      async (batchRequest: GenerationRequest): Promise<GenerationResponse> => {
+        if (finalizedCounts.length === 0) {
+          return {
+            cycleId: request.cycleId,
+            results: [generatedResult('q-1', 'A')],
+          };
+        }
+        return generatedResponse(batchRequest);
+      }
+    );
+
+    await executeNvidiaRecovery(request, initialBatches, runner, {
+      concurrency: 1,
+      baseBackoffMs: 0,
+      maxBackoffMs: 0,
+      random: () => 0,
+      onResultsFinalized: (count) => finalizedCounts.push(count),
+    });
+
+    expect(finalizedCounts.at(-1)).toBe(3);
+    expect(finalizedCounts).toEqual([1, 2, 3]);
+    expect(new Set(finalizedCounts).size).toBe(finalizedCounts.length);
+  });
+
   it('preserves abstained results instead of retrying them', async () => {
     const request = makeRequest(2);
     const initialBatches = [

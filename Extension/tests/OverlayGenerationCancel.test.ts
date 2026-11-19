@@ -181,7 +181,7 @@ describe('overlay generation warning and cancellation', () => {
 
     expect(primary()?.textContent).toBe('Generating...');
     expect(status()?.textContent).toMatch(/^Generating · [\d,]+ ms$/u);
-    expect(progressText()?.textContent).toBe('Processing page…');
+    expect(progressText()?.textContent).toBe('Preparing page…');
     expect(cancelButton()?.hidden).toBe(true);
     expect(
       shadowRoot()
@@ -207,7 +207,7 @@ describe('overlay generation warning and cancellation', () => {
     expect(cancelButton()?.hidden).toBe(false);
     expect(cancelButton()?.textContent?.trim()).toBe('Cancel');
     expect(cancelButton()?.classList.contains('secondary')).toBe(true);
-    expect(progressText()?.textContent).toBe('Processing page…');
+    expect(progressText()?.textContent).toBe('Preparing page…');
   });
 
   it('never reveals Cancel when generation succeeds before 110 seconds', async () => {

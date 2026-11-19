@@ -132,7 +132,8 @@ export class GenerationCoordinator {
     preparedCycle?: { cycleId: string },
     intent: GenerationIntent = GENERATE_UNANSWERED,
     performance?: GenerationPerformanceRecorder,
-    onCandidatesSelected?: (candidateQuestionCount: number) => void
+    onCandidatesSelected?: (candidateQuestionCount: number) => void,
+    onValidationStarted?: () => void
   ): Promise<GenerationReport | null> {
     const cycle = preparedCycle ?? this.beginCycle();
     if (this.currentCycleId !== cycle.cycleId) {
@@ -194,6 +195,7 @@ export class GenerationCoordinator {
     }
 
     const validationStartedAt = performance ? monotonicNow() : 0;
+    onValidationStarted?.();
     const results = validateGenerationResponse(
       response,
       page.form,
