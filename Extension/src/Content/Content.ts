@@ -29,10 +29,16 @@ import {
 } from './LifecyclePublication';
 import { mountOverlay, type OverlayHandle } from '../Overlay/Overlay';
 import logoHeadSvg from '../../icon-source/logo-head.svg?raw';
-import type {
-  GenerationRequest,
-  GenerationResponse,
+import {
+  isProviderSafeMessageCode,
+  type GenerationRequest,
+  type GenerationResponse,
+  type ProviderSafeMessageCode,
 } from '../Generation/Contract';
+import {
+  isRecognizedProviderId,
+  type RecognizedProviderId,
+} from '../Generation/ProviderIdentity';
 import type { GenerationProgressUpdate } from '../Generation/Progress';
 import {
   createOverrideFilledIntent,
@@ -636,12 +642,20 @@ function createGeminiGenerator(
         const failure = response as {
           error: unknown;
           code?: unknown;
+          safeMessageCode?: unknown;
+          providerId?: unknown;
           diagnostics?: unknown;
         };
         const error = new Error(String(failure.error));
         error.name = 'GenerationRequestError';
         Object.assign(error, {
           code: failure.code,
+          ...(isProviderSafeMessageCode(failure.safeMessageCode)
+            ? { safeMessageCode: failure.safeMessageCode }
+            : {}),
+          ...(isRecognizedProviderId(failure.providerId)
+            ? { providerId: failure.providerId }
+            : {}),
           diagnostics: failure.diagnostics,
         });
         if (failure.diagnostics) {
@@ -659,6 +673,8 @@ function createGeminiGenerator(
 
 function providerFailureFields(error: unknown): {
   code?: string;
+  safeMessageCode?: ProviderSafeMessageCode;
+  providerId?: RecognizedProviderId;
   diagnostics?: unknown;
 } {
   if (!(error instanceof Error)) {
@@ -666,14 +682,25 @@ function providerFailureFields(error: unknown): {
   }
   const candidate = error as Error & {
     code?: unknown;
+    safeMessageCode?: unknown;
+    providerId?: unknown;
     diagnostics?: unknown;
   };
   if (typeof candidate.code !== 'string' || candidate.code.trim() === '') {
     return {};
   }
-  return candidate.diagnostics === undefined
-    ? { code: candidate.code }
-    : { code: candidate.code, diagnostics: candidate.diagnostics };
+  return {
+    code: candidate.code,
+    ...(isProviderSafeMessageCode(candidate.safeMessageCode)
+      ? { safeMessageCode: candidate.safeMessageCode }
+      : {}),
+    ...(isRecognizedProviderId(candidate.providerId)
+      ? { providerId: candidate.providerId }
+      : {}),
+    ...(candidate.diagnostics === undefined
+      ? {}
+      : { diagnostics: candidate.diagnostics }),
+  };
 }
 
 async function handleRequest(request: {

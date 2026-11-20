@@ -31,6 +31,10 @@ import {
   computeNvidiaOverallTimeoutMs,
   executeNvidiaRecovery,
 } from './NvidiaRecovery';
+import {
+  NVIDIA_PROVIDER_ID,
+  NVIDIA_SERVER_BUSY_MESSAGE,
+} from './ProviderIdentity';
 import { parseNvidiaSalvageObjects } from './NvidiaSalvage';
 import {
   elapsedSince,
@@ -180,7 +184,7 @@ export class NvidiaProviderError
   extends Error
   implements ProviderErrorContract
 {
-  public readonly providerId = 'nvidia';
+  public readonly providerId = NVIDIA_PROVIDER_ID;
   public readonly safeMessageCode: 'SERVER_BUSY' | undefined;
 
   constructor(
@@ -188,7 +192,11 @@ export class NvidiaProviderError
     safeMessageCode?: 'SERVER_BUSY',
     public readonly diagnostics?: NvidiaResponseDiagnostics
   ) {
-    super(SAFE_MESSAGES[safeCode]);
+    super(
+      safeMessageCode === 'SERVER_BUSY'
+        ? NVIDIA_SERVER_BUSY_MESSAGE
+        : SAFE_MESSAGES[safeCode]
+    );
     this.name = 'NvidiaProviderError';
     this.safeMessageCode = safeMessageCode;
   }
@@ -1689,7 +1697,13 @@ export class NvidiaProvider implements GenerationInterface {
         } else if (error instanceof NvidiaBatchCancellationError) {
           throw new NvidiaProviderError('PROVIDER_UNAVAILABLE');
         } else if (error instanceof NvidiaRecoveryExhaustedError) {
-          throw new NvidiaProviderError(error.safeCode);
+          throw new NvidiaProviderError(
+            error.safeCode,
+            error.safeMessageCode === 'SERVER_BUSY'
+              ? 'SERVER_BUSY'
+              : undefined,
+            error.diagnostics as NvidiaResponseDiagnostics | undefined
+          );
         } else {
           throw error;
         }

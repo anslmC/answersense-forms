@@ -22,6 +22,7 @@ import {
   measureNvidiaRequest,
   serializeNvidiaPayload,
 } from '../src/Generation/NvidiaRequest';
+import { NVIDIA_SERVER_BUSY_MESSAGE } from '../src/Generation/ProviderIdentity';
 import {
   NVIDIA_LIGHTNING_OVERALL_TIMEOUT_MS,
   NVIDIA_MODEL,
@@ -102,7 +103,9 @@ function requestFromBody(body: BodyInit | null | undefined): GenerationRequest {
   return JSON.parse(payload.messages[1].content) as GenerationRequest;
 }
 
-function successfulBatchFetch(options: { failQuestionId?: string } = {}) {
+function successfulBatchFetch(
+  options: { failQuestionId?: string; failStatus?: number } = {}
+) {
   return vi.fn(async (_url: unknown, init?: RequestInit) => {
     const batchRequest = requestFromBody(init?.body);
     if (
@@ -111,7 +114,9 @@ function successfulBatchFetch(options: { failQuestionId?: string } = {}) {
         (question) => question.questionId === options.failQuestionId
       )
     ) {
-      return new Response('provider failure', { status: 500 });
+      return new Response('provider failure', {
+        status: options.failStatus ?? 500,
+      });
     }
     return new Response(
       JSON.stringify(
@@ -582,6 +587,41 @@ describe('NVIDIA batch provider integration', () => {
     expect(
       questionResults.filter((result) => result.status === 'GENERATION_FAILED')
     ).toHaveLength(10);
+  });
+
+  it('preserves the server-busy message for failed 503 questions', async () => {
+    const request = makeRequest(25);
+    const fetchMock = successfulBatchFetch({
+      failQuestionId: 'q-11',
+      failStatus: 503,
+    });
+    const provider = new NvidiaProvider(
+      'synthetic-test-key',
+      NVIDIA_MODEL,
+      fetchMock
+    );
+
+    const response = await provider.generate(request);
+    const failedIds = new Set(
+      Array.from({ length: 10 }, (_, index) => `q-${index + 11}`)
+    );
+    const failedResults = response.results.filter(
+      (result) => result.status === 'GENERATION_FAILED'
+    );
+
+    expect(failedResults).toHaveLength(10);
+    for (const result of failedResults) {
+      expect(failedIds.has(result.questionId)).toBe(true);
+      expect(result).toMatchObject({
+        failure: {
+          code: 'PROVIDER_UNAVAILABLE',
+          message: NVIDIA_SERVER_BUSY_MESSAGE,
+        },
+      });
+    }
+    expect(
+      response.results.filter((result) => result.status === 'GENERATED')
+    ).toHaveLength(15);
   });
 
   it.each([

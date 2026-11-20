@@ -10,6 +10,7 @@ import {
   NVIDIA_MODEL,
 } from '../src/Generation/NvidiaProvider';
 import { NVIDIA_PROVIDER_ID } from '../src/Generation/ProviderRegistry';
+import { GEMINI_SERVER_BUSY_MESSAGE } from '../src/Generation/ProviderIdentity';
 import { extensionPath } from './utils/projectPaths';
 
 const configurationState = {
@@ -3504,8 +3505,10 @@ describe('live Overlay generation workflow', () => {
       if (message.type === 'p7-discover') return createSnapshot();
       if (message.type === 'p7-generate') {
         return {
-          error:
-            "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+          error: GEMINI_SERVER_BUSY_MESSAGE,
+          code: 'PROVIDER_UNAVAILABLE',
+          safeMessageCode: 'SERVER_BUSY',
+          providerId: 'gemini',
         };
       }
       return {};
@@ -3543,9 +3546,7 @@ describe('live Overlay generation workflow', () => {
     primary()?.click();
     await vi.waitFor(() => expect(message()?.hidden).toBe(false));
 
-    expect(message()?.textContent).toContain(
-      "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
-    );
+    expect(message()?.textContent).toContain(GEMINI_SERVER_BUSY_MESSAGE);
     const documentationLink = message()?.querySelector<HTMLAnchorElement>('a');
     expect(documentationLink?.textContent).toBe('503: Service Unavailable');
     expect(documentationLink?.href).toBe(

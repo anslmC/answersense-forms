@@ -1,19 +1,23 @@
-import type {
-  GenerationQuestion,
-  GenerationRequest,
-  GenerationResponse,
-  GenerationResult,
-  ProviderErrorCode,
+import {
+  isProviderSafeMessageCode,
+  type GenerationQuestion,
+  type GenerationRequest,
+  type GenerationResponse,
+  type GenerationResult,
+  type ProviderErrorCode,
+  type ProviderSafeMessageCode,
 } from './Contract';
 import {
   NVIDIA_BATCH_CONCURRENCY,
   NvidiaBatchCancellationError,
   NvidiaBatchDeadlineError,
   executeNvidiaBatches,
+  isNvidiaProviderErrorCode,
   nvidiaFailureDetails,
   type NvidiaBatchFailure,
   type NvidiaBatchOutcome,
 } from './NvidiaBatchExecution';
+import { NVIDIA_PROVIDER_ID } from './ProviderIdentity';
 import {
   DEFAULT_NVIDIA_BATCH_LIMITS,
   createNvidiaQuestionBatch,
@@ -234,10 +238,42 @@ export class NvidiaRecoveryDeadlineError extends Error {
   }
 }
 
-export class NvidiaRecoveryExhaustedError extends Error {
-  public readonly safeCode: ProviderErrorCode = 'PROVIDER_FAILURE';
+interface NvidiaRecoveryFailureMetadata {
+  safeCode: ProviderErrorCode;
+  safeMessageCode?: ProviderSafeMessageCode;
+  providerId?: string;
+  diagnostics?: unknown;
+}
 
-  constructor() {
+function recoveryFailureMetadata(
+  error: unknown
+): NvidiaRecoveryFailureMetadata {
+  if (typeof error !== 'object' || error === null) {
+    return { safeCode: 'PROVIDER_FAILURE' };
+  }
+  return {
+    safeCode:
+      'safeCode' in error && isNvidiaProviderErrorCode(error.safeCode)
+        ? error.safeCode
+        : 'PROVIDER_FAILURE',
+    ...('safeMessageCode' in error &&
+    isProviderSafeMessageCode(error.safeMessageCode)
+      ? { safeMessageCode: error.safeMessageCode }
+      : {}),
+    ...('providerId' in error && error.providerId === NVIDIA_PROVIDER_ID
+      ? { providerId: NVIDIA_PROVIDER_ID }
+      : {}),
+    ...('diagnostics' in error ? { diagnostics: error.diagnostics } : {}),
+  };
+}
+
+export class NvidiaRecoveryExhaustedError extends Error {
+  constructor(
+    public readonly safeCode: ProviderErrorCode = 'PROVIDER_FAILURE',
+    public readonly safeMessageCode?: ProviderSafeMessageCode,
+    public readonly providerId?: string,
+    public readonly diagnostics?: unknown
+  ) {
     super(
       'NVIDIA generation recovery failed without a usable provider result.'
     );
@@ -1196,7 +1232,13 @@ export async function executeNvidiaRecovery(
     results: request.questions.map((question) => {
       const result = results.get(question.questionId);
       if (!result) {
-        throw new NvidiaRecoveryExhaustedError();
+        const metadata = recoveryFailureMetadata(firstError);
+        throw new NvidiaRecoveryExhaustedError(
+          metadata.safeCode,
+          metadata.safeMessageCode,
+          metadata.providerId,
+          metadata.diagnostics
+        );
       }
       return result;
     }),

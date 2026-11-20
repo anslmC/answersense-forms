@@ -1,7 +1,14 @@
 import {
+  isProviderSafeMessageCode,
   PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
   type ProviderErrorCode,
+  type ProviderSafeMessageCode,
 } from '../Generation/Contract';
+import {
+  isRecognizedProviderId,
+  serverBusyMessageForProvider,
+  type RecognizedProviderId,
+} from '../Generation/ProviderIdentity';
 
 export type SafeProviderErrorCode = ProviderErrorCode;
 
@@ -33,6 +40,8 @@ export interface SafeProviderDiagnostics {
 export interface SafeProviderError {
   code: SafeProviderErrorCode;
   message: string;
+  safeMessageCode?: ProviderSafeMessageCode;
+  providerId?: RecognizedProviderId;
   diagnostics?: SafeProviderDiagnostics;
 }
 
@@ -250,21 +259,35 @@ function providerErrorFromContract(error: unknown): SafeProviderError | null {
     ) {
       return null;
     }
-    const safeMessageCode = error.safeMessageCode;
-    const providerId = error.providerId;
+    const safeMessageCode = isProviderSafeMessageCode(error.safeMessageCode)
+      ? error.safeMessageCode
+      : undefined;
+    const providerId = isRecognizedProviderId(error.providerId)
+      ? error.providerId
+      : undefined;
     const diagnostics = safeDiagnostics(error.diagnostics);
+    const serverBusyMessage =
+      safeCode === 'PROVIDER_UNAVAILABLE' && safeMessageCode === 'SERVER_BUSY'
+        ? serverBusyMessageForProvider(providerId)
+        : null;
+    const serverBusyIdentity =
+      serverBusyMessage && providerId
+        ? {
+            safeMessageCode: 'SERVER_BUSY' as const,
+            providerId,
+          }
+        : {};
     return {
       code: safeCode as ProviderErrorCode,
       message:
         safeCode === 'PERMISSION_DENIED' && providerId === 'nvidia'
           ? NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE
-          : safeCode === 'PROVIDER_UNAVAILABLE' &&
-              safeMessageCode === 'SERVER_BUSY'
-            ? "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
-            : safeCode === 'INVALID_REQUEST' &&
-                safeMessageCode === 'CONTEXT_OVERFLOW'
+          : (serverBusyMessage ??
+            (safeCode === 'INVALID_REQUEST' &&
+            safeMessageCode === 'CONTEXT_OVERFLOW'
               ? PROVIDER_CONTEXT_OVERFLOW_MESSAGE
-              : SAFE_MESSAGES[safeCode as ProviderErrorCode],
+              : SAFE_MESSAGES[safeCode as ProviderErrorCode])),
+      ...serverBusyIdentity,
       ...(diagnostics ? { diagnostics } : {}),
     };
   } catch {

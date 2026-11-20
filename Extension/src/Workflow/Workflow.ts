@@ -5,6 +5,8 @@ import type {
 } from './State';
 import { isGenerationProgress, isUiGenerationResult } from './State';
 import type { GenerationIntent } from '../Generation/Intent';
+import { isProviderSafeMessageCode } from '../Generation/Contract';
+import { isRecognizedProviderId } from '../Generation/ProviderIdentity';
 import {
   attachPerformanceToError,
   readPerformanceReport,
@@ -59,6 +61,12 @@ export function createBrowserWorkflow(): Workflow {
             : null,
           result: snapshot.result ?? null,
           error: snapshot.error ?? null,
+          ...(isProviderSafeMessageCode(snapshot.safeMessageCode)
+            ? { safeMessageCode: snapshot.safeMessageCode }
+            : {}),
+          ...(isRecognizedProviderId(snapshot.providerId)
+            ? { providerId: snapshot.providerId }
+            : {}),
           lifecycle: snapshot.lifecycle ?? null,
           ...(snapshot.performance
             ? { performance: snapshot.performance }
@@ -82,10 +90,19 @@ export function createBrowserWorkflow(): Workflow {
         ...(intent ? { intent } : {}),
       });
       if (response?.error) {
-        throw attachPerformanceToError(
+        const error = attachPerformanceToError(
           new Error(response.error),
           readPerformanceReport(response)
         );
+        Object.assign(error, {
+          ...(isProviderSafeMessageCode(response.safeMessageCode)
+            ? { safeMessageCode: response.safeMessageCode }
+            : {}),
+          ...(isRecognizedProviderId(response.providerId)
+            ? { providerId: response.providerId }
+            : {}),
+        });
+        throw error;
       }
       if (!isUiGenerationResult(response)) {
         throw new Error('Generation returned an invalid result.');

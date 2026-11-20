@@ -2,7 +2,30 @@ import type { UiState, WorkflowSnapshot } from './State';
 import { WorkflowStateMachine } from './State';
 import type { Workflow } from './Workflow';
 import type { GenerationIntent } from '../Generation/Intent';
+import { isProviderSafeMessageCode } from '../Generation/Contract';
+import { isRecognizedProviderId } from '../Generation/ProviderIdentity';
 import { readPerformanceReport } from '../Shared/Performance';
+
+function failureMetadata(error: unknown): {
+  safeMessageCode?: 'SERVER_BUSY' | 'CONTEXT_OVERFLOW';
+  providerId?: 'gemini' | 'nvidia';
+} {
+  if (typeof error !== 'object' || error === null) {
+    return {};
+  }
+  const candidate = error as {
+    safeMessageCode?: unknown;
+    providerId?: unknown;
+  };
+  return {
+    ...(isProviderSafeMessageCode(candidate.safeMessageCode)
+      ? { safeMessageCode: candidate.safeMessageCode }
+      : {}),
+    ...(isRecognizedProviderId(candidate.providerId)
+      ? { providerId: candidate.providerId }
+      : {}),
+  };
+}
 
 export class WorkflowController {
   readonly stateMachine = new WorkflowStateMachine();
@@ -45,7 +68,11 @@ export class WorkflowController {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not generate answers.';
-      const state = this.stateMachine.failGeneration(token, message);
+      const state = this.stateMachine.failGeneration(
+        token,
+        message,
+        failureMetadata(error)
+      );
       const performance = readPerformanceReport(error);
       return performance && state.name === 'ERROR'
         ? { ...state, performance }

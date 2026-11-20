@@ -8,7 +8,11 @@ import {
   readPerformanceReport,
   type GenerationPerformanceReport,
 } from '../Shared/Performance';
-import { PROVIDER_CONTEXT_OVERFLOW_MESSAGE } from '../Generation/Contract';
+import {
+  PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
+  type ProviderSafeMessageCode,
+} from '../Generation/Contract';
+import type { RecognizedProviderId } from '../Generation/ProviderIdentity';
 
 export class SafeServiceWorkerError extends Error {
   constructor(
@@ -24,7 +28,9 @@ export class SafeServiceWorkerError extends Error {
       | 'UNAUTHORIZED_SENDER',
     message: string,
     public readonly diagnostics?: SafeProviderDiagnostics,
-    public readonly performance?: GenerationPerformanceReport
+    public readonly performance?: GenerationPerformanceReport,
+    public readonly providerId?: RecognizedProviderId,
+    public readonly safeMessageCode?: ProviderSafeMessageCode
   ) {
     super(message);
     this.name = 'SafeServiceWorkerError';
@@ -34,6 +40,8 @@ export class SafeServiceWorkerError extends Error {
 export interface ServiceWorkerErrorResponse {
   error: string;
   code: SafeServiceWorkerError['code'];
+  safeMessageCode?: ProviderSafeMessageCode;
+  providerId?: RecognizedProviderId;
   diagnostics?: SafeProviderDiagnostics;
   performance?: GenerationPerformanceReport;
 }
@@ -144,12 +152,19 @@ const GENERIC_PROVIDER_FAILURE: ServiceWorkerErrorResponse = {
 };
 
 function providerResponse(
-  safe: { message: string; code: ServiceWorkerErrorResponse['code'] },
+  safe: {
+    message: string;
+    code: ServiceWorkerErrorResponse['code'];
+    safeMessageCode?: ProviderSafeMessageCode;
+    providerId?: RecognizedProviderId;
+  },
   diagnostics?: SafeProviderDiagnostics
 ): ServiceWorkerErrorResponse {
   return {
     error: safe.message,
     code: safe.code,
+    ...(safe.safeMessageCode ? { safeMessageCode: safe.safeMessageCode } : {}),
+    ...(safe.providerId ? { providerId: safe.providerId } : {}),
     ...(diagnostics ? { diagnostics } : {}),
   };
 }
@@ -157,26 +172,19 @@ function providerResponse(
 function safeServiceWorkerErrorResponseBody(
   error: SafeServiceWorkerError
 ): ServiceWorkerErrorResponse {
-  const { code, message, diagnostics } = error;
+  const { code, message, diagnostics, providerId, safeMessageCode } = error;
   const providerError = sanitizeProviderError({
     safeCode: code,
+    safeMessageCode,
+    providerId,
     diagnostics,
   });
-  if (providerError.code === code && providerError.message === message) {
-    return providerResponse(providerError, providerError.diagnostics);
-  }
-
   if (
-    code === 'PROVIDER_UNAVAILABLE' &&
-    message ===
-      "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+    providerError.code === code &&
+    (providerError.message === message ||
+      providerError.safeMessageCode === 'SERVER_BUSY')
   ) {
-    const unavailableError = sanitizeProviderError({
-      safeCode: code,
-      safeMessageCode: 'SERVER_BUSY',
-      diagnostics,
-    });
-    return providerResponse(unavailableError, unavailableError.diagnostics);
+    return providerResponse(providerError, providerError.diagnostics);
   }
 
   if (

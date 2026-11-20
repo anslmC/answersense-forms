@@ -1,8 +1,14 @@
-import type {
-  GenerationRequest,
-  GenerationResponse,
-  ProviderErrorCode,
+import {
+  isProviderSafeMessageCode,
+  type GenerationRequest,
+  type GenerationResponse,
+  type ProviderErrorCode,
+  type ProviderSafeMessageCode,
 } from './Contract';
+import {
+  NVIDIA_PROVIDER_ID,
+  NVIDIA_SERVER_BUSY_MESSAGE,
+} from './ProviderIdentity';
 import {
   createNvidiaBatchRequest,
   type NvidiaQuestionBatch,
@@ -30,6 +36,8 @@ export interface NvidiaBatchFailureMetadata {
   readonly batchIndex: number;
   readonly questionIds: readonly string[];
   readonly safeCode: ProviderErrorCode;
+  readonly safeMessageCode?: ProviderSafeMessageCode;
+  readonly providerId?: string;
   readonly category: NvidiaBatchFailureCategory;
   readonly retryable: boolean;
   readonly message: string;
@@ -193,6 +201,24 @@ function safeFailureMetadata(
       ? error.safeCode
       : 'PROVIDER_FAILURE';
   const details = nvidiaFailureDetails(safeCode);
+  const safeMessageCode =
+    typeof error === 'object' &&
+    error !== null &&
+    'safeMessageCode' in error &&
+    isProviderSafeMessageCode(error.safeMessageCode)
+      ? error.safeMessageCode
+      : undefined;
+  const providerId =
+    typeof error === 'object' &&
+    error !== null &&
+    'providerId' in error &&
+    error.providerId === NVIDIA_PROVIDER_ID
+      ? NVIDIA_PROVIDER_ID
+      : undefined;
+  const serverBusy =
+    safeCode === 'PROVIDER_UNAVAILABLE' &&
+    safeMessageCode === 'SERVER_BUSY' &&
+    providerId === NVIDIA_PROVIDER_ID;
   const diagnostics =
     typeof error === 'object' &&
     error !== null &&
@@ -216,9 +242,12 @@ function safeFailureMetadata(
     batchIndex: batch.index,
     questionIds: batch.questions.map((question) => question.questionId),
     safeCode,
+    ...(serverBusy
+      ? { safeMessageCode: 'SERVER_BUSY' as const, providerId }
+      : {}),
     category: details.category,
     retryable: details.retryable,
-    message: details.message,
+    message: serverBusy ? NVIDIA_SERVER_BUSY_MESSAGE : details.message,
     ...(httpStatus !== null ? { httpStatus } : {}),
     ...(retryAfterMs !== null ? { retryAfterMs } : {}),
   };

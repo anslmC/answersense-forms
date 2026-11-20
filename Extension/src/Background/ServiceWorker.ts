@@ -22,10 +22,12 @@ import {
   resolveProviderModel,
 } from '../Generation/ProviderRegistry';
 import { configurationIdentity } from '../Generation/Credentials';
-import type {
-  GenerationRequest,
-  ProviderProgressObserver,
+import {
+  isProviderSafeMessageCode,
+  type GenerationRequest,
+  type ProviderProgressObserver,
 } from '../Generation/Contract';
+import { isRecognizedProviderId } from '../Generation/ProviderIdentity';
 import type { GenerationIntent } from '../Generation/Intent';
 import {
   isGenerationProgressUpdate,
@@ -112,6 +114,8 @@ function providerBoundaryError(error: unknown): unknown {
   const candidate = error as {
     code?: unknown;
     message?: unknown;
+    safeMessageCode?: unknown;
+    providerId?: unknown;
     diagnostics?: unknown;
     performance?: unknown;
   };
@@ -126,7 +130,13 @@ function providerBoundaryError(error: unknown): unknown {
     candidate.code,
     message,
     candidate.diagnostics as SafeProviderDiagnostics | undefined,
-    readPerformanceReport(candidate) ?? undefined
+    readPerformanceReport(candidate) ?? undefined,
+    isRecognizedProviderId(candidate.providerId)
+      ? candidate.providerId
+      : undefined,
+    isProviderSafeMessageCode(candidate.safeMessageCode)
+      ? candidate.safeMessageCode
+      : undefined
   );
 }
 
@@ -378,7 +388,14 @@ async function validateActiveConfiguration(
     } else {
       await invalidateValidation(resolved.configurationDigest);
     }
-    throw new SafeServiceWorkerError(safe.code, safe.message, safe.diagnostics);
+    throw new SafeServiceWorkerError(
+      safe.code,
+      safe.message,
+      safe.diagnostics,
+      undefined,
+      safe.providerId,
+      safe.safeMessageCode
+    );
   }
   const current = await resolveActiveProviderConfiguration();
   if (current.configurationDigest !== resolved.configurationDigest) {
@@ -569,7 +586,9 @@ export async function handleMessage(
         safe.code,
         safe.message,
         safe.diagnostics,
-        report
+        report,
+        safe.providerId,
+        safe.safeMessageCode
       );
     } finally {
       if (
@@ -1010,6 +1029,8 @@ export async function handleMessage(
           uiState: 'REVIEW',
           result: withoutPerformance(resultForStore),
           error: null,
+          safeMessageCode: undefined,
+          providerId: undefined,
           generationOperationId: null,
           generationProgress: null,
         }
@@ -1028,6 +1049,13 @@ export async function handleMessage(
           uiState: 'ERROR',
           error:
             failure instanceof Error ? failure.message : 'Generation failed.',
+          ...(failure instanceof SafeServiceWorkerError &&
+          failure.safeMessageCode
+            ? { safeMessageCode: failure.safeMessageCode }
+            : {}),
+          ...(failure instanceof SafeServiceWorkerError && failure.providerId
+            ? { providerId: failure.providerId }
+            : {}),
           result: null,
           generationOperationId: null,
         }

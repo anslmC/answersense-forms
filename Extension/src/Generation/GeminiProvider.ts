@@ -8,6 +8,10 @@ import {
   type ProviderProgressObserver,
   type ProviderSafeMessageCode,
 } from './Contract';
+import {
+  GEMINI_PROVIDER_ID,
+  GEMINI_SERVER_BUSY_MESSAGE,
+} from './ProviderIdentity';
 import { systemInstruction } from './SystemInstructions';
 import { buildAnswerPartsInstructions } from './AnswerParts';
 import {
@@ -56,8 +60,7 @@ export type ProviderFailureCode =
   | 'PROVIDER_ERROR'
   | 'CANCELLED';
 
-const SERVER_BUSY_MESSAGE =
-  "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
+const SERVER_BUSY_MESSAGE = GEMINI_SERVER_BUSY_MESSAGE;
 
 const SHARED_CONTEXT_OVERFLOW_MESSAGE =
   'The provider rejected the request because the shared context exceeds the model input limit.';
@@ -125,6 +128,7 @@ export class GeminiProviderError
 {
   public readonly safeCode: ProviderErrorCode;
   public readonly safeMessageCode: ProviderSafeMessageCode | undefined;
+  public readonly providerId = GEMINI_PROVIDER_ID;
 
   constructor(
     public readonly code: ProviderFailureCode,

@@ -1621,8 +1621,6 @@ export function mountAnswerSenseApp(
       progressText.textContent = 'Failed';
       const modelAccessErrorMessage =
         'This key or project doesn’t have access to the selected model. Check your API key and project permissions.';
-      const serviceUnavailable503Message =
-        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.";
       status.textContent = 'Failed';
       detail.textContent = state.page ? `Page ${state.page.pageId}` : '';
       if (state.message === modelAccessErrorMessage) {
@@ -1637,7 +1635,7 @@ export function mountAnswerSenseApp(
             ' Check your API key and project permissions. '
           )
         );
-      } else if (state.message === serviceUnavailable503Message) {
+      } else if (state.safeMessageCode === 'SERVER_BUSY' && state.providerId) {
         const documentationLink = document.createElement('a');
         documentationLink.href =
           'https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/503';
@@ -1645,11 +1643,8 @@ export function mountAnswerSenseApp(
         documentationLink.rel = 'noopener noreferrer';
         documentationLink.textContent = '503: Service Unavailable';
         message.replaceChildren(
-          document.createTextNode(
-            "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error "
-          ),
-          documentationLink,
-          document.createTextNode('. ')
+          document.createTextNode(`${state.message} `),
+          documentationLink
         );
       } else {
         message.textContent = state.message;

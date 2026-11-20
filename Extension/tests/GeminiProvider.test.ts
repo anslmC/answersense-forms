@@ -472,7 +472,7 @@ describe('direct Gemini provider', () => {
         code,
         message:
           status === 503
-            ? "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+            ? 'Gemini servers are busy. Please try again later.'
             : expect.not.stringContaining('test-key'),
       } satisfies Partial<GeminiProviderError>);
     }

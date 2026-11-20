@@ -2,6 +2,14 @@ import type { GenerationReport } from '../Generation/Report';
 import type { FillReport } from '../Fill/Filler';
 import type { GenerationProgress } from '../Generation/Progress';
 import { isGenerationProgress } from '../Generation/Progress';
+import {
+  isProviderSafeMessageCode,
+  type ProviderSafeMessageCode,
+} from '../Generation/Contract';
+import {
+  isRecognizedProviderId,
+  type RecognizedProviderId,
+} from '../Generation/ProviderIdentity';
 import type { GenerationPerformanceReport } from '../Shared/Performance';
 import {
   createOverrideFilledIntent,
@@ -173,6 +181,8 @@ export interface WorkflowSnapshot {
   page: PageSummary | null;
   result: UiGenerationResult | null;
   error: string | null;
+  safeMessageCode?: ProviderSafeMessageCode;
+  providerId?: RecognizedProviderId;
   lifecycle?: {
     activePage?: {
       form?: {
@@ -219,6 +229,8 @@ export type UiState =
       name: 'ERROR';
       page: PageSummary | null;
       message: string;
+      safeMessageCode?: ProviderSafeMessageCode;
+      providerId?: RecognizedProviderId;
       performance?: GenerationPerformanceReport;
       generationProgress?: GenerationProgress;
     };
@@ -312,10 +324,20 @@ export class WorkflowStateMachine {
       )
         ? snapshot.generationProgress
         : undefined;
+      const safeMessageCode = isProviderSafeMessageCode(
+        snapshot.safeMessageCode
+      )
+        ? snapshot.safeMessageCode
+        : undefined;
+      const providerId = isRecognizedProviderId(snapshot.providerId)
+        ? snapshot.providerId
+        : undefined;
       this.current = {
         name: 'ERROR',
         page,
         message: snapshot.error ?? 'Generation failed.',
+        ...(safeMessageCode ? { safeMessageCode } : {}),
+        ...(providerId ? { providerId } : {}),
         ...(generationProgress ? { generationProgress } : {}),
       };
     } else if (
@@ -405,7 +427,14 @@ export class WorkflowStateMachine {
     return this.current;
   }
 
-  failGeneration(token: number, message: string): UiState {
+  failGeneration(
+    token: number,
+    message: string,
+    metadata?: {
+      safeMessageCode?: ProviderSafeMessageCode;
+      providerId?: RecognizedProviderId;
+    }
+  ): UiState {
     if (token !== this.operationToken || this.current.name !== 'GENERATING') {
       return this.current;
     }
@@ -413,6 +442,10 @@ export class WorkflowStateMachine {
       name: 'ERROR',
       page: this.current.page,
       message,
+      ...(metadata?.safeMessageCode
+        ? { safeMessageCode: metadata.safeMessageCode }
+        : {}),
+      ...(metadata?.providerId ? { providerId: metadata.providerId } : {}),
       ...(this.current.generationProgress
         ? { generationProgress: this.current.generationProgress }
         : {}),

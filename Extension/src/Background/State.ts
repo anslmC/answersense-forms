@@ -6,6 +6,14 @@ import type {
   UiStateName,
 } from '../Workflow/State';
 import { isGenerationProgress } from '../Workflow/State';
+import {
+  isProviderSafeMessageCode,
+  type ProviderSafeMessageCode,
+} from '../Generation/Contract';
+import {
+  isRecognizedProviderId,
+  type RecognizedProviderId,
+} from '../Generation/ProviderIdentity';
 
 export interface IntegrationSnapshot {
   lifecycle: LifecycleSnapshot | null;
@@ -13,6 +21,8 @@ export interface IntegrationSnapshot {
   page: PageSummary | null;
   result: UiGenerationResult | null;
   error: string | null;
+  safeMessageCode?: ProviderSafeMessageCode;
+  providerId?: RecognizedProviderId;
   generationOperationId?: string | null;
   generationProgress?: GenerationProgress | null;
 }
@@ -103,6 +113,10 @@ function isIntegrationSnapshot(value: unknown): value is IntegrationSnapshot {
         page.questionCount >= 0)) &&
     (value.result === null || isRecord(value.result)) &&
     (value.error === null || typeof value.error === 'string') &&
+    (value.safeMessageCode === undefined ||
+      isProviderSafeMessageCode(value.safeMessageCode)) &&
+    (value.providerId === undefined ||
+      isRecognizedProviderId(value.providerId)) &&
     (value.generationOperationId === undefined ||
       value.generationOperationId === null ||
       typeof value.generationOperationId === 'string') &&
@@ -298,6 +312,8 @@ export class IntegrationStateStore {
       }),
       uiState: 'GENERATING',
       error: null,
+      safeMessageCode: undefined,
+      providerId: undefined,
       generationOperationId,
       generationProgress: null,
     });

@@ -1,4 +1,5 @@
 import type { GenerationInterface } from './Contract';
+import { GEMINI_PROVIDER_ID, NVIDIA_PROVIDER_ID } from './ProviderIdentity';
 import {
   GeminiProvider,
   GEMINI_MODEL,
@@ -11,10 +12,9 @@ import {
   validateNvidiaCredential,
 } from './NvidiaProvider';
 
-export const GEMINI_PROVIDER_ID = 'gemini';
+export { GEMINI_PROVIDER_ID, NVIDIA_PROVIDER_ID } from './ProviderIdentity';
 export const GEMINI_ADAPTER_ID = 'gemini';
 export const GEMINI_ENDPOINT_HOST = 'generativelanguage.googleapis.com';
-export const NVIDIA_PROVIDER_ID = 'nvidia';
 export const NVIDIA_ADAPTER_ID = 'nvidia';
 export const NVIDIA_ENDPOINT_HOST = 'integrate.api.nvidia.com';
 

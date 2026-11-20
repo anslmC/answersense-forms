@@ -13,6 +13,7 @@ import {
   validateNvidiaCredential,
 } from '../src/Generation/NvidiaProvider';
 import type { GenerationRequest } from '../src/Generation/Contract';
+import { NVIDIA_SERVER_BUSY_MESSAGE } from '../src/Generation/ProviderIdentity';
 import { systemInstruction } from '../src/Generation/SystemInstructions';
 import type { Form } from '../src/Models/Logical';
 import { validateGenerationResponse } from '../src/Generation/Validation';
@@ -419,7 +420,10 @@ describe('NVIDIA Nemotron provider', () => {
       expect(thrown).toBeInstanceOf(NvidiaProviderError);
       expect(thrown).toMatchObject({ safeCode });
       if (status === 503) {
-        expect(thrown).toMatchObject({ safeMessageCode: 'SERVER_BUSY' });
+        expect(thrown).toMatchObject({
+          safeMessageCode: 'SERVER_BUSY',
+          message: NVIDIA_SERVER_BUSY_MESSAGE,
+        });
       }
       expect((thrown as Error).message).not.toContain('private');
       expect((thrown as Error).message).not.toContain('synthetic-test-key');

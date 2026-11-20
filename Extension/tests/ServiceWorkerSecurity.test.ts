@@ -9,6 +9,10 @@ import {
   PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
   type GenerationRequest,
 } from '../src/Generation/Contract';
+import {
+  GEMINI_SERVER_BUSY_MESSAGE,
+  NVIDIA_SERVER_BUSY_MESSAGE,
+} from '../src/Generation/ProviderIdentity';
 import { sanitizeProviderError } from '../src/Background/ProviderErrorSanitizer';
 import {
   SafeServiceWorkerError,
@@ -115,22 +119,20 @@ describe('Service Worker provider error sanitization', () => {
     });
   });
 
-  it('preserves the sanitized 503 message for the final UI', () => {
+  it('preserves the Gemini 503 identity for the final UI', () => {
     const safe = sanitizeProviderError(
-      new GeminiProviderError(
-        'PROVIDER_UNAVAILABLE',
-        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
-      )
+      new GeminiProviderError('PROVIDER_UNAVAILABLE', GEMINI_SERVER_BUSY_MESSAGE)
     );
 
     expect(safe).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
-      message:
-        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+      message: GEMINI_SERVER_BUSY_MESSAGE,
+      safeMessageCode: 'SERVER_BUSY',
+      providerId: 'gemini',
     });
   });
 
-  it('sanitizes NVIDIA HTTP 503 with the shared user-facing message', () => {
+  it('sanitizes NVIDIA HTTP 503 with the provider-specific message', () => {
     const safe = sanitizeProviderError({
       safeCode: 'PROVIDER_UNAVAILABLE',
       safeMessageCode: 'SERVER_BUSY',
@@ -139,8 +141,9 @@ describe('Service Worker provider error sanitization', () => {
 
     expect(safe).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
-      message:
-        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+      message: NVIDIA_SERVER_BUSY_MESSAGE,
+      safeMessageCode: 'SERVER_BUSY',
+      providerId: 'nvidia',
     });
   });
 
@@ -399,13 +402,18 @@ describe('Service Worker provider error sanitization', () => {
       serviceWorkerErrorResponse(
         new SafeServiceWorkerError(
           'PROVIDER_UNAVAILABLE',
-          "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
+          GEMINI_SERVER_BUSY_MESSAGE,
+          undefined,
+          undefined,
+          'gemini',
+          'SERVER_BUSY'
         )
       )
     ).toEqual({
       code: 'PROVIDER_UNAVAILABLE',
-      error:
-        "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable.",
+      error: GEMINI_SERVER_BUSY_MESSAGE,
+      safeMessageCode: 'SERVER_BUSY',
+      providerId: 'gemini',
     });
   });
 

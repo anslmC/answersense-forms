@@ -8,6 +8,7 @@ import {
   SafeServiceWorkerError,
   serviceWorkerErrorResponse,
 } from '../src/Background/ServiceWorkerResponse';
+import { GEMINI_SERVER_BUSY_MESSAGE } from '../src/Generation/ProviderIdentity';
 
 const lightningDiagnostics: SafeProviderDiagnostics = {
   diagnostic: 'HTTP_STATUS',
@@ -44,6 +45,26 @@ describe('Generation failure propagation', () => {
       error: 'Provider request timed out.',
       code: 'TIMEOUT',
       diagnostics: lightningDiagnostics,
+    });
+  });
+
+  it('preserves provider-specific server-busy identity across the service-worker boundary', () => {
+    expect(
+      serviceWorkerErrorResponse(
+        new SafeServiceWorkerError(
+          'PROVIDER_UNAVAILABLE',
+          GEMINI_SERVER_BUSY_MESSAGE,
+          undefined,
+          undefined,
+          'gemini',
+          'SERVER_BUSY'
+        )
+      )
+    ).toEqual({
+      error: GEMINI_SERVER_BUSY_MESSAGE,
+      code: 'PROVIDER_UNAVAILABLE',
+      safeMessageCode: 'SERVER_BUSY',
+      providerId: 'gemini',
     });
   });
 
