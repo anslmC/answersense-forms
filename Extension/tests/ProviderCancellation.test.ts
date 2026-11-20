@@ -61,7 +61,10 @@ describe('provider generation cancellation', () => {
 
     controller.abort();
 
-    await expect(generation).rejects.toMatchObject({ safeCode: 'TIMEOUT' });
+    await expect(generation).rejects.toMatchObject({
+      code: 'CANCELLED',
+      safeCode: 'PROVIDER_UNAVAILABLE',
+    });
     expect(signals[0]?.aborted).toBe(true);
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
@@ -90,8 +93,11 @@ describe('provider generation cancellation', () => {
 
     await expect(
       new GeminiProvider('test-key').generate(request, controller.signal)
-    ).rejects.toMatchObject({ safeCode: 'TIMEOUT' });
-    expect(fetchImpl).toHaveBeenCalledOnce();
-    expect(signals[0]?.aborted).toBe(true);
+    ).rejects.toMatchObject({
+      code: 'CANCELLED',
+      safeCode: 'PROVIDER_UNAVAILABLE',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(signals).toHaveLength(0);
   });
 });

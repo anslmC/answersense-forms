@@ -1,4 +1,7 @@
-import type { ProviderErrorCode } from '../Generation/Contract';
+import {
+  PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
+  type ProviderErrorCode,
+} from '../Generation/Contract';
 
 export type SafeProviderErrorCode = ProviderErrorCode;
 
@@ -258,7 +261,10 @@ function providerErrorFromContract(error: unknown): SafeProviderError | null {
           : safeCode === 'PROVIDER_UNAVAILABLE' &&
               safeMessageCode === 'SERVER_BUSY'
             ? "The AI provider's server is temporarily unavailable or overloaded. This can happen during periods of high demand. Try switching providers or try again later. Error 503: Service Unavailable."
-            : SAFE_MESSAGES[safeCode as ProviderErrorCode],
+            : safeCode === 'INVALID_REQUEST' &&
+                safeMessageCode === 'CONTEXT_OVERFLOW'
+              ? PROVIDER_CONTEXT_OVERFLOW_MESSAGE
+              : SAFE_MESSAGES[safeCode as ProviderErrorCode],
       ...(diagnostics ? { diagnostics } : {}),
     };
   } catch {

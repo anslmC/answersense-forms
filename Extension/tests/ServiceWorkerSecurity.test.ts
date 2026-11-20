@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { GeminiProviderError } from '../src/Generation/GeminiProvider';
+import {
+  GEMINI_MODEL,
+  GeminiProvider,
+  GeminiProviderError,
+} from '../src/Generation/GeminiProvider';
 import { NvidiaProviderError } from '../src/Generation/NvidiaProvider';
+import {
+  PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
+  type GenerationRequest,
+} from '../src/Generation/Contract';
 import { sanitizeProviderError } from '../src/Background/ProviderErrorSanitizer';
 import {
   SafeServiceWorkerError,
@@ -39,6 +47,72 @@ describe('Service Worker provider error sanitization', () => {
         'This key or project doesn’t have access to the selected model. Check your API key and project permissions.',
     });
     expect(JSON.stringify(safe)).not.toContain('raw body');
+  });
+
+  it('preserves the approved context-overflow diagnostic through sanitization', async () => {
+    const request: GenerationRequest = {
+      cycleId: 'cycle-overflow',
+      pageId: 'page-overflow',
+      questions: [
+        {
+          questionId: 'q-1',
+          text: 'Question',
+          type: 'short-text',
+          required: false,
+          options: [],
+        },
+      ],
+      settledContext: [
+        {
+          questionId: 'ctx-1',
+          questionText: 'Shared context',
+          answer: 'Context answer',
+        },
+      ],
+    };
+    const provider = new GeminiProvider(
+      'test-key',
+      {
+        async generate() {
+          return {
+            status: 413,
+            body: {
+              error: {
+                message: 'sensitive raw provider detail',
+              },
+            },
+          };
+        },
+      },
+      GEMINI_MODEL,
+      {
+        maxExecutions: 1,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+        random: () => 0,
+        requestTimeoutMs: 1_000,
+      }
+    );
+    const error = await provider
+      .generate(request)
+      .catch((failure: unknown) => failure);
+    const safe = sanitizeProviderError(error);
+
+    expect(safe).toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
+    });
+    expect(safe.diagnostics?.httpStatus).toBe(413);
+    expect(JSON.stringify(safe)).not.toContain('sensitive raw provider detail');
+
+    expect(
+      serviceWorkerErrorResponse(
+        new SafeServiceWorkerError(safe.code, safe.message)
+      )
+    ).toEqual({
+      code: 'INVALID_REQUEST',
+      error: PROVIDER_CONTEXT_OVERFLOW_MESSAGE,
+    });
   });
 
   it('preserves the sanitized 503 message for the final UI', () => {

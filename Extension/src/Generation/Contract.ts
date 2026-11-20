@@ -13,9 +13,14 @@ export type ProviderErrorCode =
   | 'NETWORK_FAILURE'
   | 'PROVIDER_FAILURE';
 
+export type ProviderSafeMessageCode = 'SERVER_BUSY' | 'CONTEXT_OVERFLOW';
+
+export const PROVIDER_CONTEXT_OVERFLOW_MESSAGE =
+  'The provider rejected the request because the shared context or individual question content exceeds the model input limit.';
+
 export interface ProviderErrorContract {
   readonly safeCode: ProviderErrorCode;
-  readonly safeMessageCode?: 'SERVER_BUSY';
+  readonly safeMessageCode?: ProviderSafeMessageCode;
 }
 
 export interface GenerationQuestion {

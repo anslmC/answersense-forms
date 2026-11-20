@@ -8,6 +8,7 @@ import {
   readPerformanceReport,
   type GenerationPerformanceReport,
 } from '../Shared/Performance';
+import { PROVIDER_CONTEXT_OVERFLOW_MESSAGE } from '../Generation/Contract';
 
 export class SafeServiceWorkerError extends Error {
   constructor(
@@ -181,6 +182,13 @@ function safeServiceWorkerErrorResponseBody(
   if (
     code === 'PERMISSION_DENIED' &&
     message === NVIDIA_PROVIDER_ACCESS_DENIED_MESSAGE
+  ) {
+    return { error: message, code, ...(diagnostics ? { diagnostics } : {}) };
+  }
+
+  if (
+    code === 'INVALID_REQUEST' &&
+    message === PROVIDER_CONTEXT_OVERFLOW_MESSAGE
   ) {
     return { error: message, code, ...(diagnostics ? { diagnostics } : {}) };
   }

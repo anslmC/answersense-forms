@@ -6,6 +6,7 @@ import {
   GEMINI_MODEL_INFO_URL,
   GeminiProvider,
   GeminiProviderError,
+  readResponseBody,
   responseJsonSchema,
   validateGeminiCredential,
   type GeminiTransport,
@@ -398,26 +399,35 @@ describe('direct Gemini provider', () => {
     );
   });
 
-  it('rejects missing or mismatched cycleId and non-exhaustive provider results', async () => {
-    for (const output of [
-      { results: [] },
-      { cycleId: 'wrong-cycle', results: [] },
-      { cycleId: request.cycleId, results: [] },
-    ]) {
+  it('rejects missing or mismatched cycleId and non-exhaustive provider results after bounded recovery', async () => {
+    for (const [output, expectedCalls] of [
+      [{ results: [] }, 3],
+      [{ cycleId: 'wrong-cycle', results: [] }, 1],
+      [{ cycleId: request.cycleId, results: [] }, 3],
+    ] as const) {
+      const generate = vi.fn(async () => ({
+        status: 200,
+        body: {
+          candidates: [
+            {
+              content: {
+                parts: [{ text: JSON.stringify(output) }],
+              },
+            },
+          ],
+        },
+      }));
       const provider = new GeminiProvider(
         'test-key',
-        transport(200, JSON.stringify(output))
+        { generate },
+        GEMINI_MODEL,
+        { baseBackoffMs: 0, maxBackoffMs: 0, random: () => 0 }
       );
-      const response = await provider.generate(request);
-      expect(
-        response.results.every(
-          (result) => result.status === 'GENERATION_FAILED'
-        )
-      ).toBe(true);
-      expect(response.results[0]).toMatchObject({
-        status: 'GENERATION_FAILED',
-        failure: { code: 'INVALID_PROVIDER_OUTPUT' },
+      await expect(provider.generate(request)).rejects.toMatchObject({
+        code: 'MALFORMED_PROVIDER_OUTPUT',
+        safeCode: 'MALFORMED_PROVIDER_RESPONSE',
       });
+      expect(generate).toHaveBeenCalledTimes(expectedCalls);
     }
   });
 
@@ -452,7 +462,12 @@ describe('direct Gemini provider', () => {
       [429, 'RATE_LIMITED'],
       [503, 'PROVIDER_UNAVAILABLE'],
     ] as const) {
-      const provider = new GeminiProvider('test-key', transport(status));
+      const provider = new GeminiProvider(
+        'test-key',
+        transport(status),
+        GEMINI_MODEL,
+        { baseBackoffMs: 0, maxBackoffMs: 0, random: () => 0 }
+      );
       await expect(provider.generate(request)).rejects.toMatchObject({
         code,
         message:
@@ -481,7 +496,7 @@ describe('direct Gemini provider', () => {
       await expect(
         new GeminiProvider('test-key').generate(request)
       ).rejects.toMatchObject({
-        code: 'PROVIDER_UNAVAILABLE',
+        code: 'TIMEOUT',
         safeCode: 'TIMEOUT',
       });
     } finally {
@@ -501,10 +516,17 @@ describe('direct Gemini provider', () => {
     });
   });
 
-  it('materializes malformed and key-echoing output as safe generation failures', async () => {
-    const malformed = new GeminiProvider('test-key', transport(200, '{bad'));
-    await expect(malformed.generate(request)).resolves.toMatchObject({
-      results: [{ failure: { code: 'MALFORMED_PROVIDER_OUTPUT' } }],
+  it('rejects malformed and key-echoing output with safe diagnostics', async () => {
+    const malformed = new GeminiProvider(
+      'test-key',
+      transport(200, '{bad'),
+      GEMINI_MODEL,
+      { baseBackoffMs: 0, maxBackoffMs: 0, random: () => 0 }
+    );
+    await expect(malformed.generate(request)).rejects.toMatchObject({
+      code: 'MALFORMED_PROVIDER_OUTPUT',
+      safeCode: 'MALFORMED_PROVIDER_RESPONSE',
+      diagnostics: { diagnostic: 'INVALID_JSON' },
     });
 
     const echoed = new GeminiProvider(
@@ -524,15 +546,161 @@ describe('direct Gemini provider', () => {
         })
       )
     );
-    await expect(echoed.generate(request)).resolves.toMatchObject({
-      results: [
-        {
-          failure: {
-            code: 'PROVIDER_ERROR',
-            message: 'Provider returned an unsafe response.',
-          },
-        },
-      ],
+    await expect(echoed.generate(request)).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      safeCode: 'PROVIDER_FAILURE',
+      message: 'Provider returned an unsafe response.',
+      diagnostics: { diagnostic: 'API_KEY_ECHO' },
     });
+  });
+
+  it('treats 501 and 505 as terminal without retrying or splitting', async () => {
+    const multiQuestionRequest: GenerationRequest = {
+      ...request,
+      questions: ['q-1', 'q-2', 'q-3'].map((questionId) => ({
+        questionId,
+        text: `Question ${questionId}`,
+        type: 'short-text',
+        required: false,
+        options: [],
+      })),
+    };
+    for (const status of [501, 505]) {
+      const generate = vi.fn(async () => ({ status, body: {} }));
+      const provider = new GeminiProvider(
+        'test-key',
+        { generate },
+        GEMINI_MODEL,
+        { baseBackoffMs: 0, maxBackoffMs: 0, random: () => 0 }
+      );
+
+      await expect(
+        provider.generate(multiQuestionRequest)
+      ).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+      });
+      expect(generate).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('retries 502 as a transient server failure', async () => {
+    let calls = 0;
+    const provider = new GeminiProvider(
+      'test-key',
+      {
+        async generate({ body }) {
+          calls += 1;
+          if (calls === 1) {
+            return { status: 502, body: {} };
+          }
+          const sent = (
+            body as { contents: Array<{ parts: Array<{ text: string }> }> }
+          ).contents[0].parts[0].text;
+          const payload = JSON.parse(sent) as {
+            cycleId: string;
+            questions: Array<{ questionId: string }>;
+          };
+          return {
+            status: 200,
+            body: {
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          cycleId: payload.cycleId,
+                          results: payload.questions.map((question) => ({
+                            questionId: question.questionId,
+                            status: 'GENERATED',
+                            answer: {
+                              questionId: question.questionId,
+                              value: 'ok',
+                            },
+                          })),
+                        }),
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          };
+        },
+      },
+      GEMINI_MODEL,
+      { baseBackoffMs: 0, maxBackoffMs: 0, random: () => 0 }
+    );
+
+    await expect(provider.generate(request)).resolves.toMatchObject({
+      cycleId: request.cycleId,
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('removes abort listeners when response JSON parsing throws synchronously', async () => {
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, 'addEventListener');
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const response = {
+      json() {
+        throw new Error('synchronous parse failure');
+      },
+    } as unknown as Response;
+
+    await expect(
+      readResponseBody(response, controller.signal)
+    ).resolves.toBeNull();
+    expect(addListener).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes abort listeners after rejected, successful, and aborted body reads', async () => {
+    const rejectedController = new AbortController();
+    const rejectedAdd = vi.spyOn(rejectedController.signal, 'addEventListener');
+    const rejectedRemove = vi.spyOn(
+      rejectedController.signal,
+      'removeEventListener'
+    );
+    await expect(
+      readResponseBody(
+        {
+          json: () => Promise.reject(new Error('parse failure')),
+        } as unknown as Response,
+        rejectedController.signal
+      )
+    ).resolves.toBeNull();
+    expect(rejectedAdd).toHaveBeenCalledTimes(1);
+    expect(rejectedRemove).toHaveBeenCalledTimes(1);
+
+    const successfulController = new AbortController();
+    const successfulRemove = vi.spyOn(
+      successfulController.signal,
+      'removeEventListener'
+    );
+    await expect(
+      readResponseBody(
+        {
+          json: async () => ({ ok: true }),
+        } as unknown as Response,
+        successfulController.signal
+      )
+    ).resolves.toEqual({ ok: true });
+    expect(successfulRemove).toHaveBeenCalledTimes(1);
+
+    const abortedController = new AbortController();
+    const abortedRemove = vi.spyOn(
+      abortedController.signal,
+      'removeEventListener'
+    );
+    const pendingRead = readResponseBody(
+      {
+        json: () => new Promise<unknown>(() => undefined),
+      } as unknown as Response,
+      abortedController.signal
+    );
+    abortedController.abort();
+    await expect(pendingRead).rejects.toMatchObject({ name: 'AbortError' });
+    expect(abortedRemove).toHaveBeenCalledTimes(1);
   });
 });
