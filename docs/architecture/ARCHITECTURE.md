@@ -151,6 +151,65 @@ NVIDIA credential validation sends a fixed synthetic garden-tools question to th
 
 No AnswerSense API or backend proxy is involved.
 
+## Provider Execution and Recovery
+
+Both providers implement the shared generation interface and return a single `GenerationResponse` containing one result per requested question. Provider-specific batching, retries, splitting, and salvage happen inside that interface, so the rest of the extension still sees one generation result.
+
+### Gemini Execution
+
+Gemini starts with a single structured `generateContent` request for the candidate questions on the active page. The request asks for JSON matching the generation contract and includes settled page context when available.
+
+Gemini responses are salvaged rather than accepted or discarded as a whole. A response may be direct JSON, fenced JSON, or JSON embedded in prose, and may be truncated. The salvage step verifies the generation cycle, rejects API-key echoes, and ignores unknown, duplicate, or individually invalid entries while keeping every valid result. Truncated responses can still contribute the results that completed before truncation.
+
+### Gemini Recovery
+
+Gemini recovery is bounded and question-group oriented:
+
+- transient failures such as rate limits, timeouts, network failures, and provider unavailability are retried with exponential backoff and jitter, honoring provider retry guidance when supplied
+- oversized or unsuccessful question groups are split in half and retried as smaller groups
+- malformed, truncated, or incomplete responses trigger splitting because resending the same group is likely to fail the same way
+- a shared-context overflow is terminal, while an individual-question payload overflow is narrowed by splitting; when the cause is ambiguous and shared context exists, a probe request without questions distinguishes the two
+- recovery is limited by per-question-group execution attempts, split depth, concurrency, and an overall deadline
+
+The limits keep latency and provider cost predictable and prevent unbounded retry loops. The deadline guarantees that generation eventually returns or fails instead of continuing indefinitely.
+
+### NVIDIA Execution
+
+NVIDIA plans batches before sending any request. Batch planning enforces a maximum question count, estimated input and output token budgets, and a serialized request-size limit. Each batch carries the settled page context plus explicit same-page question references needed by questions in that batch.
+
+Planned batches are executed with bounded concurrency. NVIDIA's asynchronous jobs are handled by polling the provider status endpoint when a request is accepted for later completion. The provider also falls back to a request payload without a response-format field when the selected model rejects that field.
+
+NVIDIA results are salvaged per batch in the same way as Gemini: direct, fenced, or embedded JSON is accepted, and individually valid results are preserved even when the surrounding response is incomplete or partly invalid.
+
+### NVIDIA Recovery
+
+NVIDIA recovery operates per batch:
+
+- rate-limit, timeout, network, and provider-unavailability failures are retried with backoff and retry guidance
+- malformed, truncated, or incomplete responses are split into smaller batches instead of being resent unchanged
+- repeated timeouts cause a batch to be split, and rate limits or repeated transient failures reduce execution concurrency
+- recovery is limited by per-batch attempts, split depth, concurrency, and an overall deadline sized from the bounded worst-case workload
+
+The overall deadline is calculated from the planned batches and their recovery allowance. Results that finish just before the deadline are kept, and the remaining questions are finalized as failures.
+
+### Partial Results
+
+Successful generation is never discarded because another question failed. Both providers keep completed `GENERATED` and `ABSTAINED` results and continue recovery only for the questions that are still unresolved.
+
+A question that exhausts its recovery budget, encounters a non-recoverable failure, or is still unresolved at the deadline receives an explicit `GENERATION_FAILED` result with a failure code and message. Unresolved questions are not silently dropped. If no usable result was produced at all, the provider returns a provider error instead of a partial response.
+
+## Shared Generation Pipeline
+
+Provider results return to the shared pipeline as an ordinary generation response. The pipeline validates the response against the active page before any answer is used:
+
+1. the cycle identifier must match the current processing cycle
+2. every supported candidate question must have exactly one result
+3. generated answers must match the question type, available options, and answer-part requirements
+
+Provider recovery does not replace this shared validation. `GENERATION_FAILED` results remain failed, `ABSTAINED` results remain abstained, and generated answers that do not satisfy the question contract become validation failures. The resulting generation report is `complete` only when every supported result was generated; otherwise it is `partial`.
+
+Only successfully generated answers enter pending fill state, and that state is committed only after a confirmed page transition. Failed and abstained questions remain represented in the shared review and fill state, so provider-level recovery never bypasses user review.
+
 ## Configuration and Generation
 
 The extension UI obtains provider configuration from the service worker.
@@ -232,9 +291,9 @@ The current production architecture does not include:
 - full-form upfront crawling
 - automatic future-page discovery
 - fuzzy, semantic, or heuristic question matching
-- heuristic dependency detection
+- automatic dependency inference beyond explicit question references
 - automatic downstream regeneration
-- automatic retries
+- unbounded provider retries; provider recovery is bounded by attempt, split, concurrency, and deadline limits
 - automatic provider routing or fallback; provider selection is user-configured
 - persistent answer storage
 - analytics
